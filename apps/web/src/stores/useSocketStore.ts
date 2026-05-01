@@ -45,7 +45,7 @@ interface SocketState {
   sendCallSignal: (envelope: CallSignalEnvelope) => boolean;
 }
 
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectTimer: number | null = null;
 
 export const useSocketStore = create<SocketState>((set, get) => {
   const scheduleReconnect = (): void => {
