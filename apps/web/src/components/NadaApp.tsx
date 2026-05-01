@@ -1656,7 +1656,7 @@ function ChatPanel({
                     <span>{formatTime(message.createdAt)}</span>
                     {message.direction === "outbound" && (
                       <span className="ml-0.5">
-                        {message.status === "delivered" || message.status === "read" ? "✓✓" : "✓"}
+                        {message.status === "delivered" ? "✓✓" : "✓"}
                       </span>
                     )}
                   </div>
