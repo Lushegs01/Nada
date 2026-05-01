@@ -1,0 +1,323 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════
+   NADA Design System — Premium Anonymous Messaging
+   ═══════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --nada-bg: 248 249 250;
+  --nada-surface: 255 255 255;
+  --nada-surface-elevated: 255 255 255;
+  --nada-primary: 26 26 46;
+  --nada-secondary: 107 114 128;
+  --nada-muted: 241 245 249;
+  --nada-border: 229 231 235;
+  --nada-accent: 14 165 233;
+  --nada-accent-soft: 14 165 233;
+  --nada-sent: 14 165 233;
+  --nada-received: 241 245 249;
+  --nada-danger: 239 68 68;
+  --nada-success: 16 185 129;
+  --nada-overlay: 0 0 0;
+  --nada-shadow-color: 0 0 0;
+  --nada-input-bg: 241 245 249;
+}
+
+.dark,
+[data-theme="dark"] {
+  --nada-bg: 10 10 15;
+  --nada-surface: 20 20 25;
+  --nada-surface-elevated: 28 28 36;
+  --nada-primary: 240 240 245;
+  --nada-secondary: 139 139 158;
+  --nada-muted: 30 30 42;
+  --nada-border: 42 42 53;
+  --nada-accent: 56 189 248;
+  --nada-accent-soft: 56 189 248;
+  --nada-sent: 12 74 110;
+  --nada-received: 30 30 42;
+  --nada-danger: 248 113 113;
+  --nada-success: 52 211 153;
+  --nada-overlay: 0 0 0;
+  --nada-shadow-color: 0 0 0;
+  --nada-input-bg: 28 28 36;
+}
+
+/* ── Base Reset ───────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  min-height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  min-height: 100dvh;
+  background: rgb(var(--nada-bg));
+  color: rgb(var(--nada-primary));
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+::selection {
+  background: rgb(var(--nada-accent) / 0.25);
+  color: rgb(var(--nada-primary));
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--nada-border));
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--nada-secondary) / 0.5);
+}
+
+/* ── Component Layer ──────────────────────────────────── */
+
+@layer components {
+
+  /* Main app shell */
+  .nada-shell {
+    background: rgb(var(--nada-bg));
+    min-height: 100dvh;
+  }
+
+  /* Surface cards */
+  .nada-surface {
+    background: rgb(var(--nada-surface));
+    border: 1px solid rgb(var(--nada-border) / 0.6);
+  }
+
+  .nada-surface-elevated {
+    background: rgb(var(--nada-surface-elevated));
+    border: 1px solid rgb(var(--nada-border) / 0.4);
+    box-shadow:
+      0 1px 3px rgb(var(--nada-shadow-color) / 0.04),
+      0 4px 12px rgb(var(--nada-shadow-color) / 0.06);
+  }
+
+  /* Sidebar */
+  .nada-sidebar {
+    background: rgb(var(--nada-surface));
+    border-right: 1px solid rgb(var(--nada-border) / 0.5);
+  }
+
+  /* Chat area background pattern */
+  .nada-chat-bg {
+    background-color: rgb(var(--nada-bg));
+    background-image:
+      radial-gradient(circle at 20% 50%, rgb(var(--nada-accent) / 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 80% 20%, rgb(var(--nada-accent) / 0.02) 0%, transparent 40%);
+  }
+
+  /* Message bubbles */
+  .nada-bubble-sent {
+    background: rgb(var(--nada-sent));
+    color: #ffffff;
+    border-radius: 20px 20px 6px 20px;
+    box-shadow: 0 1px 2px rgb(var(--nada-shadow-color) / 0.08);
+  }
+
+  .nada-bubble-received {
+    background: rgb(var(--nada-received));
+    color: rgb(var(--nada-primary));
+    border-radius: 20px 20px 20px 6px;
+    box-shadow: 0 1px 2px rgb(var(--nada-shadow-color) / 0.04);
+  }
+
+  /* Input field */
+  .nada-input {
+    background: rgb(var(--nada-input-bg));
+    border: 1.5px solid rgb(var(--nada-border) / 0.6);
+    border-radius: 14px;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .nada-input:focus {
+    border-color: rgb(var(--nada-accent) / 0.5);
+    box-shadow: 0 0 0 3px rgb(var(--nada-accent) / 0.1);
+  }
+
+  /* Divider */
+  .nada-divider {
+    border-color: rgb(var(--nada-border) / 0.5);
+  }
+
+  /* Badge */
+  .nada-badge {
+    background: rgb(var(--nada-accent));
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 3px 7px;
+    border-radius: 999px;
+    min-width: 20px;
+    text-align: center;
+  }
+
+  /* Overlay / backdrop for modals */
+  .nada-overlay {
+    background: rgb(var(--nada-overlay) / 0.5);
+    backdrop-filter: blur(8px) saturate(120%);
+    -webkit-backdrop-filter: blur(8px) saturate(120%);
+  }
+
+  /* Sheet / modal panel */
+  .nada-sheet {
+    background: rgb(var(--nada-surface));
+    border: 1px solid rgb(var(--nada-border) / 0.4);
+    box-shadow:
+      0 8px 32px rgb(var(--nada-shadow-color) / 0.12),
+      0 2px 8px rgb(var(--nada-shadow-color) / 0.06);
+  }
+
+  /* Status indicators */
+  .nada-status-online {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgb(var(--nada-success));
+    box-shadow: 0 0 0 2px rgb(var(--nada-surface));
+  }
+
+  .nada-status-offline {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgb(var(--nada-secondary) / 0.4);
+    box-shadow: 0 0 0 2px rgb(var(--nada-surface));
+  }
+
+  /* Skeleton loading */
+  .nada-skeleton {
+    background: linear-gradient(
+      90deg,
+      rgb(var(--nada-muted)) 0%,
+      rgb(var(--nada-border) / 0.5) 50%,
+      rgb(var(--nada-muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: nada-shimmer 1.5s ease-in-out infinite;
+    border-radius: 8px;
+  }
+
+  /* Typing indicator */
+  .nada-typing-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: rgb(var(--nada-secondary));
+    animation: nada-typing 1.4s ease-in-out infinite;
+  }
+
+  .nada-typing-dot:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .nada-typing-dot:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+}
+
+/* ── Keyframes ────────────────────────────────────────── */
+
+@keyframes nada-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes nada-typing {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-4px); }
+}
+
+@keyframes nada-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nada-scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes nada-slide-up {
+  from { opacity: 0; transform: translateY(100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nada-pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.4); }
+  70% { box-shadow: 0 0 0 8px rgb(var(--nada-accent) / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0); }
+}
+
+/* ── Utility Layer ────────────────────────────────────── */
+
+@layer utilities {
+  .animate-fade-in {
+    animation: nada-fade-in 0.3s ease-out both;
+  }
+
+  .animate-scale-in {
+    animation: nada-scale-in 0.2s ease-out both;
+  }
+
+  .animate-slide-up {
+    animation: nada-slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .animate-pulse-ring {
+    animation: nada-pulse-ring 2s ease-out infinite;
+  }
+
+  .text-accent {
+    color: rgb(var(--nada-accent));
+  }
+
+  .bg-accent {
+    background-color: rgb(var(--nada-accent));
+  }
+
+  .bg-accent-soft {
+    background-color: rgb(var(--nada-accent-soft) / 0.1);
+  }
+
+  .border-accent {
+    border-color: rgb(var(--nada-accent));
+  }
+}

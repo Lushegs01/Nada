@@ -1,0 +1,18 @@
+{
+  "name": "NADA",
+  "short_name": "NADA",
+  "description": "Anonymous messaging without phone numbers or email.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FF5A5F",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

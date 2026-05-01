@@ -1,0 +1,274 @@
+import { z } from "zod";
+
+export const PubkeyHashSchema = z.string().min(16).max(128);
+export const PublicKeySchema = z.string().min(32).max(512);
+export const UuidSchema = z.string().uuid();
+
+export const MessageEnvelopeSchema = z.object({
+  type: z.literal("message"),
+  id: UuidSchema,
+  recipient: PubkeyHashSchema,
+  sender: PubkeyHashSchema,
+  timestamp: z.number().int().positive(),
+  ciphertext: z.string().min(1),
+  devPlaintext: z.string().optional()
+});
+
+export const GroupMessageEnvelopeSchema = z.object({
+  type: z.literal("group-message"),
+  id: UuidSchema,
+  groupId: z.string().min(1).max(128),
+  recipients: z.array(PubkeyHashSchema).min(1).max(512),
+  sender: PubkeyHashSchema,
+  timestamp: z.number().int().positive(),
+  ciphertext: z.string().min(1),
+  devPlaintext: z.string().optional(),
+  replyToId: UuidSchema.optional(),
+  mentions: z.array(PubkeyHashSchema).optional(),
+  expiresAt: z.number().int().positive().optional()
+});
+
+export const CallSignalEnvelopeSchema = z.object({
+  type: z.literal("call-signal"),
+  id: UuidSchema,
+  callId: z.string().min(1).max(128),
+  recipient: PubkeyHashSchema,
+  sender: PubkeyHashSchema,
+  timestamp: z.number().int().positive(),
+  mode: z.enum(["voice", "video"]),
+  signalType: z.enum(["offer", "answer", "ice", "hangup", "reject"]),
+  payload: z.string().min(1)
+});
+
+export const ProductionEnvelopeSchema = z.object({
+  version: z.literal(1),
+  recipient: PubkeyHashSchema,
+  sealedSenderEnvelope: z.string().min(1),
+  capabilityToken: z.string().min(1).optional()
+});
+
+export const RegisterEnvelopeSchema = z.object({
+  type: z.literal("register"),
+  pubkeyHash: PubkeyHashSchema
+});
+
+export const ClientSocketEnvelopeSchema = z.union([
+  RegisterEnvelopeSchema,
+  MessageEnvelopeSchema,
+  GroupMessageEnvelopeSchema,
+  CallSignalEnvelopeSchema,
+  ProductionEnvelopeSchema
+]);
+
+export const DeliveryStatusSchema = z.enum([
+  "queued",
+  "sent",
+  "delivered",
+  "failed"
+]);
+
+export const ServerSocketEnvelopeSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("registered"),
+    pubkeyHash: PubkeyHashSchema
+  }),
+  z.object({
+    type: z.literal("message"),
+    envelope: MessageEnvelopeSchema
+  }),
+  z.object({
+    type: z.literal("group-message"),
+    envelope: GroupMessageEnvelopeSchema
+  }),
+  z.object({
+    type: z.literal("call-signal"),
+    envelope: CallSignalEnvelopeSchema
+  }),
+  z.object({
+    type: z.literal("sealed-message"),
+    envelope: ProductionEnvelopeSchema
+  }),
+  z.object({
+    type: z.literal("delivery"),
+    id: UuidSchema,
+    status: DeliveryStatusSchema
+  }),
+  z.object({
+    type: z.literal("error"),
+    code: z.string().min(1),
+    message: z.string().min(1)
+  })
+]);
+
+export const InvitePayloadSchema = z.object({
+  version: z.literal(1),
+  pubkeyHash: PubkeyHashSchema,
+  publicKey: PublicKeySchema
+});
+
+export const GroupInvitePayloadSchema = z.object({
+  version: z.literal(1),
+  kind: z.literal("group"),
+  groupId: z.string().min(1).max(128),
+  title: z.string().min(1).max(80),
+  ownerPubkeyHash: PubkeyHashSchema,
+  memberPubkeyHashes: z.array(PubkeyHashSchema).min(1).max(512),
+  senderKeyPackage: z.string().min(1)
+});
+
+export const BlindUploadRequestSchema = z.object({
+  contentHash: z.string().min(32).max(256),
+  sizeBytes: z.number().int().positive(),
+  mimeType: z.string().min(1).max(120).optional()
+});
+
+export const BlindUploadResponseSchema = z.object({
+  uploadId: UuidSchema,
+  contentHash: z.string().min(32).max(256),
+  expiresAt: z.number().int().positive(),
+  uploadUrl: z.null(),
+  storage: z.literal("client-encrypted-blind-upload-mvp")
+});
+
+export const BillingPlanSchema = z.enum([
+  "free",
+  "pro",
+  "business",
+  "enterprise"
+]);
+
+export const PaidBillingPlanSchema = z.enum(["pro", "business", "enterprise"]);
+
+export const SubscriptionCheckoutRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  plan: PaidBillingPlanSchema,
+  successUrl: z.string().url(),
+  cancelUrl: z.string().url(),
+  referralCode: z.string().min(4).max(64).optional()
+});
+
+export const SubscriptionCheckoutResponseSchema = z.object({
+  configured: z.boolean(),
+  checkoutUrl: z.string().url().nullable(),
+  mode: z.literal("stripe_checkout"),
+  message: z.string().min(1).optional()
+});
+
+export const SubscriptionStateSchema = z.enum([
+  "none",
+  "trialing",
+  "active",
+  "past_due",
+  "canceled",
+  "incomplete",
+  "unpaid"
+]);
+
+export const SubscriptionStatusQuerySchema = z.object({
+  pubkey_hash: PubkeyHashSchema
+});
+
+export const SubscriptionStatusResponseSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  plan: BillingPlanSchema,
+  status: SubscriptionStateSchema,
+  currentPeriodEnd: z.number().int().positive().nullable(),
+  capabilityToken: z.string().nullable()
+});
+
+export const CapabilityTokenPayloadSchema = z.object({
+  version: z.literal(1),
+  pubkeyHash: PubkeyHashSchema,
+  plan: BillingPlanSchema,
+  features: z.array(z.string().min(1)),
+  issuedAt: z.number().int().positive(),
+  expiresAt: z.number().int().positive()
+});
+
+export const CapabilityIssueRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  plan: BillingPlanSchema,
+  expiresAt: z.number().int().positive().optional()
+});
+
+export const CapabilityIssueResponseSchema = z.object({
+  token: z.string().min(1),
+  payload: CapabilityTokenPayloadSchema
+});
+
+export const ReferralRedeemRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  referralCode: z.string().min(4).max(64)
+});
+
+export const ReferralRedeemResponseSchema = z.object({
+  accepted: z.boolean(),
+  reward: z.string().min(1).nullable(),
+  message: z.string().min(1)
+});
+
+export const ShareCardPayloadSchema = z.object({
+  version: z.literal(1),
+  pubkeyHash: PubkeyHashSchema,
+  displayName: z.string().min(1).max(80),
+  inviteUrl: z.string().url()
+});
+
+export const GroupMigrationPayloadSchema = z.object({
+  version: z.literal(1),
+  exportedAt: z.number().int().positive(),
+  ownerPubkeyHash: PubkeyHashSchema,
+  groups: z.array(
+    z.object({
+      groupId: z.string().min(1).max(128),
+      title: z.string().min(1).max(80),
+      memberPubkeyHashes: z.array(PubkeyHashSchema).min(1).max(512),
+      inviteUrl: z.string().url().optional()
+    })
+  )
+});
+
+export type PubkeyHash = z.infer<typeof PubkeyHashSchema>;
+export type PublicKey = z.infer<typeof PublicKeySchema>;
+export type MessageEnvelope = z.infer<typeof MessageEnvelopeSchema>;
+export type GroupMessageEnvelope = z.infer<typeof GroupMessageEnvelopeSchema>;
+export type CallSignalEnvelope = z.infer<typeof CallSignalEnvelopeSchema>;
+export type ProductionEnvelope = z.infer<typeof ProductionEnvelopeSchema>;
+export type RegisterEnvelope = z.infer<typeof RegisterEnvelopeSchema>;
+export type ClientSocketEnvelope = z.infer<typeof ClientSocketEnvelopeSchema>;
+export type DeliveryStatus = z.infer<typeof DeliveryStatusSchema>;
+export type ServerSocketEnvelope = z.infer<typeof ServerSocketEnvelopeSchema>;
+export type InvitePayload = z.infer<typeof InvitePayloadSchema>;
+export type GroupInvitePayload = z.infer<typeof GroupInvitePayloadSchema>;
+export type BlindUploadRequest = z.infer<typeof BlindUploadRequestSchema>;
+export type BlindUploadResponse = z.infer<typeof BlindUploadResponseSchema>;
+export type BillingPlan = z.infer<typeof BillingPlanSchema>;
+export type PaidBillingPlan = z.infer<typeof PaidBillingPlanSchema>;
+export type SubscriptionCheckoutRequest = z.infer<
+  typeof SubscriptionCheckoutRequestSchema
+>;
+export type SubscriptionCheckoutResponse = z.infer<
+  typeof SubscriptionCheckoutResponseSchema
+>;
+export type SubscriptionState = z.infer<typeof SubscriptionStateSchema>;
+export type SubscriptionStatusQuery = z.infer<
+  typeof SubscriptionStatusQuerySchema
+>;
+export type SubscriptionStatusResponse = z.infer<
+  typeof SubscriptionStatusResponseSchema
+>;
+export type CapabilityTokenPayload = z.infer<
+  typeof CapabilityTokenPayloadSchema
+>;
+export type CapabilityIssueRequest = z.infer<
+  typeof CapabilityIssueRequestSchema
+>;
+export type CapabilityIssueResponse = z.infer<
+  typeof CapabilityIssueResponseSchema
+>;
+export type ReferralRedeemRequest = z.infer<typeof ReferralRedeemRequestSchema>;
+export type ReferralRedeemResponse = z.infer<
+  typeof ReferralRedeemResponseSchema
+>;
+export type ShareCardPayload = z.infer<typeof ShareCardPayloadSchema>;
+export type GroupMigrationPayload = z.infer<typeof GroupMigrationPayloadSchema>;

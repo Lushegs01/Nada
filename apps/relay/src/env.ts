@@ -1,0 +1,61 @@
+import { z } from "zod";
+
+const EnvSchema = z.object({
+  ALLOWED_ORIGIN: z.string().min(1),
+  CAPABILITY_ISSUER_SECRET: z.string().min(32).optional(),
+  CAPABILITY_TOKEN_SECRET: z.string().min(32).optional(),
+  DATABASE_URL: z.string().url().optional(),
+  NODE_ENV: z.string().optional(),
+  PORT: z.coerce.number().int().positive(),
+  REDIS_URL: z.string().url().optional(),
+  RELAY_QUEUE_TTL_SECONDS: z.coerce.number().int().positive().optional(),
+  STRIPE_PRICE_BUSINESS: z.string().min(1).optional(),
+  STRIPE_PRICE_ENTERPRISE: z.string().min(1).optional(),
+  STRIPE_PRICE_PRO: z.string().min(1).optional(),
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  ZERO_LOG_MODE: z.string().optional()
+});
+
+export interface RelayEnv {
+  allowedOrigin: string;
+  capabilityIssuerSecret: string | undefined;
+  capabilityTokenSecret: string | undefined;
+  databaseUrl: string | undefined;
+  nodeEnv: string;
+  port: number;
+  redisUrl: string | undefined;
+  relayQueueTtlSeconds: number;
+  stripePriceBusiness: string | undefined;
+  stripePriceEnterprise: string | undefined;
+  stripePricePro: string | undefined;
+  stripeSecretKey: string | undefined;
+  stripeWebhookSecret: string | undefined;
+  zeroLogMode: boolean;
+}
+
+export function readEnv(): RelayEnv {
+  const result = EnvSchema.safeParse(process.env);
+  if (!result.success) {
+    throw new Error("Relay environment is invalid.");
+  }
+
+  const nodeEnv = result.data.NODE_ENV ?? "development";
+  return {
+    allowedOrigin: result.data.ALLOWED_ORIGIN,
+    capabilityIssuerSecret: result.data.CAPABILITY_ISSUER_SECRET,
+    capabilityTokenSecret: result.data.CAPABILITY_TOKEN_SECRET,
+    databaseUrl: result.data.DATABASE_URL,
+    nodeEnv,
+    port: result.data.PORT,
+    redisUrl: result.data.REDIS_URL,
+    relayQueueTtlSeconds: result.data.RELAY_QUEUE_TTL_SECONDS ?? 300,
+    stripePriceBusiness: result.data.STRIPE_PRICE_BUSINESS,
+    stripePriceEnterprise: result.data.STRIPE_PRICE_ENTERPRISE,
+    stripePricePro: result.data.STRIPE_PRICE_PRO,
+    stripeSecretKey: result.data.STRIPE_SECRET_KEY,
+    stripeWebhookSecret: result.data.STRIPE_WEBHOOK_SECRET,
+    zeroLogMode:
+      result.data.ZERO_LOG_MODE === "true" || nodeEnv === "production"
+  };
+}

@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: app-web
+    env: node
+    buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter web build
+    startCommand: pnpm --filter web start
+    envVars:
+      - key: NEXT_PUBLIC_RELAY_URL
+        fromService:
+          name: app-relay
+          type: web
+          property: host
+
+  - type: web
+    name: app-relay
+    env: node
+    buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter relay build
+    startCommand: pnpm --filter relay start
+    envVars:
+      - key: ALLOWED_ORIGIN
+        fromService:
+          name: app-web
+          type: web
+          property: host
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: RELAY_QUEUE_TTL_SECONDS
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_PRO
+        sync: false
+      - key: STRIPE_PRICE_BUSINESS
+        sync: false
+      - key: STRIPE_PRICE_ENTERPRISE
+        sync: false
+      - key: CAPABILITY_TOKEN_SECRET
+        sync: false
+      - key: CAPABILITY_ISSUER_SECRET
+        sync: false
+      - key: ZERO_LOG_MODE
+        value: "true"
