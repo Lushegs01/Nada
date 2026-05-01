@@ -21,7 +21,6 @@ import {
   Gift,
   MessageCircle,
   Mic,
-  MicOff,
   MoreVertical,
   Paperclip,
   Phone,
@@ -45,7 +44,6 @@ import { IncomingCallModal, VoiceCallOverlay, VideoCallOverlay } from "@/compone
 import { VoiceNoteBubble, VoiceRecorderBar, isVoiceNoteMessage, parseVoiceNoteBody } from "@/components/VoiceNote";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { useCallStore } from "@/stores/useCallStore";
-import { createPeerConnection } from "@/lib/webrtc";
 import { QRCodeSVG } from "qrcode.react";
 
 import {
@@ -104,8 +102,6 @@ import {
 } from "@/lib/share-card";
 import {
   createLocalCallSession,
-  stopLocalCallSession,
-  supportsInsertableStreams,
   type CallMode,
   type LocalCallSession
 } from "@/lib/webrtc";
@@ -2120,49 +2116,6 @@ function GroupSheet({
   );
 }
 
-function CallSheet({
-  activeCall,
-  callStatus,
-  insertableStreamsSupported,
-  onClose,
-  onEnd
-}: {
-  activeCall: LocalCallSession | null;
-  callStatus: string;
-  insertableStreamsSupported: boolean;
-  onClose: () => void;
-  onEnd: () => void;
-}): JSX.Element {
-  return (
-    <Sheet onClose={onClose}>
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-nada-primary">Call</h2>
-        <IconButton label="Close" onClick={onClose}>
-          <X size={18} />
-        </IconButton>
-      </div>
-
-      <div className="mt-5 rounded-2xl bg-nada-muted p-6 text-center">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-nada-accent text-white shadow-accent-glow">
-          {activeCall?.mode === "video" ? <Video size={28} /> : <Phone size={28} />}
-        </div>
-        <p className="mt-4 text-sm font-medium text-nada-primary">{callStatus}</p>
-        <p className="mt-1.5 text-xs text-nada-secondary">
-          Insertable streams: {insertableStreamsSupported ? "available" : "not available"}
-        </p>
-      </div>
-
-      <div className="mt-4 rounded-xl bg-nada-muted p-3 text-xs text-nada-secondary leading-relaxed">
-        Browser WebRTC may expose network metadata unless TURN/SFU routing and
-        privacy controls are configured.
-      </div>
-
-      <Button className="mt-5 w-full" onClick={onEnd} variant="danger">
-        End call
-      </Button>
-    </Sheet>
-  );
-}
 
 const BILLING_PLANS: Array<{
   description: string;
