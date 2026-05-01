@@ -1,7 +1,11 @@
 "use client";
 
 import { create } from "zustand";
-import { stopLocalCallSession, type CallMode, type LocalCallSession } from "@/lib/webrtc";
+import {
+  stopLocalCallSession,
+  type CallMode,
+  type LocalCallSession
+} from "@/lib/webrtc";
 
 // ─── Call State Machine ───────────────────────────────────────────────────────
 // idle → outgoing-ringing → connecting → active
@@ -25,16 +29,18 @@ export interface ActiveCallInfo {
   peerName: string;
   phase: CallPhase;
   localSession: LocalCallSession | null;
-  remoteStream: MediaStream | null;
-  startedAt: number | null;   // timestamp when phase became "active"
+  startedAt: number | null;
   isMuted: boolean;
   isCameraOff: boolean;
   failureReason: string | null;
+  // Pending SDP/ICE from signaling (before the session is created on callee side)
+  pendingOfferSdp: string | null;
+  pendingIceCandidates: RTCIceCandidateInit[];
 }
 
 interface CallStoreState {
   call: ActiveCallInfo | null;
-  /** Called by Dashboard when a call:offer signal arrives */
+
   receiveIncomingOffer: (params: {
     callId: string;
     mode: CallMode;
@@ -42,7 +48,7 @@ interface CallStoreState {
     peerName: string;
     offerSdp: string;
   }) => void;
-  /** Set after we create the local session for an outgoing call */
+
   setOutgoingCall: (params: {
     callId: string;
     mode: CallMode;
@@ -50,9 +56,12 @@ interface CallStoreState {
     peerName: string;
     localSession: LocalCallSession;
   }) => void;
+
+  attachLocalSession: (session: LocalCallSession) => void;
   setPhase: (phase: CallPhase) => void;
-  setRemoteStream: (stream: MediaStream | null) => void;
   setStartedAt: (ts: number) => void;
+  addPendingIce: (candidate: RTCIceCandidateInit) => void;
+  clearPendingIce: () => void;
   toggleMute: () => void;
   toggleCamera: () => void;
   endCall: () => void;
@@ -62,9 +71,10 @@ interface CallStoreState {
 export const useCallStore = create<CallStoreState>((set, get) => ({
   call: null,
 
-  receiveIncomingOffer({ callId, mode, peerPubkeyHash, peerName }) {
-    // If already in a call, reject silently
-    if (get().call && get().call!.phase !== "idle" && get().call!.phase !== "ended") {
+  receiveIncomingOffer({ callId, mode, peerPubkeyHash, peerName, offerSdp }) {
+    // If already in an active call, silently drop
+    const existing = get().call;
+    if (existing && existing.phase !== "idle" && existing.phase !== "ended") {
       return;
     }
     set({
@@ -75,11 +85,12 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
         peerName,
         phase: "incoming-ringing",
         localSession: null,
-        remoteStream: null,
         startedAt: null,
         isMuted: false,
         isCameraOff: false,
-        failureReason: null
+        failureReason: null,
+        pendingOfferSdp: offerSdp,
+        pendingIceCandidates: []
       }
     });
   },
@@ -93,25 +104,53 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
         peerName,
         phase: "outgoing-ringing",
         localSession,
-        remoteStream: null,
         startedAt: null,
         isMuted: false,
         isCameraOff: false,
-        failureReason: null
+        failureReason: null,
+        pendingOfferSdp: null,
+        pendingIceCandidates: []
       }
     });
   },
 
-  setPhase(phase) {
-    set((s) => s.call ? { call: { ...s.call, phase } } : s);
+  attachLocalSession(session) {
+    set((s) =>
+      s.call
+        ? {
+            call: {
+              ...s.call,
+              localSession: session,
+              phase: "connecting"
+            }
+          }
+        : s
+    );
   },
 
-  setRemoteStream(stream) {
-    set((s) => s.call ? { call: { ...s.call, remoteStream: stream } } : s);
+  setPhase(phase) {
+    set((s) => (s.call ? { call: { ...s.call, phase } } : s));
   },
 
   setStartedAt(ts) {
-    set((s) => s.call ? { call: { ...s.call, startedAt: ts } } : s);
+    set((s) => (s.call ? { call: { ...s.call, startedAt: ts } } : s));
+  },
+
+  addPendingIce(candidate) {
+    set((s) =>
+      s.call
+        ? {
+            call: {
+              ...s.call,
+              pendingIceCandidates: [...s.call.pendingIceCandidates, candidate]
+            }
+          }
+        : s
+    );
+  },
+
+  clearPendingIce() {
+    set((s) => (s.call ? { call: { ...s.call, pendingIceCandidates: [] } } : s));
   },
 
   toggleMute() {
@@ -121,7 +160,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     call.localSession.stream.getAudioTracks().forEach((t) => {
       t.enabled = !nextMuted;
     });
-    set((s) => s.call ? { call: { ...s.call, isMuted: nextMuted } } : s);
+    set((s) => (s.call ? { call: { ...s.call, isMuted: nextMuted } } : s));
   },
 
   toggleCamera() {
@@ -131,16 +170,13 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     call.localSession.stream.getVideoTracks().forEach((t) => {
       t.enabled = !nextOff;
     });
-    set((s) => s.call ? { call: { ...s.call, isCameraOff: nextOff } } : s);
+    set((s) => (s.call ? { call: { ...s.call, isCameraOff: nextOff } } : s));
   },
 
   endCall() {
     const { call } = get();
     if (call?.localSession) {
       stopLocalCallSession(call.localSession);
-    }
-    if (call?.remoteStream) {
-      call.remoteStream.getTracks().forEach((t) => t.stop());
     }
     set({ call: null });
   },
@@ -152,7 +188,14 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
     }
     set((s) =>
       s.call
-        ? { call: { ...s.call, phase: "failed", failureReason: reason } }
+        ? {
+            call: {
+              ...s.call,
+              phase: "failed",
+              failureReason: reason,
+              localSession: null
+            }
+          }
         : s
     );
   }

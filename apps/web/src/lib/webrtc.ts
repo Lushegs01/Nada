@@ -1,7 +1,7 @@
 // ─── WebRTC Peer Connection Layer ────────────────────────────────────────────
-// NOTE: Without a TURN server calls may fail on symmetric NAT / strict firewalls.
-// Configure TURN via env vars:
-//   NEXT_PUBLIC_TURN_URL        e.g. turn:your-turn-server.example.com:3478
+// STUN is used by default. Calls may fail on symmetric NAT without TURN.
+// Configure TURN via environment variables:
+//   NEXT_PUBLIC_TURN_URL        e.g. "turn:your-turn.example.com:3478"
 //   NEXT_PUBLIC_TURN_USERNAME   your TURN username
 //   NEXT_PUBLIC_TURN_CREDENTIAL your TURN credential
 
@@ -9,22 +9,13 @@ export type CallMode = "voice" | "video";
 
 export interface LocalCallSession {
   callId: string;
-  insertableStreamsSupported: boolean;
   mode: CallMode;
   peerConnection: RTCPeerConnection;
-  stream: MediaStream;
+  stream: MediaStream;       // local mic/camera
+  remoteStream: MediaStream; // built incrementally as ontrack fires
 }
 
-export function createCallId(): string {
-  return crypto.randomUUID();
-}
-
-export function supportsInsertableStreams(): boolean {
-  return (
-    typeof RTCRtpSender !== "undefined" &&
-    "createEncodedStreams" in RTCRtpSender.prototype
-  );
-}
+// ── ICE config ────────────────────────────────────────────────────────────────
 
 function buildIceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [
@@ -33,7 +24,7 @@ function buildIceServers(): RTCIceServer[] {
     { urls: "stun:stun.cloudflare.com:3478" }
   ];
 
-  const turnUrl = process.env["NEXT_PUBLIC_TURN_URL"];
+  const turnUrl  = process.env["NEXT_PUBLIC_TURN_URL"];
   const turnUser = process.env["NEXT_PUBLIC_TURN_USERNAME"];
   const turnCred = process.env["NEXT_PUBLIC_TURN_CREDENTIAL"];
   if (turnUrl && turnUser && turnCred) {
@@ -47,41 +38,45 @@ export function createPeerConnection(): RTCPeerConnection {
   return new RTCPeerConnection({ iceServers: buildIceServers() });
 }
 
+// ── Session factory ───────────────────────────────────────────────────────────
+
 export async function createLocalCallSession(
-  mode: CallMode
+  mode: CallMode,
+  callId: string
 ): Promise<LocalCallSession> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: true,
-    video: mode === "video"
-      ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
-      : false
+    video:
+      mode === "video"
+        ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
+        : false
   });
 
   const peerConnection = createPeerConnection();
+  const remoteStream = new MediaStream();
+
+  // Add local tracks to the connection
   stream.getTracks().forEach((track) => {
     peerConnection.addTrack(track, stream);
   });
 
   return {
-    callId: createCallId(),
-    insertableStreamsSupported: supportsInsertableStreams(),
+    callId,
     mode,
     peerConnection,
-    stream
+    stream,
+    remoteStream
   };
 }
 
+// ── Cleanup ───────────────────────────────────────────────────────────────────
+
 export function stopLocalCallSession(session: LocalCallSession): void {
-  session.stream.getTracks().forEach((track) => {
-    track.stop();
-  });
+  session.stream.getTracks().forEach((t) => t.stop());
+  session.remoteStream.getTracks().forEach((t) => t.stop());
   try {
     session.peerConnection.close();
   } catch {
     // already closed
   }
-}
-
-export function stopStream(stream: MediaStream | null): void {
-  stream?.getTracks().forEach((t) => t.stop());
 }

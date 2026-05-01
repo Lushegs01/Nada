@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play } from "lucide-react";
+import { Pause, Play, AlertCircle } from "lucide-react";
 import { cn } from "@nada/ui";
 
 function formatDur(totalSeconds: number): string {
@@ -27,51 +27,96 @@ export function VoiceNoteBubble({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(durationSeconds);
+  const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const audio = new Audio(src);
+    const audio = new Audio();
     audioRef.current = audio;
+    setError(false);
+    setLoading(true);
+    setIsPlaying(false);
+    setCurrentTime(0);
 
     audio.onloadedmetadata = () => {
-      if (isFinite(audio.duration)) setDuration(audio.duration);
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      }
+      setLoading(false);
     };
+
+    audio.onerror = () => {
+      setError(true);
+      setLoading(false);
+    };
+
     audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
+
     audio.onended = () => {
       setIsPlaying(false);
       setCurrentTime(0);
     };
 
+    audio.onpause = () => setIsPlaying(false);
+    audio.onplay = () => setIsPlaying(true);
+
+    // Set src after wiring events
+    audio.src = src;
+    audio.load();
+
     return () => {
       audio.pause();
       audio.src = "";
+      audioRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
 
   function togglePlay(): void {
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio || error) return;
+
     if (isPlaying) {
       audio.pause();
-      setIsPlaying(false);
     } else {
-      void audio.play();
-      setIsPlaying(true);
+      // Reset to start if at end
+      if (audio.ended || audio.currentTime >= (audio.duration || 0)) {
+        audio.currentTime = 0;
+      }
+      const promise = audio.play();
+      if (promise !== undefined) {
+        promise.catch(() => {
+          // Autoplay blocked — user needs to interact first,
+          // but this IS triggered by a click so it should be fine.
+          setIsPlaying(false);
+        });
+      }
     }
   }
 
   const pct = duration > 0 ? Math.min((currentTime / duration) * 100, 100) : 0;
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-red-400 opacity-80">
+        <AlertCircle size={14} />
+        <span>Audio unavailable</span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-w-[200px] items-center gap-2.5">
       <button
         aria-label={isPlaying ? "Pause voice note" : "Play voice note"}
         onClick={togglePlay}
+        disabled={loading}
         className={cn(
           "grid h-9 w-9 shrink-0 place-items-center rounded-full transition",
           outbound
             ? "bg-white/20 hover:bg-white/30 text-white"
-            : "bg-nada-accent/15 hover:bg-nada-accent/25 text-nada-accent"
+            : "bg-nada-accent/15 hover:bg-nada-accent/25 text-nada-accent",
+          loading && "opacity-50 cursor-wait"
         )}
       >
         {isPlaying ? <Pause size={15} /> : <Play size={15} />}

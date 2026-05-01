@@ -55,6 +55,42 @@ function RingPulse(): JSX.Element {
   );
 }
 
+// ── Shared control button ─────────────────────────────────────────────────────
+
+function CallControl({
+  label,
+  icon: Icon,
+  onClick,
+  active,
+  variant
+}: {
+  label: string;
+  icon: React.ElementType;
+  onClick: () => void;
+  active: boolean;
+  variant: "neutral" | "danger";
+}): JSX.Element {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <button
+        aria-label={label}
+        onClick={onClick}
+        className={cn(
+          "grid h-14 w-14 place-items-center rounded-full shadow-lg transition-all hover:scale-105 active:scale-95",
+          variant === "danger"
+            ? "bg-red-500 hover:bg-red-400"
+            : active
+            ? "bg-white/30 ring-2 ring-white/40"
+            : "bg-white/15 hover:bg-white/25"
+        )}
+      >
+        <Icon size={22} className="text-white" />
+      </button>
+      <span className="text-xs text-white/50">{label}</span>
+    </div>
+  );
+}
+
 // ── Incoming call modal ───────────────────────────────────────────────────────
 
 export function IncomingCallModal({
@@ -141,10 +177,30 @@ export function IncomingCallModal({
 }
 
 // ── Voice Call Overlay ────────────────────────────────────────────────────────
+// IMPORTANT: A hidden <audio> element carries the remote stream for voice calls.
+// Without it, the browser has nowhere to play incoming audio.
 
 export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element | null {
   const call = useCallStore((s) => s.call);
   const toggleMute = useCallStore((s) => s.toggleMute);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Attach remote stream to the hidden audio element whenever it changes
+  useEffect(() => {
+    const audio = remoteAudioRef.current;
+    if (!audio) return;
+    const remoteStream = call?.localSession?.remoteStream;
+    if (!remoteStream) return;
+
+    if (audio.srcObject !== remoteStream) {
+      audio.srcObject = remoteStream;
+      // play() might be blocked until user interaction — that's fine, the
+      // accept button click counts as user gesture so it should work.
+      audio.play().catch(() => {
+        // Autoplay policy: will start as soon as the user interacts with page
+      });
+    }
+  }, [call?.localSession?.remoteStream]);
 
   if (!call || call.mode !== "voice") return null;
   if (call.phase === "idle" || call.phase === "incoming-ringing") return null;
@@ -159,6 +215,10 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
         exit={{ opacity: 0 }}
         transition={{ duration: 0.25 }}
       >
+        {/* Hidden audio element for remote stream */}
+        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+        <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: "none" }} />
+
         {/* Avatar / status */}
         <div className="flex flex-col items-center gap-5">
           <div className="relative">
@@ -216,22 +276,29 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
 
+  // Attach remote stream — always do this in an effect so the element exists
   useEffect(() => {
-    if (remoteVideoRef.current && call?.remoteStream) {
-      remoteVideoRef.current.srcObject = call.remoteStream;
+    const remoteStream = call?.localSession?.remoteStream;
+    const el = remoteVideoRef.current;
+    if (el && remoteStream && el.srcObject !== remoteStream) {
+      el.srcObject = remoteStream;
+      el.play().catch(() => {});
     }
-  }, [call?.remoteStream]);
+  });
 
+  // Attach local stream
   useEffect(() => {
-    if (localVideoRef.current && call?.localSession?.stream) {
-      localVideoRef.current.srcObject = call.localSession.stream;
+    const localStream = call?.localSession?.stream;
+    const el = localVideoRef.current;
+    if (el && localStream && el.srcObject !== localStream) {
+      el.srcObject = localStream;
     }
-  }, [call?.localSession?.stream]);
+  });
 
   if (!call || call.mode !== "video") return null;
   if (call.phase === "idle" || call.phase === "incoming-ringing") return null;
 
-  const showRemoteVideo = call.phase === "active" && call.remoteStream;
+  const isActive = call.phase === "active";
 
   return (
     <AnimatePresence>
@@ -242,15 +309,19 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
       >
-        {/* Remote video (full screen) */}
-        {showRemoteVideo ? (
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="h-full w-full object-cover"
-          />
-        ) : (
+        {/* Remote video (full screen) — always in DOM, hidden when not active */}
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className={cn(
+            "h-full w-full object-cover",
+            isActive ? "block" : "hidden"
+          )}
+        />
+
+        {/* Fallback avatar when not yet active */}
+        {!isActive && (
           <div className="flex h-full flex-col items-center justify-center gap-5 bg-gradient-to-b from-slate-800 to-black">
             <div className="relative">
               {(call.phase === "outgoing-ringing" || call.phase === "connecting") && (
@@ -275,7 +346,7 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
 
         {/* Local video PIP */}
         <div className="absolute right-4 top-4 h-36 w-24 overflow-hidden rounded-2xl border-2 border-white/20 bg-black shadow-2xl md:h-44 md:w-32">
-          {call.localSession?.stream && !call.isCameraOff ? (
+          {!call.isCameraOff ? (
             <video
               ref={localVideoRef}
               autoPlay
@@ -290,8 +361,8 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
           )}
         </div>
 
-        {/* Status overlay (when active) */}
-        {call.phase === "active" && (
+        {/* Live timer when active */}
+        {isActive && (
           <div className="absolute left-4 top-4 flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
             <CallTimer startedAt={call.startedAt} />
@@ -324,41 +395,5 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
         </div>
       </motion.div>
     </AnimatePresence>
-  );
-}
-
-// ── Shared control button ─────────────────────────────────────────────────────
-
-function CallControl({
-  label,
-  icon: Icon,
-  onClick,
-  active,
-  variant
-}: {
-  label: string;
-  icon: React.ElementType;
-  onClick: () => void;
-  active: boolean;
-  variant: "neutral" | "danger";
-}): JSX.Element {
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <button
-        aria-label={label}
-        onClick={onClick}
-        className={cn(
-          "grid h-14 w-14 place-items-center rounded-full shadow-lg transition-all hover:scale-105 active:scale-95",
-          variant === "danger"
-            ? "bg-red-500 hover:bg-red-400"
-            : active
-            ? "bg-white/30 ring-2 ring-white/40"
-            : "bg-white/15 hover:bg-white/25"
-        )}
-      >
-        <Icon size={22} className="text-white" />
-      </button>
-      <span className="text-xs text-white/50">{label}</span>
-    </div>
   );
 }

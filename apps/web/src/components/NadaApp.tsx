@@ -666,15 +666,12 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         !processedCallSignals.current.has(signal.id)
     );
 
-    if (!latestSignal) {
-      return;
-    }
-
+    if (!latestSignal) return;
     processedCallSignals.current.add(latestSignal.id);
-    
-    // Dispatch to CallStore based on signal type
+
     switch (latestSignal.signalType) {
       case "offer": {
+        // Incoming call — store the SDP so the accept handler can use it
         const contact = contacts.find(c => c.pubkeyHash === latestSignal.sender);
         callStore.receiveIncomingOffer({
           callId: latestSignal.callId,
@@ -685,13 +682,34 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         });
         break;
       }
-      case "answer":
-        callStore.setPhase("active");
-        callStore.setStartedAt(Date.now());
+      case "answer": {
+        // Caller receives the answer — set remote description on our PC
+        const pc = callStore.call?.localSession?.peerConnection;
+        if (!pc) break;
+        const answerSdp = JSON.parse(latestSignal.payload) as RTCSessionDescriptionInit;
+        pc.setRemoteDescription(new RTCSessionDescription(answerSdp))
+          .then(() => {
+            // Flush any ICE candidates that arrived before the answer
+            const pending = callStore.call?.pendingIceCandidates ?? [];
+            pending.forEach(c => void pc.addIceCandidate(new RTCIceCandidate(c)));
+            callStore.clearPendingIce();
+            callStore.setPhase("active");
+            callStore.setStartedAt(Date.now());
+          })
+          .catch(() => callStore.failCall("Failed to set remote description."));
         break;
-      case "ice":
-        // Full WebRTC signaling logic goes here when needed
+      }
+      case "ice": {
+        const pc = callStore.call?.localSession?.peerConnection;
+        const candidate = JSON.parse(latestSignal.payload) as RTCIceCandidateInit;
+        if (pc && pc.remoteDescription) {
+          void pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } else {
+          // Queue it until remote description is ready
+          callStore.addPendingIce(candidate);
+        }
         break;
+      }
       case "reject":
       case "hangup":
         callStore.endCall();
@@ -894,22 +912,52 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   };
 
   const startCall = async (mode: CallMode): Promise<void> => {
-    if (!selectedContact) {
-      return;
-    }
+    if (!selectedContact) return;
 
+    const callId = crypto.randomUUID();
     try {
-      const session = await createLocalCallSession(mode);
+      const session = await createLocalCallSession(mode, callId);
+
+      // Wire ICE candidate forwarding before creating offer
+      session.peerConnection.onicecandidate = (e) => {
+        if (e.candidate) {
+          sendCallSignal({
+            type: "call-signal",
+            id: crypto.randomUUID(),
+            callId,
+            recipient: selectedContact.pubkeyHash,
+            sender: identity.pubkeyHash,
+            timestamp: Date.now(),
+            mode,
+            signalType: "ice",
+            payload: JSON.stringify(e.candidate.toJSON())
+          });
+        }
+      };
+
+      // Wire remote track receiver (for when the callee sends their stream back)
+      session.peerConnection.ontrack = (e) => {
+        e.streams[0]?.getTracks().forEach((track) => {
+          session.remoteStream.addTrack(track);
+        });
+        // Force a Zustand re-render so overlays pick up the remote stream
+        callStore.setPhase(callStore.call?.phase ?? "connecting");
+      };
+
+      // Create offer
+      const offer = await session.peerConnection.createOffer();
+      await session.peerConnection.setLocalDescription(offer);
+
       callStore.setOutgoingCall({
-        callId: session.callId,
+        callId,
         mode,
         peerPubkeyHash: selectedContact.pubkeyHash,
         peerName: selectedContact.localDisplayName,
         localSession: session
       });
-      
+
       await nadaDb.calls.put({
-        id: session.callId,
+        id: callId,
         chatId: selectedChatId,
         peerPubkeyHash: selectedContact.pubkeyHash,
         mode,
@@ -917,19 +965,17 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         startedAt: Date.now()
       });
 
-      const envelope: CallSignalEnvelope = {
+      sendCallSignal({
         type: "call-signal",
         id: crypto.randomUUID(),
-        callId: session.callId,
+        callId,
         recipient: selectedContact.pubkeyHash,
         sender: identity.pubkeyHash,
         timestamp: Date.now(),
         mode,
         signalType: "offer",
-        // In full WebRTC we'd send the actual SDP offer here
-        payload: "local-offer-pending"
-      };
-      sendCallSignal(envelope);
+        payload: JSON.stringify(offer)
+      });
     } catch {
       callStore.failCall("Could not start media capture.");
     }
@@ -1283,40 +1329,75 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           />
         ) : null}
       </AnimatePresence>
-      <IncomingCallModal 
+      <IncomingCallModal
         onAccept={async () => {
-          if (!activeCall) return;
+          const snap = callStore.call;
+          if (!snap || !snap.pendingOfferSdp) return;
+
           try {
-            const session = await createLocalCallSession(activeCall.mode);
-            callStore.setOutgoingCall({
-              callId: activeCall.callId,
-              mode: activeCall.mode,
-              peerPubkeyHash: activeCall.peerPubkeyHash,
-              peerName: activeCall.peerName,
-              localSession: session
-            });
-            callStore.setPhase("active");
-            callStore.setStartedAt(Date.now());
-            
-            // Send answer signal
+            const session = await createLocalCallSession(snap.mode, snap.callId);
+
+            // Wire ICE forwarding on the callee side
+            session.peerConnection.onicecandidate = (e) => {
+              if (e.candidate) {
+                sendCallSignal({
+                  type: "call-signal",
+                  id: crypto.randomUUID(),
+                  callId: snap.callId,
+                  recipient: snap.peerPubkeyHash,
+                  sender: identity.pubkeyHash,
+                  timestamp: Date.now(),
+                  mode: snap.mode,
+                  signalType: "ice",
+                  payload: JSON.stringify(e.candidate.toJSON())
+                });
+              }
+            };
+
+            // Wire remote track receiver
+            session.peerConnection.ontrack = (e) => {
+              e.streams[0]?.getTracks().forEach((track) => {
+                session.remoteStream.addTrack(track);
+              });
+              callStore.setPhase("active");
+              callStore.setStartedAt(Date.now());
+            };
+
+            // Set remote description from the offer
+            const offerSdp = JSON.parse(snap.pendingOfferSdp) as RTCSessionDescriptionInit;
+            await session.peerConnection.setRemoteDescription(
+              new RTCSessionDescription(offerSdp)
+            );
+
+            // Flush queued ICE candidates
+            const pending = snap.pendingIceCandidates;
+            pending.forEach(c =>
+              void session.peerConnection.addIceCandidate(new RTCIceCandidate(c))
+            );
+            callStore.clearPendingIce();
+
+            // Create and send answer
+            const answer = await session.peerConnection.createAnswer();
+            await session.peerConnection.setLocalDescription(answer);
+
+            callStore.attachLocalSession(session);
+
             sendCallSignal({
               type: "call-signal",
               id: crypto.randomUUID(),
-              callId: activeCall.callId,
-              recipient: activeCall.peerPubkeyHash,
+              callId: snap.callId,
+              recipient: snap.peerPubkeyHash,
               sender: identity.pubkeyHash,
               timestamp: Date.now(),
-              mode: activeCall.mode,
+              mode: snap.mode,
               signalType: "answer",
-              payload: "local-answer-pending"
+              payload: JSON.stringify(answer)
             });
           } catch {
             callStore.failCall("Could not access camera/microphone.");
           }
-        }} 
-        onReject={() => {
-          endCall();
-        }} 
+        }}
+        onReject={() => { endCall(); }}
       />
       <VoiceCallOverlay onEnd={endCall} />
       <VideoCallOverlay onEnd={endCall} />
