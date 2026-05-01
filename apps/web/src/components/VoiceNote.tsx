@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, AlertCircle } from "lucide-react";
+import { Pause, Play, AlertCircle, Loader2 } from "lucide-react";
 import { cn } from "@nada/ui";
 
 function formatDur(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
+  const s = Math.floor(totalSeconds % 60);
   return m > 0
     ? `${m}:${s.toString().padStart(2, "0")}`
     : `0:${s.toString().padStart(2, "0")}`;
 }
 
 // ── Voice note playback bubble ────────────────────────────────────────────────
+// The src is a data:audio/... base64 URI stored directly in the message body.
+// We use a real <audio> element managed through a ref to avoid SSR issues.
 
 export function VoiceNoteBubble({
   src,
@@ -26,22 +28,38 @@ export function VoiceNoteBubble({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(durationSeconds);
+  const [duration, setDuration] = useState(Math.max(durationSeconds, 0));
   const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Data URIs may not fire loadedmetadata on all browsers — treat as ready immediately
+  const [loading, setLoading] = useState(!src.startsWith("data:"));
 
   useEffect(() => {
+    if (!src) {
+      setError(true);
+      return;
+    }
+
     const audio = new Audio();
     audioRef.current = audio;
+
+    // Reset UI state
     setError(false);
-    setLoading(true);
     setIsPlaying(false);
     setCurrentTime(0);
+    // Data URIs: trust the stored durationSeconds, no need to wait for metadata
+    setLoading(!src.startsWith("data:"));
+
+    audio.preload = "metadata";
 
     audio.onloadedmetadata = () => {
       if (isFinite(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
       }
+      setLoading(false);
+    };
+
+    // canplaythrough: also clear loading for data URIs that skip loadedmetadata
+    audio.oncanplaythrough = () => {
       setLoading(false);
     };
 
@@ -60,12 +78,19 @@ export function VoiceNoteBubble({
     audio.onpause = () => setIsPlaying(false);
     audio.onplay = () => setIsPlaying(true);
 
-    // Set src after wiring events
+    // Assign src after wiring events
     audio.src = src;
     audio.load();
 
     return () => {
       audio.pause();
+      audio.onloadedmetadata = null;
+      audio.oncanplaythrough = null;
+      audio.onerror = null;
+      audio.ontimeupdate = null;
+      audio.onended = null;
+      audio.onpause = null;
+      audio.onplay = null;
       audio.src = "";
       audioRef.current = null;
     };
@@ -80,14 +105,13 @@ export function VoiceNoteBubble({
       audio.pause();
     } else {
       // Reset to start if at end
-      if (audio.ended || audio.currentTime >= (audio.duration || 0)) {
+      if (audio.ended || (audio.duration > 0 && audio.currentTime >= audio.duration - 0.1)) {
         audio.currentTime = 0;
       }
       const promise = audio.play();
       if (promise !== undefined) {
         promise.catch(() => {
-          // Autoplay blocked — user needs to interact first,
-          // but this IS triggered by a click so it should be fine.
+          // Autoplay blocked — this should not happen since it's triggered by a click
           setIsPlaying(false);
         });
       }
@@ -95,6 +119,7 @@ export function VoiceNoteBubble({
   }
 
   const pct = duration > 0 ? Math.min((currentTime / duration) * 100, 100) : 0;
+  const displayDuration = isPlaying ? currentTime : duration;
 
   if (error) {
     return (
@@ -106,33 +131,52 @@ export function VoiceNoteBubble({
   }
 
   return (
-    <div className="flex min-w-[200px] items-center gap-2.5">
+    <div className="flex min-w-[210px] max-w-[280px] items-center gap-3">
+      {/* Play / Pause button */}
       <button
         aria-label={isPlaying ? "Pause voice note" : "Play voice note"}
         onClick={togglePlay}
         disabled={loading}
         className={cn(
-          "grid h-9 w-9 shrink-0 place-items-center rounded-full transition",
+          "grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all",
           outbound
-            ? "bg-white/20 hover:bg-white/30 text-white"
-            : "bg-nada-accent/15 hover:bg-nada-accent/25 text-nada-accent",
+            ? "bg-white/25 hover:bg-white/35 active:scale-95 text-white"
+            : "bg-nada-accent/15 hover:bg-nada-accent/25 active:scale-95 text-nada-accent",
           loading && "opacity-50 cursor-wait"
         )}
       >
-        {isPlaying ? <Pause size={15} /> : <Play size={15} />}
+        {loading ? (
+          <Loader2 size={15} className="animate-spin" />
+        ) : isPlaying ? (
+          <Pause size={15} />
+        ) : (
+          <Play size={15} />
+        )}
       </button>
 
-      {/* Waveform / progress bar */}
-      <div className="flex flex-1 flex-col gap-1">
+      {/* Progress bar + duration */}
+      <div className="flex flex-1 flex-col gap-1.5">
+        {/* Clickable progress bar */}
         <div
+          role="progressbar"
+          aria-valuenow={Math.round(pct)}
+          aria-valuemin={0}
+          aria-valuemax={100}
           className={cn(
-            "relative h-1.5 w-full overflow-hidden rounded-full",
-            outbound ? "bg-white/20" : "bg-nada-accent/20"
+            "relative h-1.5 w-full cursor-pointer overflow-hidden rounded-full",
+            outbound ? "bg-white/25" : "bg-nada-accent/20"
           )}
+          onClick={(e) => {
+            const audio = audioRef.current;
+            if (!audio || !duration) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pctClicked = (e.clientX - rect.left) / rect.width;
+            audio.currentTime = pctClicked * duration;
+          }}
         >
           <div
             className={cn(
-              "absolute left-0 top-0 h-full rounded-full transition-all",
+              "absolute left-0 top-0 h-full rounded-full transition-[width] duration-100",
               outbound ? "bg-white" : "bg-nada-accent"
             )}
             style={{ width: `${pct}%` }}
@@ -144,9 +188,7 @@ export function VoiceNoteBubble({
             outbound ? "text-white/60" : "text-nada-secondary"
           )}
         >
-          {isPlaying
-            ? formatDur(Math.round(currentTime))
-            : formatDur(Math.round(duration))}
+          {formatDur(Math.round(displayDuration))}
         </span>
       </div>
     </div>
@@ -165,21 +207,21 @@ export function VoiceRecorderBar({
   onCancel: () => void;
 }): JSX.Element {
   return (
-    <div className="mb-2 flex items-center gap-3 rounded-xl bg-red-500/10 px-3 py-2">
-      {/* Red blinking dot */}
+    <div className="mb-2 flex items-center gap-3 rounded-xl bg-red-500/10 px-3 py-2 animate-fade-in">
+      {/* Red blinking recording dot */}
       <span className="relative flex h-3 w-3 shrink-0">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
         <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
       </span>
 
-      <span className="flex-1 text-sm font-medium text-red-400 tabular-nums">
+      <span className="flex-1 text-sm font-semibold text-red-400 tabular-nums tracking-wide">
         {formatDur(seconds)}
       </span>
 
       <button
         aria-label="Cancel recording"
         onClick={onCancel}
-        className="rounded-lg px-2 py-1 text-xs text-nada-secondary hover:bg-nada-muted transition-colors"
+        className="rounded-lg px-2.5 py-1 text-xs font-medium text-nada-secondary hover:bg-nada-muted transition-colors"
       >
         Cancel
       </button>
@@ -187,7 +229,7 @@ export function VoiceRecorderBar({
       <button
         aria-label="Send voice note"
         onClick={onStop}
-        className="rounded-lg bg-nada-accent px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:opacity-90 active:scale-95"
+        className="rounded-lg bg-nada-accent px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:opacity-90 active:scale-95"
       >
         Send
       </button>

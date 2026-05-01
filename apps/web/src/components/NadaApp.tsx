@@ -911,6 +911,77 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     setPanel(null);
   };
 
+  const sendVoiceNote = async (body: string): Promise<void> => {
+    // body format: "data:audio/webm;base64,...|<durationSeconds>"
+    if (!selectedChatId) return;
+    if (!body.startsWith("data:audio")) return;
+
+    const id = crypto.randomUUID();
+    const timestamp = Date.now();
+    const expiresAt = disappearingTimer > 0 ? timestamp + disappearingTimer : undefined;
+
+    // Encrypt the body the same way a text message is encrypted
+    const ciphertext = selectedGroup?.groupSenderKey
+      ? JSON.stringify(await encryptGroupMessage(body, selectedGroup.groupSenderKey))
+      : await mockEncryptMessage(body);
+
+    let sent = false;
+    if (selectedGroup) {
+      const recipients = selectedGroup.memberPubkeyHashes.filter(
+        (member) => member !== identity.pubkeyHash
+      );
+      sent = sendGroupEnvelope({
+        type: "group-message",
+        id,
+        groupId: selectedGroup.id,
+        recipients,
+        sender: identity.pubkeyHash,
+        timestamp,
+        ciphertext,
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {}),
+        ...(expiresAt ? { expiresAt } : {})
+      });
+    } else if (selectedContact) {
+      sent = sendEnvelope({
+        type: "message",
+        id,
+        recipient: selectedContact.pubkeyHash,
+        sender: identity.pubkeyHash,
+        timestamp,
+        ciphertext,
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+      });
+    }
+
+    if (!selectedGroup && !selectedContact) return;
+
+    const recipientHash = selectedGroup?.id ?? selectedContact?.pubkeyHash ?? identity.pubkeyHash;
+    const record: MessageRecord = {
+      id,
+      chatId: selectedChatId,
+      senderPubkeyHash: identity.pubkeyHash,
+      recipientPubkeyHash: recipientHash,
+      direction: "outbound",
+      kind: "text",
+      body,
+      encryptedPayload: ciphertext,
+      status: sent ? "sent" : "queued",
+      createdAt: timestamp,
+      ...(expiresAt ? { expiresAt } : {})
+    };
+
+    await nadaDb.messages.put(record);
+    if (selectedGroup) {
+      await nadaDb.chats.update(selectedGroup.id, { updatedAt: timestamp });
+      setChats((current) =>
+        current.map((chat) =>
+          chat.id === selectedGroup.id ? { ...chat, updatedAt: timestamp } : chat
+        )
+      );
+    }
+    setMessages((current) => [...current, record]);
+  };
+
   const startCall = async (mode: CallMode): Promise<void> => {
     if (!selectedContact) return;
 
@@ -935,13 +1006,25 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         }
       };
 
-      // Wire remote track receiver (for when the callee sends their stream back)
+      // Wire remote track receiver — called when callee's audio/video arrives
       session.peerConnection.ontrack = (e) => {
-        e.streams[0]?.getTracks().forEach((track) => {
-          session.remoteStream.addTrack(track);
-        });
-        // Force a Zustand re-render so overlays pick up the remote stream
-        callStore.setPhase(callStore.call?.phase ?? "connecting");
+        const stream = e.streams[0];
+        if (stream) {
+          stream.getTracks().forEach((track) => {
+            // Only add if not already present
+            if (!session.remoteStream.getTracks().find((t) => t.id === track.id)) {
+              session.remoteStream.addTrack(track);
+            }
+          });
+        } else {
+          // Fallback: track-only event (no stream)
+          if (!session.remoteStream.getTracks().find((t) => t.id === e.track.id)) {
+            session.remoteStream.addTrack(e.track);
+          }
+        }
+        // Move to active — this is what makes the timer start and avatar disappear
+        callStore.setPhase("active");
+        if (!callStore.call?.startedAt) callStore.setStartedAt(Date.now());
       };
 
       // Create offer
@@ -1244,6 +1327,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         onSend={(event) => {
           void sendMessage(event);
         }}
+        onSendVoiceNote={(body) => {
+          void sendVoiceNote(body);
+        }}
         onStartCall={(mode) => {
           void startCall(mode);
         }}
@@ -1356,11 +1442,20 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
             // Wire remote track receiver
             session.peerConnection.ontrack = (e) => {
-              e.streams[0]?.getTracks().forEach((track) => {
-                session.remoteStream.addTrack(track);
-              });
+              const stream = e.streams[0];
+              if (stream) {
+                stream.getTracks().forEach((track) => {
+                  if (!session.remoteStream.getTracks().find((t) => t.id === track.id)) {
+                    session.remoteStream.addTrack(track);
+                  }
+                });
+              } else {
+                if (!session.remoteStream.getTracks().find((t) => t.id === e.track.id)) {
+                  session.remoteStream.addTrack(e.track);
+                }
+              }
               callStore.setPhase("active");
-              callStore.setStartedAt(Date.now());
+              if (!callStore.call?.startedAt) callStore.setStartedAt(Date.now());
             };
 
             // Set remote description from the offer
@@ -1498,6 +1593,7 @@ function ChatPanel({
   onMessageTextChange,
   onReply,
   onSend,
+  onSendVoiceNote,
   onStartCall,
   onUnsend,
   replyMessage,
@@ -1525,6 +1621,7 @@ function ChatPanel({
   onMessageTextChange: (value: string) => void;
   onReply: (message: MessageRecord) => void;
   onSend: (event: FormEvent<HTMLFormElement>) => void;
+  onSendVoiceNote: (body: string) => void;
   onStartCall: (mode: CallMode) => void;
   onUnsend: (messageId: string) => void;
   replyMessage: MessageRecord | null;
@@ -1543,6 +1640,8 @@ function ChatPanel({
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const recordingTimer = useRef<number | null>(null);
+  // Use a ref for duration so onstop captures the live value, not a stale closure
+  const recordingSecondsRef = useRef(0);
 
   const formatTime = (ts: number): string => {
     const d = new Date(ts);
@@ -1554,55 +1653,93 @@ function ChatPanel({
   }, [messages.length]);
 
   const startRecording = async () => {
+    if (isRecording) return; // prevent double-start
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+
+      // Detect supported MIME type — Safari needs audio/mp4
+      const mimeType = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4"
+      ].find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
+
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       audioChunks.current = [];
-      
+      recordingSecondsRef.current = 0;
+
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunks.current.push(e.data);
       };
-      
+
       recorder.onstop = () => {
+        // Stop all mic tracks
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunks.current, { type: "audio/webm" });
+
+        const chunks = audioChunks.current;
+        if (chunks.length === 0) {
+          alert("No audio was captured. Please try again.");
+          return;
+        }
+
+        // Use the actual recorded MIME type from the recorder
+        const actualMime = recorder.mimeType || mimeType || "audio/webm";
+        const blob = new Blob(chunks, { type: actualMime });
+
+        if (blob.size === 0) {
+          alert("Recording failed — audio blob is empty. Please try again.");
+          return;
+        }
+
+        // Use the ref value — NOT the stale state variable
+        const duration = recordingSecondsRef.current;
+
         const reader = new FileReader();
         reader.onloadend = () => {
           const base64data = reader.result as string;
-          const fakeEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
-          onMessageTextChange(`${base64data}|${recordingSeconds}`);
-          // Send on the next tick so state updates
-          setTimeout(() => onSend(fakeEvent), 50);
+          // Pass directly to parent — do NOT go through messageText setState
+          onSendVoiceNote(`${base64data}|${duration}`);
         };
         reader.readAsDataURL(blob);
       };
-      
+
       mediaRecorder.current = recorder;
-      recorder.start();
+      // Use timeslice so ondataavailable fires frequently
+      recorder.start(250);
       setIsRecording(true);
       setRecordingSeconds(0);
-      
+      recordingSecondsRef.current = 0;
+
       recordingTimer.current = window.setInterval(() => {
+        recordingSecondsRef.current += 1;
         setRecordingSeconds((s) => s + 1);
       }, 1000);
     } catch {
-      alert("Microphone access denied.");
+      alert("Microphone access denied. Please allow microphone access and try again.");
     }
   };
 
   const stopRecording = () => {
     if (mediaRecorder.current && isRecording) {
-      mediaRecorder.current.stop();
-      setIsRecording(false);
       if (recordingTimer.current) window.clearInterval(recordingTimer.current);
+      setIsRecording(false);
+      // stop() triggers onstop async — chunks are finalized there
+      mediaRecorder.current.stop();
     }
   };
 
   const cancelRecording = () => {
-    if (mediaRecorder.current && isRecording) {
-      mediaRecorder.current.stream.getTracks().forEach((t) => t.stop());
-      setIsRecording(false);
+    if (mediaRecorder.current) {
       if (recordingTimer.current) window.clearInterval(recordingTimer.current);
+      // Clear ondataavailable so onstop won't send
+      mediaRecorder.current.ondataavailable = null;
+      mediaRecorder.current.onstop = () => {
+        mediaRecorder.current?.stream.getTracks().forEach((t) => t.stop());
+      };
+      mediaRecorder.current.stop();
+      audioChunks.current = [];
+      setIsRecording(false);
     }
   };
 
