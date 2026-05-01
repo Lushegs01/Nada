@@ -100,11 +100,8 @@ import {
   buildShareCardPayload,
   shareInviteCard
 } from "@/lib/share-card";
-import {
-  createLocalCallSession,
-  type CallMode,
-  type LocalCallSession
-} from "@/lib/webrtc";
+import { createLocalCallSession } from "@/lib/webrtc";
+import type { CallMode } from "@/lib/webrtc";
 import { useSocketStore } from "@/stores/useSocketStore";
 
 type Panel =
