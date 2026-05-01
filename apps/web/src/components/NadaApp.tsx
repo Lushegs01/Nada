@@ -21,6 +21,7 @@ import {
   Gift,
   MessageCircle,
   Mic,
+  MicOff,
   MoreVertical,
   Paperclip,
   Phone,
@@ -40,6 +41,11 @@ import {
   WifiOff,
   X
 } from "lucide-react";
+import { IncomingCallModal, VoiceCallOverlay, VideoCallOverlay } from "@/components/CallOverlay";
+import { VoiceNoteBubble, VoiceRecorderBar, isVoiceNoteMessage, parseVoiceNoteBody } from "@/components/VoiceNote";
+import { EmojiPicker } from "@/components/EmojiPicker";
+import { useCallStore } from "@/stores/useCallStore";
+import { createPeerConnection } from "@/lib/webrtc";
 import { QRCodeSVG } from "qrcode.react";
 
 import {
@@ -107,7 +113,6 @@ import { useSocketStore } from "@/stores/useSocketStore";
 
 type Panel =
   | "billing"
-  | "call"
   | "contacts"
   | "group"
   | "migration"
@@ -354,9 +359,10 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const sendCallSignal = useSocketStore((state) => state.sendCallSignal);
   const sendEnvelope = useSocketStore((state) => state.sendEnvelope);
   const sendGroupEnvelope = useSocketStore((state) => state.sendGroupEnvelope);
-  const [activeCall, setActiveCall] = useState<LocalCallSession | null>(null);
-  const [activeCallPeerHash, setActiveCallPeerHash] = useState<string | null>(null);
-  const [callStatus, setCallStatus] = useState("Idle");
+  
+  const callStore = useCallStore();
+  const activeCall = callStore.call;
+  
   const [chats, setChats] = useState<ChatRecord[]>([]);
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
   const [disappearingTimer, setDisappearingTimer] = useState(0);
@@ -672,18 +678,33 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     }
 
     processedCallSignals.current.add(latestSignal.id);
-    setCallStatus(`${latestSignal.mode} ${latestSignal.signalType}`);
-    if (latestSignal.signalType === "hangup") {
-      if (activeCall) {
-        stopLocalCallSession(activeCall);
+    
+    // Dispatch to CallStore based on signal type
+    switch (latestSignal.signalType) {
+      case "offer": {
+        const contact = contacts.find(c => c.pubkeyHash === latestSignal.sender);
+        callStore.receiveIncomingOffer({
+          callId: latestSignal.callId,
+          mode: latestSignal.mode,
+          peerPubkeyHash: latestSignal.sender,
+          peerName: contact?.localDisplayName ?? latestSignal.sender.slice(0, 8),
+          offerSdp: latestSignal.payload
+        });
+        break;
       }
-      setActiveCall(null);
-      setActiveCallPeerHash(null);
-    } else {
-      setActiveCallPeerHash(latestSignal.sender);
+      case "answer":
+        callStore.setPhase("active");
+        callStore.setStartedAt(Date.now());
+        break;
+      case "ice":
+        // Full WebRTC signaling logic goes here when needed
+        break;
+      case "reject":
+      case "hangup":
+        callStore.endCall();
+        break;
     }
-    setPanel((current) => (current === "call" ? current : "call"));
-  }, [activeCall, callSignals, identity.pubkeyHash]);
+  }, [callSignals, identity.pubkeyHash, contacts, callStore]);
 
   const sendMessage = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
@@ -881,15 +902,19 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
   const startCall = async (mode: CallMode): Promise<void> => {
     if (!selectedContact) {
-      setCallStatus("Calls are available for direct chats first.");
-      setPanel("call");
       return;
     }
 
     try {
       const session = await createLocalCallSession(mode);
-      setActiveCall(session);
-      setActiveCallPeerHash(selectedContact.pubkeyHash);
+      callStore.setOutgoingCall({
+        callId: session.callId,
+        mode,
+        peerPubkeyHash: selectedContact.pubkeyHash,
+        peerName: selectedContact.localDisplayName,
+        localSession: session
+      });
+      
       await nadaDb.calls.put({
         id: session.callId,
         chatId: selectedChatId,
@@ -898,12 +923,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         status: "connecting",
         startedAt: Date.now()
       });
-      setCallStatus(
-        session.insertableStreamsSupported
-          ? `${mode} call ready with insertable streams`
-          : `${mode} call ready without insertable streams`
-      );
-      setPanel("call");
+
       const envelope: CallSignalEnvelope = {
         type: "call-signal",
         id: crypto.randomUUID(),
@@ -913,40 +933,41 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         timestamp: Date.now(),
         mode,
         signalType: "offer",
+        // In full WebRTC we'd send the actual SDP offer here
         payload: "local-offer-pending"
       };
       sendCallSignal(envelope);
     } catch {
-      setCallStatus("Could not start media capture.");
-      setPanel("call");
+      callStore.failCall("Could not start media capture.");
     }
   };
 
   const endCall = (): void => {
-    if (activeCall) {
-      stopLocalCallSession(activeCall);
-      void nadaDb.calls.update(activeCall.callId, {
+    const callId = activeCall?.callId;
+    const peerPubkeyHash = activeCall?.peerPubkeyHash;
+    const mode = activeCall?.mode;
+
+    callStore.endCall();
+
+    if (callId) {
+      void nadaDb.calls.update(callId, {
         endedAt: Date.now(),
         status: "ended"
       });
-      if (activeCallPeerHash) {
+      if (peerPubkeyHash && mode) {
         sendCallSignal({
           type: "call-signal",
           id: crypto.randomUUID(),
-          callId: activeCall.callId,
-          recipient: activeCallPeerHash,
+          callId,
+          recipient: peerPubkeyHash,
           sender: identity.pubkeyHash,
           timestamp: Date.now(),
-          mode: activeCall.mode,
+          mode,
           signalType: "hangup",
           payload: "hangup"
         });
       }
     }
-
-    setActiveCall(null);
-    setActiveCallPeerHash(null);
-    setCallStatus("Ended");
   };
 
   const unsendMessage = async (messageId: string): Promise<void> => {
@@ -1251,16 +1272,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             }}
           />
         ) : null}
-        {panel === "call" ? (
-          <CallSheet
-            activeCall={activeCall}
-            callStatus={callStatus}
-            insertableStreamsSupported={supportsInsertableStreams()}
-            onClose={() => {
-              setPanel(null);
-            }}
-            onEnd={endCall}
-          />
         ) : null}
         {panel === "settings" ? (
           <SettingsSheet
@@ -1280,6 +1291,43 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           />
         ) : null}
       </AnimatePresence>
+      <IncomingCallModal 
+        onAccept={async () => {
+          if (!activeCall) return;
+          try {
+            const session = await createLocalCallSession(activeCall.mode);
+            callStore.setOutgoingCall({
+              callId: activeCall.callId,
+              mode: activeCall.mode,
+              peerPubkeyHash: activeCall.peerPubkeyHash,
+              peerName: activeCall.peerName,
+              localSession: session
+            });
+            callStore.setPhase("active");
+            callStore.setStartedAt(Date.now());
+            
+            // Send answer signal
+            sendCallSignal({
+              type: "call-signal",
+              id: crypto.randomUUID(),
+              callId: activeCall.callId,
+              recipient: activeCall.peerPubkeyHash,
+              sender: identity.pubkeyHash,
+              timestamp: Date.now(),
+              mode: activeCall.mode,
+              signalType: "answer",
+              payload: "local-answer-pending"
+            });
+          } catch {
+            callStore.failCall("Could not access camera/microphone.");
+          }
+        }} 
+        onReject={() => {
+          endCall();
+        }} 
+      />
+      <VoiceCallOverlay onEnd={endCall} />
+      <VideoCallOverlay onEnd={endCall} />
     </section>
   );
 }
@@ -1414,8 +1462,14 @@ function ChatPanel({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [showOptions, setShowOptions] = useState(false);
   const [activeMessageMenu, setActiveMessageMenu] = useState<string | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const audioChunks = useRef<Blob[]>([]);
+  const recordingTimer = useRef<number | null>(null);
 
   const formatTime = (ts: number): string => {
     const d = new Date(ts);
@@ -1425,6 +1479,59 @@ function ChatPanel({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunks.current = [];
+      
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunks.current.push(e.data);
+      };
+      
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunks.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64data = reader.result as string;
+          const fakeEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
+          onMessageTextChange(`${base64data}|${recordingSeconds}`);
+          // Send on the next tick so state updates
+          setTimeout(() => onSend(fakeEvent), 50);
+        };
+        reader.readAsDataURL(blob);
+      };
+      
+      mediaRecorder.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      
+      recordingTimer.current = window.setInterval(() => {
+        setRecordingSeconds((s) => s + 1);
+      }, 1000);
+    } catch {
+      alert("Microphone access denied.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder.current && isRecording) {
+      mediaRecorder.current.stop();
+      setIsRecording(false);
+      if (recordingTimer.current) window.clearInterval(recordingTimer.current);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorder.current && isRecording) {
+      mediaRecorder.current.stream.getTracks().forEach((t) => t.stop());
+      setIsRecording(false);
+      if (recordingTimer.current) window.clearInterval(recordingTimer.current);
+    }
+  };
 
   if (!contact && !isGroup) {
     return (
@@ -1632,13 +1739,21 @@ function ChatPanel({
                       Reply
                     </div>
                   ) : null}
-                  <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
-                    {message.deletedAt ? (
-                      <span className="italic opacity-50">Message deleted</span>
-                    ) : (
-                      message.body
-                    )}
-                  </p>
+                  {message.deletedAt ? (
+                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed italic opacity-50">
+                      Message deleted
+                    </p>
+                  ) : isVoiceNoteMessage(message.body) ? (
+                    <VoiceNoteBubble 
+                      src={parseVoiceNoteBody(message.body).src} 
+                      durationSeconds={parseVoiceNoteBody(message.body).durationSeconds}
+                      outbound={message.direction === "outbound"}
+                    />
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
+                      {message.body}
+                    </p>
+                  )}
                   {message.mentions?.length ? (
                     <p className="mt-0.5 text-[11px] opacity-60">
                       @{message.mentions.length} mention{message.mentions.length === 1 ? "" : "s"}
@@ -1729,66 +1844,90 @@ function ChatPanel({
           </div>
         ) : null}
         <div className="flex items-center gap-2">
-          <input
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                onAttachFile(file);
-              }
-              event.target.value = "";
-            }}
-            ref={fileInputRef}
-            type="file"
-          />
-          <button
-            aria-label="Emoji"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
-            type="button"
-          >
-            <Smile size={20} />
-          </button>
-          <button
-            aria-label="Attach file"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary disabled:opacity-30"
-            disabled={!canAttachFile}
-            onClick={() => {
-              fileInputRef.current?.click();
-            }}
-            type="button"
-          >
-            <Paperclip size={20} />
-          </button>
-          <input
-            className="nada-input h-10 min-w-0 flex-1 px-4 text-sm"
-            onChange={(event) => {
-              onMessageTextChange(event.target.value);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                const syntheticEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
-                onSend(syntheticEvent);
-              }
-            }}
-            placeholder="Type a message..."
-            value={messageText}
-          />
-          {messageText.trim() ? (
-            <button
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-nada-accent text-white shadow-sm transition-all duration-150 hover:shadow-md active:scale-95"
-              type="submit"
-            >
-              <Send size={18} />
-            </button>
+          {!isRecording ? (
+            <>
+              <input
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) {
+                    onAttachFile(file);
+                  }
+                  event.target.value = "";
+                }}
+                ref={fileInputRef}
+                type="file"
+              />
+              <div className="relative">
+                <button
+                  aria-label="Emoji"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
+                  onClick={() => setShowEmojiPicker((prev) => !prev)}
+                  type="button"
+                >
+                  <Smile size={20} />
+                </button>
+                {showEmojiPicker && (
+                  <EmojiPicker
+                    onClose={() => setShowEmojiPicker(false)}
+                    onSelect={(emoji) => {
+                      onMessageTextChange(messageText + emoji);
+                    }}
+                  />
+                )}
+              </div>
+              <button
+                aria-label="Attach file"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary disabled:opacity-30"
+                disabled={!canAttachFile}
+                onClick={() => {
+                  fileInputRef.current?.click();
+                }}
+                type="button"
+              >
+                <Paperclip size={20} />
+              </button>
+              <input
+                className="nada-input h-10 min-w-0 flex-1 px-4 text-sm"
+                onChange={(event) => {
+                  onMessageTextChange(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    const syntheticEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
+                    onSend(syntheticEvent);
+                  }
+                }}
+                placeholder="Type a message..."
+                value={messageText}
+              />
+              {messageText.trim() ? (
+                <button
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-nada-accent text-white shadow-sm transition-all duration-150 hover:shadow-md active:scale-95"
+                  type="submit"
+                >
+                  <Send size={18} />
+                </button>
+              ) : (
+                <button
+                  aria-label="Voice note"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
+                  onPointerDown={startRecording}
+                  type="button"
+                >
+                  <Mic size={20} />
+                </button>
+              )}
+            </>
           ) : (
-            <button
-              aria-label="Voice note"
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
-              type="button"
-            >
-              <Mic size={20} />
-            </button>
+            <div className="flex-1">
+              <VoiceRecorderBar 
+                seconds={recordingSeconds} 
+                onStop={stopRecording} 
+                onCancel={cancelRecording} 
+              />
+            </div>
           )}
         </div>
       </form>
