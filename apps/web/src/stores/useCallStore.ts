@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { createPeerConnection, stopLocalCallSession, type CallMode, type LocalCallSession } from "@/lib/webrtc";
+import { stopLocalCallSession, type CallMode, type LocalCallSession } from "@/lib/webrtc";
 
 // ─── Call State Machine ───────────────────────────────────────────────────────
 // idle → outgoing-ringing → connecting → active
@@ -62,7 +62,7 @@ interface CallStoreState {
 export const useCallStore = create<CallStoreState>((set, get) => ({
   call: null,
 
-  receiveIncomingOffer({ callId, mode, peerPubkeyHash, peerName, offerSdp: _ }) {
+  receiveIncomingOffer({ callId, mode, peerPubkeyHash, peerName }) {
     // If already in a call, reject silently
     if (get().call && get().call!.phase !== "idle" && get().call!.phase !== "ended") {
       return;

@@ -1272,7 +1272,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             }}
           />
         ) : null}
-        ) : null}
         {panel === "settings" ? (
           <SettingsSheet
             identity={identity}
