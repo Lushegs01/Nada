@@ -99,7 +99,7 @@ export function EmojiPicker({
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  const category = CATEGORIES[activeCategory];
+  const category = CATEGORIES[activeCategory] ?? CATEGORIES[0]!;
 
   return (
     <div
