@@ -105,6 +105,7 @@ import { Avatar, Button, IconButton, cn } from "@nada/ui";
 import {
   directChatId,
   loadMessagesForChat,
+  markChatAsRead,
   nadaDb,
   primaryIdentityId,
   getChatPref,
@@ -550,6 +551,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     return () => { active = false; };
   }, [selectedChatId]);
 
+  // Mark current chat as read when selected or when new messages arrive
+  useEffect(() => {
+    if (!selectedChatId) return;
+    void markChatAsRead(selectedChatId).then(() => {
+      setUnreadCounts((prev) => ({ ...prev, [selectedChatId]: 0 }));
+    });
+  }, [selectedChatId, messages.length]);
+
+
   // Typing indicator — compute current chat's typing state
   const peerIsTyping = selectedChatId ? Boolean(typingIndicators[selectedChatId]) : false;
 
@@ -679,7 +689,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         const visible = msgs.filter((m) => !m.deletedAt);
         const last = visible[visible.length - 1];
         const unread = visible.filter(
-          (m) => m.direction === "inbound" && m.status !== "delivered"
+          (m) => m.direction === "inbound" && !m.readAt
         ).length;
         return {
           chatId,
@@ -703,7 +713,16 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     return () => { active = false; };
   // Recompute when messages, contacts, or chats change
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contacts.length, chats.length, messages.length, identity.pubkeyHash]);
+  }, [
+    contacts.length,
+    chats.length,
+    messages.length,
+    identity.pubkeyHash,
+    incoming.length,
+    groupIncoming.length,
+    incomingDeletions.length,
+    selectedChatId
+  ]);
 
 
 
@@ -1833,7 +1852,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                   return (
                     <button
                       className={cn(
-                        "group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-150",
+                        "group flex w-full items-center gap-3.5 rounded-xl px-3 py-3.5 text-left transition-colors duration-150",
                         selectedGroupId === chat.id
                           ? "bg-nada-accent/10"
                           : "hover:bg-nada-muted"
@@ -1847,26 +1866,37 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                       }}
                       type="button"
                     >
-                      <Avatar label={chat.title} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-nada-primary">
-                          {chat.title}
-                        </span>
-                        <span className="block truncate text-xs text-nada-secondary mt-0.5">
-                          {lastMsg?.body ? (
-                            lastMsg.body.startsWith("data:audio")
-                              ? "🎙 Voice note"
-                              : lastMsg.body.length > 40
-                              ? lastMsg.body.slice(0, 40) + "…"
-                              : lastMsg.body
-                          ) : (
-                            `${chat.memberPubkeyHashes.length} members`
+                      <div className={cn("relative shrink-0", unread > 0 && "nada-avatar-unread")}>
+                        <Avatar label={chat.title} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="truncate text-[14px] font-semibold text-nada-primary">
+                            {chat.title}
+                          </span>
+                          {lastMsg && (
+                            <span className={cn("shrink-0 text-[10px]", unread > 0 ? "text-nada-success font-semibold" : "text-nada-secondary/70")}>
+                              {formatRelativeTime(lastMsg.ts)}
+                            </span>
                           )}
-                        </span>
-                      </span>
-                      {unread > 0 ? (
-                        <span className="nada-badge">{unread > 9 ? "9+" : unread}</span>
-                      ) : null}
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <span className="truncate text-xs text-nada-secondary">
+                            {lastMsg?.body ? (
+                              lastMsg.body.startsWith("data:audio")
+                                ? "🎙 Voice note"
+                                : lastMsg.body.length > 32
+                                ? lastMsg.body.slice(0, 32) + "…"
+                                : lastMsg.body
+                            ) : (
+                              `${chat.memberPubkeyHashes.length} members`
+                            )}
+                          </span>
+                          {unread > 0 && (
+                            <span className="nada-badge">{unread}</span>
+                          )}
+                        </div>
+                      </div>
                     </button>
                   );
                 })}
@@ -1884,7 +1914,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                   return (
                     <button
                       className={cn(
-                        "group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-150",
+                        "group flex w-full items-center gap-3.5 rounded-xl px-3 py-3.5 text-left transition-colors duration-150",
                         selectedContactHash === contact.pubkeyHash
                           ? "bg-nada-accent/10"
                           : "hover:bg-nada-muted"
@@ -1897,26 +1927,37 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                       }}
                       type="button"
                     >
-                      <Avatar label={contact.localDisplayName} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-nada-primary">
-                          {contact.localDisplayName}
-                        </span>
-                        <span className="block truncate text-xs text-nada-secondary mt-0.5">
-                          {lastMsg?.body ? (
-                            lastMsg.body.startsWith("data:audio")
-                              ? "🎙 Voice note"
-                              : lastMsg.body.length > 36
-                              ? lastMsg.body.slice(0, 36) + "…"
-                              : lastMsg.body
-                          ) : (
-                            contact.pubkeyHash.slice(0, 16) + "..."
+                      <div className={cn("relative shrink-0", unread > 0 && "nada-avatar-unread")}>
+                        <Avatar label={contact.localDisplayName} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="truncate text-[14px] font-semibold text-nada-primary">
+                            {contact.localDisplayName}
+                          </span>
+                          {lastMsg && (
+                            <span className={cn("shrink-0 text-[10px]", unread > 0 ? "text-nada-success font-semibold" : "text-nada-secondary/70")}>
+                              {formatRelativeTime(lastMsg.ts)}
+                            </span>
                           )}
-                        </span>
-                      </span>
-                      {unread > 0 ? (
-                        <span className="nada-badge">{unread > 9 ? "9+" : unread}</span>
-                      ) : null}
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <span className="truncate text-xs text-nada-secondary">
+                            {lastMsg?.body ? (
+                              lastMsg.body.startsWith("data:audio")
+                                ? "🎙 Voice note"
+                                : lastMsg.body.length > 32
+                                ? lastMsg.body.slice(0, 32) + "…"
+                                : lastMsg.body
+                            ) : (
+                              contact.pubkeyHash.slice(0, 16) + "..."
+                            )}
+                          </span>
+                          {unread > 0 && (
+                            <span className="nada-badge">{unread}</span>
+                          )}
+                        </div>
+                      </div>
                     </button>
                   );
                 })}
@@ -5123,6 +5164,25 @@ function matchesSearch(value: string, query: string): boolean {
   }
 
   return value.toLowerCase().includes(trimmed);
+}
+
+function formatRelativeTime(timestamp: number): string {
+  if (!timestamp) return "";
+  const now = Date.now();
+  const date = new Date(timestamp);
+
+  const isToday = date.toDateString() === new Date(now).toDateString();
+  const isYesterday = date.toDateString() === new Date(now - 86400000).toDateString();
+
+  if (isToday) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } else if (isYesterday) {
+    return "Yesterday";
+  } else if (now - timestamp < 7 * 86400000) {
+    return date.toLocaleDateString([], { weekday: "short" });
+  } else {
+    return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
 }
 
 function dataUrlSize(dataUrl: string): number {

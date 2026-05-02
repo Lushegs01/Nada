@@ -99,6 +99,21 @@ export async function loadMessagesForChat(
     .toArray();
 }
 
+export async function markChatAsRead(chatId: string): Promise<void> {
+  const unread = await nadaDb.messages
+    .where("chatId")
+    .equals(chatId)
+    .filter((m) => m.direction === "inbound" && !m.readAt)
+    .toArray();
+
+  if (unread.length === 0) return;
+
+  const now = Date.now();
+  await Promise.all(
+    unread.map((m) => nadaDb.messages.update(m.id, { readAt: now }))
+  );
+}
+
 // ── Chat preference helpers ───────────────────────────────────────────────────
 
 export async function getChatPref(chatId: string): Promise<ChatPrefRecord> {

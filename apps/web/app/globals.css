@@ -178,15 +178,34 @@ select {
 
   /* Badge */
   .nada-badge {
-    background: rgb(var(--nada-accent));
+    background: rgb(var(--nada-success));
     color: #ffffff;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     line-height: 1;
-    padding: 3px 7px;
+    padding: 2px 6px;
     border-radius: 999px;
-    min-width: 20px;
+    min-width: 19px;
+    height: 19px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     text-align: center;
+    box-shadow: 0 2px 4px rgb(var(--nada-success) / 0.2);
+  }
+
+  .nada-avatar-unread {
+    position: relative;
+  }
+  
+  .nada-avatar-unread::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border: 2px solid rgb(var(--nada-success));
+    border-radius: 999px;
+    pointer-events: none;
+    animation: nada-pulse-ring 2s ease-out infinite;
   }
 
   /* Overlay / backdrop for modals */
