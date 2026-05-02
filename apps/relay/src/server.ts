@@ -262,7 +262,7 @@ function routeCallSignal(
         JSON.stringify({ type: "delivery", id: envelope.id, status: "failed" })
       );
     });
-    if (envelope.callType === "offer") {
+    if (envelope.signalType === "offer") {
       void (app as any).sendPushNotification?.(
         envelope.recipient,
         JSON.stringify({ title: "Incoming Call", body: "You have an incoming call." })

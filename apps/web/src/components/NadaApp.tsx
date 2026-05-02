@@ -53,7 +53,15 @@ import {
   Zap
 } from "lucide-react";
 import { IncomingCallModal, VoiceCallOverlay, VideoCallOverlay } from "@/components/CallOverlay";
-import { VoiceNoteBubble, VoiceRecorderBar, isVoiceNoteMessage, parseVoiceNoteBody } from "@/components/VoiceNote";
+import {
+  VoiceNoteBubble,
+  VoiceRecorderBar,
+  isVoiceNoteMessage,
+  parseVoiceNoteBody,
+  isInlineFileMessage,
+  parseInlineFileMessage,
+  formatFileSize
+} from "@/components/VoiceNote";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { useCallStore } from "@/stores/useCallStore";
 import { QRCodeSVG } from "qrcode.react";
@@ -900,12 +908,27 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     }
   }, [callSignals, identity.pubkeyHash, contacts, callStore]);
 
+  // Helper exposed for ChatPanel's onTyping prop
+  const handleTypingStop = useCallback(() => {
+    if (!selectedContact || !selectedChatId) return;
+    sendTyping({
+      type: "typing",
+      chatId: selectedChatId,
+      sender: identity.pubkeyHash,
+      recipient: selectedContact.pubkeyHash,
+      isTyping: false
+    });
+  }, [selectedContact, selectedChatId, identity.pubkeyHash, sendTyping]);
+
   const sendMessage = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     const trimmed = messageText.trim();
     if (!trimmed || !selectedChatId) {
       return;
     }
+
+    // Always stop typing indicator when sending
+    handleTypingStop();
 
     if (editingMessageId) {
       const editedAt = Date.now();
@@ -1024,39 +1047,115 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     }
   };
 
+  const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB inline limit
+
   const attachFile = async (file: File): Promise<void> => {
-    if (!selectedContact || !selectedChatId) {
+    if (!selectedChatId) return;
+    if (!selectedContact && !selectedGroup) return;
+
+    // Reject oversized files
+    if (file.size > MAX_FILE_BYTES) {
+      showToast(`File too large (max ${MAX_FILE_BYTES / 1024 / 1024} MB). Please choose a smaller file.`);
       return;
     }
 
-    setUploadStatus("Encrypting file locally...");
-    const encryptedFile = await encryptFileForBlindUpload(file);
-    await nadaDb.encryptedFiles.put(encryptedFile);
-    const uploadSlot = await requestBlindUploadSlot(encryptedFile);
+    const ALLOWED_TYPES = [
+      "image/", "video/", "audio/",
+      "application/pdf",
+      "application/zip",
+      "application/x-zip-compressed",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument",
+      "text/"
+    ];
+    const allowed = ALLOWED_TYPES.some((t) => file.type.startsWith(t));
+    if (!allowed) {
+      showToast(`Unsupported file type: ${file.type || "unknown"}`);
+      return;
+    }
+
+    setUploadStatus(`Preparing ${file.name}…`);
+
+    // Read as data URL
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsDataURL(file);
+    }).catch(() => null);
+
+    if (!dataUrl) {
+      showToast("Failed to read file. Please try again.");
+      setUploadStatus(null);
+      return;
+    }
+
+    // Encode as: __media__:<mimeType>|<filename>|<sizeBytes>|<dataUrl>
+    const body = `__media__:${file.type || "application/octet-stream"}|${file.name}|${file.size}|${dataUrl}`;
 
     const id = crypto.randomUUID();
     const timestamp = Date.now();
+    const expiresAt = disappearingTimer > 0 ? timestamp + disappearingTimer : undefined;
+
+    const ciphertext = selectedGroup?.groupSenderKey
+      ? JSON.stringify(await encryptGroupMessage(body, selectedGroup.groupSenderKey))
+      : await mockEncryptMessage(body);
+
+    let sent = false;
+    if (selectedGroup) {
+      const recipients = selectedGroup.memberPubkeyHashes.filter((m) => m !== identity.pubkeyHash);
+      sent = sendGroupEnvelope({
+        type: "group-message",
+        id,
+        groupId: selectedGroup.id,
+        recipients,
+        sender: identity.pubkeyHash,
+        timestamp,
+        ciphertext,
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {}),
+        ...(expiresAt ? { expiresAt } : {})
+      });
+    } else if (selectedContact) {
+      sent = sendEnvelope({
+        type: "message",
+        id,
+        recipient: selectedContact.pubkeyHash,
+        sender: identity.pubkeyHash,
+        timestamp,
+        ciphertext,
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+      });
+    }
+
+    const recipientHash = selectedGroup?.id ?? selectedContact?.pubkeyHash ?? identity.pubkeyHash;
     const record: MessageRecord = {
       id,
       chatId: selectedChatId,
       senderPubkeyHash: identity.pubkeyHash,
-      recipientPubkeyHash: selectedContact.pubkeyHash,
+      recipientPubkeyHash: recipientHash,
       direction: "outbound",
       kind: "file",
-      body: `Encrypted file prepared: ${encryptedFile.name}`,
-      encryptedPayload: encryptedFile.contentHash,
-      status: "local",
+      body,
+      encryptedPayload: ciphertext,
+      status: sent ? "sent" : "queued",
       createdAt: timestamp,
-      ...(encryptedFile.expiresAt ? { expiresAt: encryptedFile.expiresAt } : {})
+      ...(expiresAt ? { expiresAt } : {}),
+      ...(replyToId ? { replyToId } : {})
     };
 
     await nadaDb.messages.put(record);
+    if (selectedGroup) {
+      await nadaDb.chats.update(selectedGroup.id, { updatedAt: timestamp });
+      setChats((current) =>
+        current.map((chat) =>
+          chat.id === selectedGroup.id ? { ...chat, updatedAt: timestamp } : chat
+        )
+      );
+    }
     setMessages((current) => [...current, record]);
-    setUploadStatus(
-      uploadSlot
-        ? `Blind upload slot ready: ${encryptedFile.contentHash.slice(0, 16)}`
-        : `Encrypted file stored locally: ${encryptedFile.contentHash.slice(0, 16)}`
-    );
+    setReplyToId(null);
+    setUploadStatus(null);
+    showToast(`${file.type.startsWith("image/") ? "📷 Image" : "📎 File"} sent!`);
   };
 
   const createGroup = async (
@@ -1719,6 +1818,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             setChatPrefState(await getChatPref(selectedChatId));
           }
         }}
+        contacts={contacts}
         onUnblock={async () => {
           if (!selectedChatId || !selectedContact) return;
           await setChatPref(selectedChatId, {
@@ -1738,6 +1838,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             isTyping
           });
         }}
+        onTypingStop={handleTypingStop}
         onReact={(message, emoji) => {
           void sendReactionToMessage(message, emoji);
         }}
@@ -2202,6 +2303,8 @@ function ChatPanel({
   blurShieldRevealed: boolean;
   onToggleBlurShield: () => void;
   onRevealBlurShield: () => void;
+  onTypingStop: () => void;
+  contacts: ContactRecord[];
 }): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [showOptions, setShowOptions] = useState(false);
@@ -2221,6 +2324,8 @@ function ChatPanel({
   const pinnedMsgRef = useRef<HTMLDivElement | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeStartX = useRef<number | null>(null);
+  const swipeOffsetX = useRef<number>(0);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const recordingTimer = useRef<number | null>(null);
@@ -2929,16 +3034,47 @@ function ChatPanel({
                   e.preventDefault();
                   setActiveMessageMenu(isMenuOpen ? null : message.id);
                 }}
-                onPointerDown={() => {
+                onPointerDown={(e) => {
                   longPressTimer.current = setTimeout(() => {
                     setActiveMessageMenu(message.id);
                   }, 500);
+                  swipeStartX.current = e.clientX;
+                  swipeOffsetX.current = 0;
                 }}
-                onPointerUp={() => {
-                  if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                onPointerMove={(e) => {
+                  if (swipeStartX.current !== null) {
+                    const diff = e.clientX - swipeStartX.current;
+                    // Only allow swipe left for sent, right for received
+                    if ((message.direction === "outbound" && diff < 0) || 
+                        (message.direction === "inbound" && diff > 0)) {
+                      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                      swipeOffsetX.current = diff;
+                      e.currentTarget.style.transform = `translateX(${diff}px)`;
+                      // Trigger reply feedback
+                      if (Math.abs(diff) > 50 && swipeStartX.current !== -1) {
+                         if ("vibrate" in navigator) navigator.vibrate(10);
+                         swipeStartX.current = -1; // Mark triggered
+                      }
+                    }
+                  }
                 }}
-                onPointerLeave={() => {
+                onPointerUp={(e) => {
                   if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                  if (swipeStartX.current === -1) {
+                    onReply(message);
+                  }
+                  swipeStartX.current = null;
+                  swipeOffsetX.current = 0;
+                  e.currentTarget.style.transform = `translateX(0px)`;
+                  e.currentTarget.style.transition = 'transform 0.2s ease-out';
+                  setTimeout(() => {
+                    if (e.currentTarget) e.currentTarget.style.transition = '';
+                  }, 200);
+                }}
+                onPointerLeave={(e) => {
+                  if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                  swipeStartX.current = null;
+                  e.currentTarget.style.transform = `translateX(0px)`;
                 }}
               >
                 <div
@@ -2951,8 +3087,38 @@ function ChatPanel({
                   )}
                 >
                   {message.replyToId ? (
-                    <div className="mb-1.5 rounded-lg bg-black/10 px-2.5 py-1.5 text-xs opacity-80">
-                      Reply
+                    <div 
+                      className="mb-1.5 rounded-lg bg-black/10 px-2.5 py-1.5 text-xs opacity-80 cursor-pointer hover:opacity-100 transition-opacity"
+                      onClick={() => {
+                        const el = messageRefs.current[message.replyToId!];
+                        if (el) {
+                          el.scrollIntoView({ behavior: "smooth", block: "center" });
+                          el.animate([
+                            { backgroundColor: 'rgba(56, 189, 248, 0.3)' },
+                            { backgroundColor: 'transparent' }
+                          ], { duration: 1500 });
+                        }
+                      }}
+                    >
+                      {(() => {
+                        const original = messages.find((m) => m.id === message.replyToId);
+                        if (!original) return "Reply to deleted message";
+                        const senderName = original.senderPubkeyHash === myPubkeyHash ? "You" : 
+                          contacts.find(c => c.pubkeyHash === original.senderPubkeyHash)?.localDisplayName || "Someone";
+                        
+                        let previewText = original.body;
+                        if (isVoiceNoteMessage(original.body)) previewText = "🎙 Voice note";
+                        else if (isInlineImageMessage(original.body)) previewText = "📷 Image";
+                        else if (isInlineFileMessage(original.body)) previewText = "📎 File";
+                        else if (previewText.length > 40) previewText = previewText.slice(0, 40) + "…";
+                        
+                        return (
+                          <div className="flex flex-col border-l-2 border-nada-accent pl-2">
+                            <span className="font-semibold text-[10px] text-nada-accent">{senderName}</span>
+                            <span className="truncate opacity-80">{previewText}</span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ) : null}
                   {message.deletedAt ? (
@@ -2965,6 +3131,40 @@ function ChatPanel({
                       durationSeconds={parseVoiceNoteBody(message.body).durationSeconds}
                       outbound={message.direction === "outbound"}
                     />
+                  ) : isInlineImageMessage(message.body) ? (
+                    <div className="flex flex-col gap-1">
+                      <img 
+                        src={parseInlineFileMessage(message.body)?.dataUrl} 
+                        alt="Attached image" 
+                        className="rounded-lg max-h-64 object-contain bg-black/5"
+                        loading="lazy"
+                      />
+                      <span className="text-[10px] opacity-70">
+                        {parseInlineFileMessage(message.body)?.filename}
+                      </span>
+                    </div>
+                  ) : isInlineFileMessage(message.body) ? (
+                    <div className="flex items-center gap-3 rounded-lg bg-black/5 p-2">
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-nada-accent/20 text-nada-accent">
+                        <Download size={18} />
+                      </div>
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="truncate text-sm font-medium">
+                          {parseInlineFileMessage(message.body)?.filename}
+                        </span>
+                        <span className="text-[10px] opacity-70">
+                          {formatFileSize(parseInlineFileMessage(message.body)?.sizeBytes || 0)}
+                        </span>
+                      </div>
+                      <a 
+                        href={parseInlineFileMessage(message.body)?.dataUrl}
+                        download={parseInlineFileMessage(message.body)?.filename}
+                        className="p-1 text-nada-secondary hover:text-nada-primary"
+                        title="Download file"
+                      >
+                        <Download size={16} />
+                      </a>
+                    </div>
                   ) : (
                     <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
                       {message.body}
@@ -3142,8 +3342,19 @@ function ChatPanel({
 
         {replyMessage ? (
           <div className="mb-2 flex items-center justify-between rounded-lg bg-nada-muted px-3 py-2 text-xs text-nada-secondary">
-            <span className="truncate">Replying to {replyMessage.body}</span>
-            <button className="ml-2 shrink-0" onClick={onCancelReply} type="button">
+            <div className="flex flex-col min-w-0 border-l-2 border-nada-accent pl-2">
+              <span className="font-semibold text-nada-primary text-[10px]">
+                Replying to {replyMessage.senderPubkeyHash === myPubkeyHash ? "yourself" : 
+                  contact?.pubkeyHash === replyMessage.senderPubkeyHash ? contact?.localDisplayName : "someone"}
+              </span>
+              <span className="truncate opacity-80">
+                {isVoiceNoteMessage(replyMessage.body) ? "🎙 Voice note" : 
+                 isInlineImageMessage(replyMessage.body) ? "📷 Image" :
+                 isInlineFileMessage(replyMessage.body) ? "📎 File" :
+                 replyMessage.body}
+              </span>
+            </div>
+            <button className="ml-2 shrink-0 p-1 hover:bg-nada-surface rounded-md transition-colors" onClick={onCancelReply} type="button">
               <X size={14} />
             </button>
           </div>
@@ -3204,7 +3415,16 @@ function ChatPanel({
                 className="nada-input h-10 min-w-0 flex-1 px-4 text-sm disabled:opacity-50"
                 disabled={peerIsBlocked}
                 onChange={(event) => {
-                  onMessageTextChange(event.target.value);
+                  const val = event.target.value;
+                  onMessageTextChange(val);
+                  
+                  if (val.trim() === "") {
+                    wasTyping.current = false;
+                    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+                    onTypingStop();
+                    return;
+                  }
+
                   if (!wasTyping.current) {
                     wasTyping.current = true;
                     onTyping(true);

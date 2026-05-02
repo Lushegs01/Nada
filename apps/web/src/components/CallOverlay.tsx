@@ -304,10 +304,12 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
 
     // Attach remote stream to remote video
     const remoteEl = remoteVideoRef.current;
-    if (remoteEl && remoteStream && attachedRemoteRef.current !== remoteStream) {
-      attachedRemoteRef.current = remoteStream;
-      remoteEl.srcObject = remoteStream;
-      if (call?.phase === "active") {
+    if (remoteEl && remoteStream) {
+      if (attachedRemoteRef.current !== remoteStream) {
+        attachedRemoteRef.current = remoteStream;
+        remoteEl.srcObject = remoteStream;
+      }
+      if (call?.phase === "active" && remoteEl.paused) {
         remoteEl.play().catch(() => {});
       }
     }
