@@ -355,48 +355,53 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
       >
-        {/* Remote video — always in DOM, toggled via CSS so srcObject assignment works */}
+        {/* Remote video — visible only when active */}
         <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
-          // NOT muted — we need to hear the remote party
           className={cn(
-            "h-full w-full object-cover",
+            "absolute inset-0 h-full w-full object-cover z-10",
             showAvatar ? "hidden" : "block"
           )}
         />
 
         {/* Fallback avatar/status when not yet active or no remote video */}
         {showAvatar && (
-          <div className="flex h-full flex-col items-center justify-center gap-5 bg-gradient-to-b from-slate-800 to-black">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5">
             <div className="relative">
               {(call.phase === "outgoing-ringing" || call.phase === "connecting") && (
-                <span className="absolute inset-0 animate-ping rounded-full bg-white/10" />
+                <span className="absolute inset-0 animate-ping rounded-full bg-white/20" />
               )}
-              <div className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl ring-4 ring-white/10">
+              <div className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl ring-4 ring-white/20">
                 <Avatar label={call.peerName} size="lg" />
               </div>
             </div>
-            <p className="text-2xl font-semibold text-white">{call.peerName}</p>
-            <div className="flex flex-col items-center gap-1">
+            <p className="text-3xl font-semibold text-white drop-shadow-lg">{call.peerName}</p>
+            <div className="flex flex-col items-center gap-1 drop-shadow-md">
               <PhaseLabel phase={call.phase} />
               <CallTimer startedAt={call.startedAt} />
             </div>
             {call.failureReason && (
-              <p className="rounded-xl bg-red-500/20 px-4 py-2 text-sm text-red-300">
+              <p className="rounded-xl bg-red-500/80 px-4 py-2 text-sm text-white backdrop-blur-md">
                 {call.failureReason}
               </p>
             )}
           </div>
         )}
 
-        {/* Local video PIP — always muted to prevent echo */}
+        {/* Local video — full screen when ringing, PIP when active */}
         <motion.div 
-          drag
+          layout
+          drag={isActive}
           dragConstraints={{ top: 16, right: -16, bottom: -120, left: -16 }}
           dragElastic={0.1}
-          className="absolute right-4 top-4 z-[900] h-40 w-28 cursor-grab active:cursor-grabbing overflow-hidden rounded-xl bg-black/80 shadow-2xl ring-1 ring-white/20 md:h-48 md:w-32"
+          className={cn(
+            "overflow-hidden bg-slate-900 shadow-2xl",
+            isActive 
+              ? "absolute right-4 top-4 z-[900] h-40 w-28 cursor-grab active:cursor-grabbing rounded-xl ring-1 ring-white/20 md:h-48 md:w-32" 
+              : "absolute inset-0 z-0 h-full w-full rounded-none"
+          )}
         >
           {!call.isCameraOff ? (
             <video
@@ -404,18 +409,20 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
               autoPlay
               muted        // ← CRITICAL: local preview must be muted
               playsInline
-              className="h-full w-full object-cover"
+              className={cn("h-full w-full object-cover transition-transform duration-700", !isActive && "scale-105")}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-slate-800">
-              <VideoOff size={24} className="text-white/40" />
+              <VideoOff size={isActive ? 24 : 48} className="text-white/40" />
             </div>
           )}
+          {/* Subtle gradient overlay when full screen so avatar text is readable */}
+          {!isActive && <div className="absolute inset-0 bg-black/40 pointer-events-none" />}
         </motion.div>
 
         {/* Live call header info */}
         {isActive && (
-          <div className="absolute left-0 right-0 top-0 flex flex-col items-center justify-center pt-8 bg-gradient-to-b from-black/60 to-transparent pb-8 pointer-events-none">
+          <div className="absolute left-0 right-0 top-0 flex flex-col items-center justify-center pt-12 bg-gradient-to-b from-black/80 via-black/40 to-transparent pb-10 pointer-events-none z-[850]">
              <div className="flex items-center gap-2 text-white/90 font-medium">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 <CallTimer startedAt={call.startedAt} />
@@ -425,7 +432,7 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
         )}
 
         {/* Controls bar (WhatsApp style floating pill) */}
-        <div className="absolute inset-x-0 bottom-8 flex justify-center pointer-events-none">
+        <div className="absolute inset-x-0 bottom-8 flex justify-center pointer-events-none z-[950]">
           <div className="flex items-center gap-6 rounded-full bg-slate-900/60 backdrop-blur-xl px-6 py-4 shadow-2xl ring-1 ring-white/10 pointer-events-auto">
             <CallControl
               label={call.isCameraOff ? "Camera on" : "Camera off"}
@@ -441,6 +448,16 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
               active={call.isMuted}
               variant="neutral"
             />
+            <button
+              aria-label="Add Participant"
+              onClick={() => {
+                 // Open an alert letting them know group calls require SFU
+                 alert("Group calling requires a P2P Mesh or SFU backend upgrade. NADA's current WebRTC layer is strictly 1-on-1.");
+              }}
+              className="grid h-12 w-12 place-items-center rounded-full bg-white/10 transition-transform hover:scale-105 hover:bg-white/20 active:scale-95"
+            >
+              <Plus size={22} className="text-white" />
+            </button>
             <button
               aria-label="End call"
               onClick={onEnd}
