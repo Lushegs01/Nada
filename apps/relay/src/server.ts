@@ -12,6 +12,7 @@ import {
   type MessageEnvelope,
   type ProductionEnvelope,
   type PubkeyHash,
+  type ReactionEnvelope,
   type TypingEnvelope
 } from "@nada/types";
 
@@ -135,6 +136,11 @@ async function handleSocketMessage(
 
   if ("type" in result.data && result.data.type === "typing") {
     routeTyping(result.data, sessions);
+    return;
+  }
+
+  if ("type" in result.data && result.data.type === "reaction") {
+    routeReaction(result.data, sessions);
     return;
   }
 
@@ -278,6 +284,19 @@ function routeTyping(
   const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
   if (!recipients || recipients.size === 0) return;
   const serialized = JSON.stringify({ type: "typing", envelope });
+  recipients.forEach((socket) => {
+    socket.send(serialized);
+  });
+}
+
+// Reaction events are ephemeral — forward to recipient, never queue or persist.
+function routeReaction(
+  envelope: ReactionEnvelope,
+  sessions: SessionRegistry
+): void {
+  const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
+  if (!recipients || recipients.size === 0) return;
+  const serialized = JSON.stringify({ type: "reaction", envelope });
   recipients.forEach((socket) => {
     socket.send(serialized);
   });

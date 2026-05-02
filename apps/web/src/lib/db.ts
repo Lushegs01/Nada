@@ -25,7 +25,7 @@ export interface SessionRecord {
   updatedAt: number;
 }
 
-// ── Chat Preferences (mute / clear / block) ──────────────────────────────────
+// ── Chat Preferences (mute / clear / block / pin) ─────────────────────────────
 // Stored per-chat per-user in IndexedDB. Zero-knowledge: no server-side storage.
 
 export interface ChatPrefRecord {
@@ -37,6 +37,10 @@ export interface ChatPrefRecord {
   clearedAt: number;
   /** Pubkey hashes this user has blocked (only relevant for direct chats) */
   blockedPubkeyHashes: string[];
+  /** ID of the pinned message in this chat */
+  pinnedMessageId: string | null;
+  /** Truncated body of the pinned message (shown in banner) */
+  pinnedMessageBody: string | null;
   updatedAt: number;
 }
 
@@ -72,6 +76,10 @@ class NadaDexie extends Dexie {
     this.version(4).stores({
       chatPrefs: "chatId, updatedAt"
     });
+    // Version 5: no store schema changes required — pinnedMessageId / pinnedMessageBody
+    // are JSON fields on the existing chatPrefs store.  Existing records default to null
+    // via getChatPref(). Bump is a no-op but keeps the version sequence intact.
+    this.version(5).stores({});
   }
 }
 
@@ -100,6 +108,8 @@ export async function getChatPref(chatId: string): Promise<ChatPrefRecord> {
     mutedUntil: 0,
     clearedAt: 0,
     blockedPubkeyHashes: [],
+    pinnedMessageId: null,
+    pinnedMessageBody: null,
     updatedAt: 0
   };
 }
@@ -125,4 +135,15 @@ export function isMuted(pref: ChatPrefRecord): boolean {
 
 export function isBlocked(pref: ChatPrefRecord, peerPubkeyHash: string): boolean {
   return pref.blockedPubkeyHashes.includes(peerPubkeyHash);
+}
+
+// ── Global settings helpers ───────────────────────────────────────────────────
+
+export async function getGlobalSetting(key: string): Promise<string | null> {
+  const record = await nadaDb.settings.get(key);
+  return record?.value ?? null;
+}
+
+export async function setGlobalSetting(key: string, value: string): Promise<void> {
+  await nadaDb.settings.put({ key, value, updatedAt: Date.now() });
 }

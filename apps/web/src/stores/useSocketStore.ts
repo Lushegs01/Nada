@@ -10,6 +10,7 @@ import {
   type MessageEnvelope,
   type ProductionEnvelope,
   type PubkeyHash,
+  type ReactionEnvelope,
   type TypingEnvelope
 } from "@nada/types";
 
@@ -35,18 +36,27 @@ interface SocketState {
   sealedIncoming: ProductionEnvelope[];
   /** Map of chatId -> sender pubkeyHash for active typing indicators */
   typingIndicators: Record<string, string>;
+  /** Incoming reactions from the relay [chatId:messageId:emoji:sender, ...] deduplicated via a set in useEffect */
+  incomingReactions: ReactionEnvelope[];
   lastError: string | null;
   reconnectAttempt: number;
   registeredIdentity: RelayIdentity | null;
   shouldReconnect: boolean;
   socket: WebSocket | null;
   status: RelayStatus;
+  /** When true, typing events are NOT emitted and online status is suppressed */
+  ghostMode: boolean;
   connect: (identity: RelayIdentity) => void;
   disconnect: () => void;
   sendEnvelope: (envelope: MessageEnvelope) => boolean;
   sendGroupEnvelope: (envelope: GroupMessageEnvelope) => boolean;
   sendCallSignal: (envelope: CallSignalEnvelope) => boolean;
+  /**
+   * Sends a typing event — no-ops silently when ghostMode is ON.
+   */
   sendTyping: (envelope: TypingEnvelope) => boolean;
+  sendReaction: (envelope: ReactionEnvelope) => boolean;
+  setGhostMode: (enabled: boolean) => void;
 }
 
 let reconnectTimer: number | null = null;
@@ -81,6 +91,7 @@ export const useSocketStore = create<SocketState>((set, get) => {
     deliveries: {},
     groupIncoming: [],
     incoming: [],
+    incomingReactions: [],
     lastError: null,
     reconnectAttempt: 0,
     registeredIdentity: null,
@@ -89,6 +100,7 @@ export const useSocketStore = create<SocketState>((set, get) => {
     socket: null,
     status: "idle",
     typingIndicators: {},
+    ghostMode: false,
     connect: (identity) => {
       const current = get();
       if (
@@ -196,6 +208,13 @@ export const useSocketStore = create<SocketState>((set, get) => {
             }
             break;
           }
+          case "reaction": {
+            const envelope = result.data.envelope;
+            set((state) => ({
+              incomingReactions: [...state.incomingReactions, envelope]
+            }));
+            break;
+          }
           case "sealed-message": {
             const envelope = result.data.envelope;
             set((state) => ({
@@ -270,6 +289,9 @@ export const useSocketStore = create<SocketState>((set, get) => {
       return true;
     },
     sendTyping: (envelope) => {
+      // Ghost mode: suppress typing indicator entirely
+      if (get().ghostMode) return false;
+
       const socket = get().socket;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         return false;
@@ -277,6 +299,18 @@ export const useSocketStore = create<SocketState>((set, get) => {
 
       socket.send(JSON.stringify(envelope));
       return true;
+    },
+    sendReaction: (envelope) => {
+      const socket = get().socket;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return false;
+      }
+
+      socket.send(JSON.stringify(envelope));
+      return true;
+    },
+    setGhostMode: (enabled) => {
+      set({ ghostMode: enabled });
     }
   };
 });

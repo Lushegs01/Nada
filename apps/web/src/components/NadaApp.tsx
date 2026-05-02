@@ -22,12 +22,17 @@ import {
   CreditCard,
   Download,
   Edit3,
+  Eye,
+  EyeOff,
+  Flame,
+  Ghost,
   Gift,
   MessageCircle,
   Mic,
   MoreVertical,
   Paperclip,
   Phone,
+  Pin,
   Plus,
   QrCode,
   Reply,
@@ -37,14 +42,15 @@ import {
   Share2,
   ShieldAlert,
   ShieldOff,
+  Smile,
   Trash2,
   Upload,
   User,
   Users,
-  Smile,
   Video,
   WifiOff,
-  X
+  X,
+  Zap
 } from "lucide-react";
 import { IncomingCallModal, VoiceCallOverlay, VideoCallOverlay } from "@/components/CallOverlay";
 import { VoiceNoteBubble, VoiceRecorderBar, isVoiceNoteMessage, parseVoiceNoteBody } from "@/components/VoiceNote";
@@ -73,6 +79,7 @@ import type {
   InvitePayload,
   MessageEnvelope,
   PaidBillingPlan,
+  ReactionEnvelope,
   SubscriptionStatusResponse
 } from "@nada/types";
 import { Avatar, Button, IconButton, cn } from "@nada/ui";
@@ -86,6 +93,8 @@ import {
   setChatPref,
   isMuted,
   isBlocked,
+  getGlobalSetting,
+  setGlobalSetting,
   type ChatPrefRecord
 } from "@/lib/db";
 import {
@@ -368,6 +377,17 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   
   const callStore = useCallStore();
   const activeCall = callStore.call;
+
+  // ── new feature state ────────────────────────────────────────────────────────
+  const incomingReactions = useSocketStore((state) => state.incomingReactions);
+  const sendReaction = useSocketStore((state) => state.sendReaction);
+  const socketGhostMode = useSocketStore((state) => state.ghostMode);
+  const setSocketGhostMode = useSocketStore((state) => state.setGhostMode);
+  const processedReactions = useRef<Set<string>>(new Set());
+
+  const [ghostMode, setGhostMode] = useState(false);
+  const [mood, setMood] = useState("Available");
+  // ─────────────────────────────────────────────────────────────────────────────
   
   const [chats, setChats] = useState<ChatRecord[]>([]);
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
@@ -384,9 +404,18 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [chatPref, setChatPrefState] = useState<ChatPrefRecord>({
-    chatId: "", mutedUntil: 0, clearedAt: 0, blockedPubkeyHashes: [], updatedAt: 0
+    chatId: "", mutedUntil: 0, clearedAt: 0, blockedPubkeyHashes: [],
+    pinnedMessageId: null, pinnedMessageBody: null, updatedAt: 0
   });
   const [showProfile, setShowProfile] = useState(false);
+  const [blurShieldActive, setBlurShieldActive] = useState(false);
+  const [blurShieldRevealed, setBlurShieldRevealed] = useState(false);
+  const [showGhostModal, setShowGhostModal] = useState(false);
+  const [showMoodModal, setShowMoodModal] = useState(false);
+  // last-message preview cache: chatId -> { body, ts }
+  const [lastMessages, setLastMessages] = useState<Record<string, { body: string; ts: number }>>({});
+  // unread count cache: chatId -> count
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const processedGroupIncoming = useRef<Set<string>>(new Set());
   const processedGroupInvite = useRef("");
   const processedIncoming = useRef<Set<string>>(new Set());
@@ -446,6 +475,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
   const chatIsMuted = useMemo(() => isMuted(chatPref), [chatPref]);
 
+  const [dashboardToast, setDashboardToast] = useState<string | null>(null);
+  const showToast = useCallback((msg: string) => {
+    setDashboardToast(msg);
+    setTimeout(() => setDashboardToast(null), 2500);
+  }, []);
+
+
+
   // Load chat prefs when selected chat changes
   useEffect(() => {
     if (!selectedChatId) return;
@@ -474,6 +511,114 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       active = false;
     };
   }, []);
+
+  // Load ghost mode + mood from settings on mount
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      getGlobalSetting("ghostMode"),
+      getGlobalSetting("mood")
+    ]).then(([gm, md]) => {
+      if (!active) return;
+      const enabled = gm === "true";
+      setGhostMode(enabled);
+      setSocketGhostMode(enabled);
+      if (md) setMood(md);
+    });
+    return () => { active = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-blur when the page loses visibility (if blur shield is toggled on)
+  useEffect(() => {
+    if (!blurShieldActive) return;
+    const handleHidden = () => {
+      setBlurShieldRevealed(false);
+    };
+    document.addEventListener("visibilitychange", handleHidden);
+    window.addEventListener("blur", handleHidden);
+    return () => {
+      document.removeEventListener("visibilitychange", handleHidden);
+      window.removeEventListener("blur", handleHidden);
+    };
+  }, [blurShieldActive]);
+
+  // Process incoming reactions from socket
+  useEffect(() => {
+    const newReactions = incomingReactions.filter(
+      (r) => !processedReactions.current.has(r.id)
+    );
+    if (newReactions.length === 0) return;
+
+    let active = true;
+    void Promise.all(
+      newReactions.map(async (r) => {
+        processedReactions.current.add(r.id);
+        const msg = await nadaDb.messages.get(r.messageId);
+        if (!msg) return;
+        const existing = msg.reactions ?? {};
+        const senders = existing[r.emoji] ?? [];
+        let updated: string[];
+        if (r.removed) {
+          updated = senders.filter((s) => s !== r.sender);
+        } else if (!senders.includes(r.sender)) {
+          updated = [...senders, r.sender];
+        } else {
+          return;
+        }
+        const nextReactions = { ...existing, [r.emoji]: updated };
+        if (updated.length === 0) delete nextReactions[r.emoji];
+        await nadaDb.messages.update(r.messageId, { reactions: nextReactions });
+        if (active) {
+          setMessages((current) =>
+            current.map((m) =>
+              m.id === r.messageId ? { ...m, reactions: nextReactions } : m
+            )
+          );
+        }
+      })
+    );
+    return () => { active = false; };
+  }, [incomingReactions]);
+
+  // Compute last-message preview + unread counts for sidebar
+  useEffect(() => {
+    if (contacts.length === 0 && chats.length === 0) return;
+    let active = true;
+
+    const allChatIds = [
+      ...contacts.map((c) => directChatId(identity.pubkeyHash, c.pubkeyHash)),
+      ...chats.map((c) => c.id)
+    ];
+
+    void Promise.all(
+      allChatIds.map(async (chatId) => {
+        const msgs = await loadMessagesForChat(chatId);
+        const visible = msgs.filter((m) => !m.deletedAt);
+        const last = visible[visible.length - 1];
+        const unread = visible.filter(
+          (m) => m.direction === "inbound" && m.status !== "delivered"
+        ).length;
+        return { chatId, body: last?.body ?? "", ts: last?.createdAt ?? 0, unread };
+      })
+    ).then((results) => {
+      if (!active) return;
+      const lm: Record<string, { body: string; ts: number }> = {};
+      const uc: Record<string, number> = {};
+      results.forEach(({ chatId, body, ts, unread }) => {
+        lm[chatId] = { body, ts };
+        uc[chatId] = unread;
+      });
+      setLastMessages(lm);
+      setUnreadCounts(uc);
+    });
+
+    return () => { active = false; };
+  // Recompute when messages, contacts, or chats change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contacts.length, chats.length, messages.length, identity.pubkeyHash]);
+
+
 
   useEffect(() => {
     let active = true;
@@ -1146,6 +1291,65 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     );
   };
 
+  const sendReactionToMessage = async (
+    message: MessageRecord,
+    emoji: string
+  ): Promise<void> => {
+    if (!selectedChatId) return;
+
+    const existing = message.reactions ?? {};
+    const senders = existing[emoji] ?? [];
+    const alreadyReacted = senders.includes(identity.pubkeyHash);
+    let updated: string[];
+    if (alreadyReacted) {
+      updated = senders.filter((s) => s !== identity.pubkeyHash);
+    } else {
+      updated = [...senders, identity.pubkeyHash];
+    }
+    const nextReactions = { ...existing, [emoji]: updated };
+    if (updated.length === 0) delete nextReactions[emoji];
+
+    await nadaDb.messages.update(message.id, { reactions: nextReactions });
+    setMessages((current) =>
+      current.map((m) =>
+        m.id === message.id ? { ...m, reactions: nextReactions } : m
+      )
+    );
+
+    // Emit to peer via socket
+    const peerPubkeyHash =
+      selectedContact?.pubkeyHash ??
+      selectedGroup?.memberPubkeyHashes.find((h) => h !== identity.pubkeyHash) ??
+      null;
+
+    if (peerPubkeyHash) {
+      const envelope: ReactionEnvelope = {
+        type: "reaction",
+        id: crypto.randomUUID(),
+        chatId: selectedChatId,
+        messageId: message.id,
+        recipient: peerPubkeyHash,
+        sender: identity.pubkeyHash,
+        emoji,
+        removed: alreadyReacted,
+        timestamp: Date.now()
+      };
+      sendReaction(envelope);
+    }
+  };
+
+  const pinMessage = async (message: MessageRecord): Promise<void> => {
+    if (!selectedChatId) return;
+    const alreadyPinned = chatPref.pinnedMessageId === message.id;
+    await setChatPref(selectedChatId, {
+      pinnedMessageId: alreadyPinned ? null : message.id,
+      pinnedMessageBody: alreadyPinned ? null : (message.deletedAt ? "Deleted message" : message.body.slice(0, 120))
+    });
+    setChatPrefState(await getChatPref(selectedChatId));
+  };
+
+
+
   const copyGroupInvite = useCallback((): void => {
     if (!selectedGroup?.groupSenderKey || typeof window === "undefined") {
       return;
@@ -1240,7 +1444,28 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-nada-accent">
               NADA
             </p>
-            <h1 className="mt-0.5 text-xl font-semibold text-nada-primary">Chats</h1>
+            <h1 className="mt-0.5 text-xl font-semibold text-nada-primary">{displayName}</h1>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <button
+                className="nada-mood-pill"
+                onClick={() => setShowMoodModal(true)}
+                type="button"
+                title="Change mood"
+              >
+                {mood === "Available" ? "🟢" :
+                 mood === "Busy" ? "🔴" :
+                 mood === "Studying" ? "📚" :
+                 mood === "Chilling" ? "😎" :
+                 mood === "Do Not Disturb" ? "🌙" :
+                 mood === "Invisible" ? "👻" : "●"}
+                {" "}{mood}
+              </button>
+              {ghostMode && (
+                <span className="nada-ghost-badge">
+                  <Ghost size={10} /> Ghost
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex gap-1">
             <IconButton
@@ -1294,38 +1519,53 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
               }}
             />
           ) : (
-            <>
+          <>
               {chats
                 .filter((chat) => matchesSearch(chat.title, searchQuery))
-                .map((chat) => (
-                  <button
-                    className={cn(
-                      "group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-150",
-                      selectedGroupId === chat.id
-                        ? "bg-nada-accent/10"
-                        : "hover:bg-nada-muted"
-                    )}
-                    key={chat.id}
-                    onClick={() => {
-                      setSelectedContactHash(null);
-                      setSelectedGroupId(chat.id);
-                      setDisappearingTimer(chat.disappearingTimer);
-                      setMessageSearchQuery("");
-                    }}
-                    type="button"
-                  >
-                    <Avatar label={chat.title} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-nada-primary">
-                        {chat.title}
+                .map((chat) => {
+                  const chatId = chat.id;
+                  const lastMsg = lastMessages[chatId];
+                  const unread = unreadCounts[chatId] ?? 0;
+                  return (
+                    <button
+                      className={cn(
+                        "group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-150",
+                        selectedGroupId === chat.id
+                          ? "bg-nada-accent/10"
+                          : "hover:bg-nada-muted"
+                      )}
+                      key={chat.id}
+                      onClick={() => {
+                        setSelectedContactHash(null);
+                        setSelectedGroupId(chat.id);
+                        setDisappearingTimer(chat.disappearingTimer);
+                        setMessageSearchQuery("");
+                      }}
+                      type="button"
+                    >
+                      <Avatar label={chat.title} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-nada-primary">
+                          {chat.title}
+                        </span>
+                        <span className="block truncate text-xs text-nada-secondary mt-0.5">
+                          {lastMsg?.body ? (
+                            lastMsg.body.startsWith("data:audio")
+                              ? "🎙 Voice note"
+                              : lastMsg.body.length > 40
+                              ? lastMsg.body.slice(0, 40) + "…"
+                              : lastMsg.body
+                          ) : (
+                            `${chat.memberPubkeyHashes.length} members`
+                          )}
+                        </span>
                       </span>
-                      <span className="block truncate text-xs text-nada-secondary mt-0.5">
-                        {chat.memberPubkeyHashes.length} members
-                      </span>
-                    </span>
-                    <span className="nada-status-online" />
-                  </button>
-                ))}
+                      {unread > 0 ? (
+                        <span className="nada-badge">{unread > 9 ? "9+" : unread}</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
               {contacts
                 .filter((contact) =>
                   matchesSearch(
@@ -1333,33 +1573,49 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                     searchQuery
                   )
                 )
-                .map((contact) => (
-                  <button
-                    className={cn(
-                      "group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-150",
-                      selectedContactHash === contact.pubkeyHash
-                        ? "bg-nada-accent/10"
-                        : "hover:bg-nada-muted"
-                    )}
-                    key={contact.id}
-                    onClick={() => {
-                      setSelectedGroupId(null);
-                      setSelectedContactHash(contact.pubkeyHash);
-                      setMessageSearchQuery("");
-                    }}
-                    type="button"
-                  >
-                    <Avatar label={contact.localDisplayName} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-nada-primary">
-                        {contact.localDisplayName}
+                .map((contact) => {
+                  const chatId = directChatId(identity.pubkeyHash, contact.pubkeyHash);
+                  const lastMsg = lastMessages[chatId];
+                  const unread = unreadCounts[chatId] ?? 0;
+                  return (
+                    <button
+                      className={cn(
+                        "group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-150",
+                        selectedContactHash === contact.pubkeyHash
+                          ? "bg-nada-accent/10"
+                          : "hover:bg-nada-muted"
+                      )}
+                      key={contact.id}
+                      onClick={() => {
+                        setSelectedGroupId(null);
+                        setSelectedContactHash(contact.pubkeyHash);
+                        setMessageSearchQuery("");
+                      }}
+                      type="button"
+                    >
+                      <Avatar label={contact.localDisplayName} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-nada-primary">
+                          {contact.localDisplayName}
+                        </span>
+                        <span className="block truncate text-xs text-nada-secondary mt-0.5">
+                          {lastMsg?.body ? (
+                            lastMsg.body.startsWith("data:audio")
+                              ? "🎙 Voice note"
+                              : lastMsg.body.length > 36
+                              ? lastMsg.body.slice(0, 36) + "…"
+                              : lastMsg.body
+                          ) : (
+                            contact.pubkeyHash.slice(0, 16) + "..."
+                          )}
+                        </span>
                       </span>
-                      <span className="block truncate text-xs text-nada-secondary mt-0.5">
-                        {contact.pubkeyHash.slice(0, 16)}...
-                      </span>
-                    </span>
-                  </button>
-                ))}
+                      {unread > 0 ? (
+                        <span className="nada-badge">{unread > 9 ? "9+" : unread}</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
             </>
           )}
         </div>
@@ -1482,6 +1738,19 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             isTyping
           });
         }}
+        onReact={(message, emoji) => {
+          void sendReactionToMessage(message, emoji);
+        }}
+        onPin={(message) => {
+          void pinMessage(message);
+        }}
+        pinnedMessageId={chatPref.pinnedMessageId ?? null}
+        pinnedMessageBody={chatPref.pinnedMessageBody ?? null}
+        myPubkeyHash={identity.pubkeyHash}
+        blurShieldActive={blurShieldActive}
+        blurShieldRevealed={blurShieldRevealed}
+        onToggleBlurShield={() => setBlurShieldActive((v) => !v)}
+        onRevealBlurShield={() => setBlurShieldRevealed(true)}
       />
 
       <AnimatePresence>
@@ -1551,6 +1820,16 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             onOpenShare={() => {
               setPanel("share");
             }}
+            onOpenGhostModal={() => {
+              setPanel(null);
+              setShowGhostModal(true);
+            }}
+            onOpenMoodModal={() => {
+              setPanel(null);
+              setShowMoodModal(true);
+            }}
+            ghostMode={ghostMode}
+            mood={mood}
             onClose={() => {
               setPanel(null);
             }}
@@ -1638,9 +1917,126 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       />
       <VoiceCallOverlay onEnd={endCall} />
       <VideoCallOverlay onEnd={endCall} />
+
+      {/* Dashboard-level toast */}
+      <AnimatePresence>
+        {dashboardToast && (
+          <motion.div
+            className="fixed bottom-24 left-1/2 z-[950] -translate-x-1/2 rounded-xl bg-nada-surface border border-nada-border/50 px-5 py-3 text-sm text-nada-primary shadow-xl"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+          >
+            {dashboardToast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Ghost Mode Modal */}
+
+      <AnimatePresence>
+        {showGhostModal && (
+          <motion.div
+            className="fixed inset-0 z-[900] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowGhostModal(false)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-nada-muted text-nada-secondary">
+                  <Ghost size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-nada-primary">Ghost Mode</h3>
+                  <p className="text-xs text-nada-secondary">Hide typing & online status</p>
+                </div>
+              </div>
+              <p className="text-sm text-nada-secondary mb-5 leading-relaxed">
+                While Ghost Mode is active, your contacts won't see when you're typing and your activity won't be broadcast. Your messages still arrive normally.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  className="flex-1 rounded-xl px-4 py-2.5 text-sm text-nada-secondary bg-nada-muted hover:bg-nada-border/40 transition-colors"
+                  onClick={() => setShowGhostModal(false)}
+                >Cancel</button>
+                <button
+                  className={cn(
+                    "flex-1 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors",
+                    ghostMode
+                      ? "bg-nada-muted text-nada-secondary hover:bg-nada-border/40"
+                      : "bg-nada-accent text-white hover:bg-nada-accent/90"
+                  )}
+                  onClick={async () => {
+                    const next = !ghostMode;
+                    setGhostMode(next);
+                    setSocketGhostMode(next);
+                    await setGlobalSetting("ghostMode", String(next));
+                    setShowGhostModal(false);
+                    showToast(next ? "Ghost mode enabled." : "Ghost mode disabled.");
+                  }}
+                >
+                  {ghostMode ? "Disable Ghost Mode" : "Enable Ghost Mode"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Mood Picker Modal */}
+      <AnimatePresence>
+        {showMoodModal && (
+          <motion.div
+            className="fixed inset-0 z-[900] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMoodModal(false)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            >
+              <h3 className="text-base font-semibold text-nada-primary mb-4">Set Mood</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {(["Available", "Busy", "Studying", "Chilling", "Do Not Disturb", "Invisible"] as const).map((m) => (
+                  <button
+                    key={m}
+                    className={cn(
+                      "rounded-xl px-4 py-3 text-sm font-medium text-left transition-colors",
+                      mood === m
+                        ? "bg-nada-accent/15 text-nada-accent border border-nada-accent/30"
+                        : "bg-nada-muted text-nada-primary hover:bg-nada-border/40"
+                    )}
+                    onClick={async () => {
+                      setMood(m);
+                      await setGlobalSetting("mood", m);
+                      setShowMoodModal(false);
+                    }}
+                  >
+                    {m === "Available" ? "🟢 " :
+                     m === "Busy" ? "🔴 " :
+                     m === "Studying" ? "📚 " :
+                     m === "Chilling" ? "😎 " :
+                     m === "Do Not Disturb" ? "🌙 " :
+                     "👻 "}
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="mt-4 w-full rounded-xl px-4 py-2.5 text-sm text-nada-secondary hover:bg-nada-muted transition-colors"
+                onClick={() => setShowMoodModal(false)}
+              >Cancel</button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   );
 }
+
 
 function RelayStatus({ status }: { status: string }): JSX.Element {
   const isConnected = status === "connected";
@@ -1750,7 +2146,16 @@ function ChatPanel({
   onClearChat,
   onBlock,
   onUnblock,
-  onTyping
+  onTyping,
+  onReact,
+  onPin,
+  pinnedMessageId,
+  pinnedMessageBody,
+  myPubkeyHash,
+  blurShieldActive,
+  blurShieldRevealed,
+  onToggleBlurShield,
+  onRevealBlurShield
 }: {
   canAttachFile: boolean;
   canCopyGroupInvite: boolean;
@@ -1788,10 +2193,20 @@ function ChatPanel({
   onBlock: () => void;
   onUnblock: () => void;
   onTyping: (isTyping: boolean) => void;
+  onReact: (message: MessageRecord, emoji: string) => void;
+  onPin: (message: MessageRecord) => void;
+  pinnedMessageId: string | null;
+  pinnedMessageBody: string | null;
+  myPubkeyHash: string;
+  blurShieldActive: boolean;
+  blurShieldRevealed: boolean;
+  onToggleBlurShield: () => void;
+  onRevealBlurShield: () => void;
 }): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [showOptions, setShowOptions] = useState(false);
   const [activeMessageMenu, setActiveMessageMenu] = useState<string | null>(null);
+  const [reactionPickerForId, setReactionPickerForId] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -1803,6 +2218,8 @@ function ChatPanel({
   const [chatSearchActive, setChatSearchActive] = useState(false);
   const [chatSearchIdx, setChatSearchIdx] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const pinnedMsgRef = useRef<HTMLDivElement | null>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
@@ -1811,6 +2228,26 @@ function ChatPanel({
   const recordingSecondsRef = useRef(0);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasTyping = useRef(false);
+
+  const QUICK_REPLIES = [
+    "👍 Got it!",
+    "On my way!",
+    "Can we talk later?",
+    "Sure, sounds good!",
+    "Haha 😂",
+    "Send me the details.",
+    "I'll check and let you know.",
+    "❤️"
+  ];
+
+  const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👎"];
+
+  const lastInboundMessage = useMemo(() => {
+    const inbound = messages.filter((m) => m.direction === "inbound" && !m.deletedAt);
+    return inbound[inbound.length - 1] ?? null;
+  }, [messages]);
+
+  const showQuickReplies = lastInboundMessage !== null && messageText.trim() === "";
 
   // Show toast helper
   const showToast = (msg: string) => {
@@ -2051,6 +2488,19 @@ function ChatPanel({
                     </button>
                     <div className="my-1 border-t border-nada-border/30" />
                     <button
+                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-nada-primary hover:bg-nada-muted transition-colors"
+                      onClick={() => {
+                        setShowOptions(false);
+                        onToggleBlurShield();
+                        if (!blurShieldActive) {
+                          showToast("Privacy shield enabled. Tap messages to reveal.");
+                        }
+                      }}
+                    >
+                      {blurShieldActive ? <Eye size={15} className="text-nada-accent" /> : <EyeOff size={15} className="text-nada-secondary/70" />}
+                      {blurShieldActive ? "Disable privacy shield" : "Enable privacy shield"}
+                    </button>
+                    <button
                       className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-nada-danger hover:bg-nada-muted transition-colors"
                       onClick={() => {
                         setShowOptions(false);
@@ -2111,6 +2561,37 @@ function ChatPanel({
           </button>
         </div>
       )}
+
+      {/* Pinned message banner */}
+      {pinnedMessageId && pinnedMessageBody && (
+        <button
+          className="nada-pinned-banner flex w-full items-center gap-2.5 px-4 py-2 text-left animate-fade-in"
+          onClick={() => {
+            const el = messageRefs.current[pinnedMessageId];
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }}
+          type="button"
+        >
+          <Pin size={13} className="shrink-0 text-nada-accent" />
+          <span className="min-w-0">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-nada-accent">Pinned</span>
+            <span className="block truncate text-xs text-nada-secondary">{pinnedMessageBody}</span>
+          </span>
+        </button>
+      )}
+
+      {/* Vanish mode banner */}
+      {disappearingTimer > 0 && (
+        <div className="nada-vanish-banner flex items-center gap-2 px-4 py-1.5 text-xs animate-fade-in">
+          <span className="nada-vanish-dot" />
+          Vanish mode: messages disappear after {
+            disappearingTimer >= 86400000 ? "1 day" :
+            disappearingTimer >= 3600000 ? "1 hour" :
+            disappearingTimer >= 60000 ? "1 min" : "custom"
+          }
+        </div>
+      )}
+
 
       {/* Chat search bar */}
       {chatSearchActive && (
@@ -2405,14 +2886,30 @@ function ChatPanel({
         </div>
       ) : null}
 
-      <div className="nada-chat-bg flex-1 space-y-0.5 overflow-y-auto px-3 py-4 pb-32">
+      <div className="nada-chat-bg relative flex-1 space-y-0.5 overflow-y-auto px-3 py-4 pb-32">
+        {blurShieldActive && !blurShieldRevealed && (
+          <div className="nada-blur-shield" onClick={onRevealBlurShield}>
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-nada-surface/80 text-nada-secondary">
+                <EyeOff size={22} />
+              </div>
+              <p className="text-sm font-medium text-nada-primary">Privacy shield active</p>
+              <p className="text-xs text-nada-secondary">Tap to reveal messages</p>
+            </div>
+          </div>
+        )}
         {messages.map((message, index) => {
           const prevMessage = messages[index - 1];
           const showDateSep = !prevMessage || new Date(message.createdAt).toDateString() !== new Date(prevMessage.createdAt).toDateString();
           const isMenuOpen = activeMessageMenu === message.id;
 
+          const reactions = message.reactions ?? {};
+          const hasReactions = Object.keys(reactions).length > 0;
+          const isPinned = pinnedMessageId === message.id;
+          const isVanishing = Boolean(message.expiresAt && disappearingTimer > 0);
+
           return (
-            <div key={message.id}>
+            <div key={message.id} ref={(el) => { messageRefs.current[message.id] = el; }}>
               {showDateSep && (
                 <div className="flex justify-center py-3">
                   <span className="rounded-full bg-nada-muted px-3 py-1 text-[11px] font-medium text-nada-secondary">
@@ -2449,7 +2946,8 @@ function ChatPanel({
                     "relative max-w-[75%] px-3 py-2",
                     message.direction === "outbound"
                       ? "nada-bubble-sent"
-                      : "nada-bubble-received"
+                      : "nada-bubble-received",
+                    isPinned && "ring-1 ring-nada-accent/40"
                   )}
                 >
                   {message.replyToId ? (
@@ -2486,6 +2984,7 @@ function ChatPanel({
                     )}
                   >
                     {message.editedAt ? <span>edited ·</span> : null}
+                    {isVanishing && <Flame size={10} className="opacity-70" />}
                     <span>{formatTime(message.createdAt)}</span>
                     {message.direction === "outbound" && (
                       <span className="ml-0.5">
@@ -2496,9 +2995,46 @@ function ChatPanel({
 
                   {/* Hover actions — desktop only */}
                   <div className={cn(
-                    "absolute -top-8 right-0 flex items-center gap-0.5 rounded-lg border border-nada-border/40 bg-nada-surface px-1 py-0.5 shadow-md transition-all",
+                    "absolute -top-8 right-0 flex items-center gap-0.5 rounded-lg border border-nada-border/40 bg-nada-surface px-1 py-0.5 shadow-md transition-all z-10",
                     isMenuOpen ? "opacity-100 visible" : "opacity-0 invisible group-hover:opacity-100 group-hover:visible"
                   )}>
+                    {/* Reaction picker toggle */}
+                    <div className="relative">
+                      <button
+                        aria-label="React"
+                        className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setReactionPickerForId(reactionPickerForId === message.id ? null : message.id);
+                          setActiveMessageMenu(null);
+                        }}
+                        type="button"
+                      >
+                        <Smile size={14} />
+                      </button>
+                      {reactionPickerForId === message.id && (
+                        <motion.div
+                          className="absolute -top-10 left-0 flex gap-1 rounded-lg border border-nada-border/50 bg-nada-surface p-1.5 shadow-lg z-20"
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                        >
+                          {REACTION_EMOJIS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              className="text-base hover:scale-125 transition-transform"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onReact(message, emoji);
+                                setReactionPickerForId(null);
+                              }}
+                              type="button"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </div>
                     <button
                       aria-label="Reply"
                       className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
@@ -2506,6 +3042,17 @@ function ChatPanel({
                       type="button"
                     >
                       <Reply size={14} />
+                    </button>
+                    <button
+                      aria-label="Pin message"
+                      className={cn(
+                        "rounded-md p-1.5 transition hover:bg-nada-muted",
+                        isPinned ? "text-nada-accent" : "text-nada-secondary hover:text-nada-primary"
+                      )}
+                      onClick={() => { onPin(message); setActiveMessageMenu(null); }}
+                      type="button"
+                    >
+                      <Pin size={14} />
                     </button>
                     {message.direction === "outbound" && !message.deletedAt ? (
                       <>
@@ -2529,16 +3076,45 @@ function ChatPanel({
                     ) : null}
                   </div>
                 </div>
+
+                {/* Reaction chips */}
+                {hasReactions && (
+                  <div className={cn(
+                    "absolute bottom-0 flex flex-wrap gap-1",
+                    message.direction === "outbound" ? "right-3 translate-y-4" : "left-3 translate-y-4"
+                  )}>
+                    {Object.entries(reactions).map(([emoji, senders]) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        className={cn(
+                          "nada-reaction-chip",
+                          senders.includes(myPubkeyHash) && "nada-reaction-mine"
+                        )}
+                        onClick={() => onReact(message, emoji)}
+                      >
+                        {emoji}
+                        {senders.length > 1 && (
+                          <span className="text-[10px] font-medium opacity-70">{senders.length}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </motion.div>
+              {hasReactions && <div className="h-5" />}
             </div>
           );
         })}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Click-away to close message menu */}
-      {activeMessageMenu && (
-        <div className="fixed inset-0 z-30" onClick={() => setActiveMessageMenu(null)} />
+      {/* Click-away to close message menu / reaction picker */}
+      {(activeMessageMenu || reactionPickerForId) && (
+        <div className="fixed inset-0 z-30" onClick={() => {
+          setActiveMessageMenu(null);
+          setReactionPickerForId(null);
+        }} />
       )}
 
       <form
@@ -2548,6 +3124,22 @@ function ChatPanel({
         )}
         onSubmit={onSend}
       >
+        {/* Quick reply chips */}
+        {showQuickReplies && (
+          <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+            {QUICK_REPLIES.map((reply) => (
+              <button
+                key={reply}
+                type="button"
+                className="nada-quick-reply"
+                onClick={() => onMessageTextChange(reply)}
+              >
+                {reply}
+              </button>
+            ))}
+          </div>
+        )}
+
         {replyMessage ? (
           <div className="mb-2 flex items-center justify-between rounded-lg bg-nada-muted px-3 py-2 text-xs text-nada-secondary">
             <span className="truncate">Replying to {replyMessage.body}</span>
@@ -3174,12 +3766,20 @@ function SettingsSheet({
   onOpenBilling,
   onOpenMigration,
   onOpenShare,
+  onOpenGhostModal,
+  onOpenMoodModal,
+  ghostMode,
+  mood,
   onClose
 }: {
   identity: IdentityRecord;
   onOpenBilling: () => void;
   onOpenMigration: () => void;
   onOpenShare: () => void;
+  onOpenGhostModal: () => void;
+  onOpenMoodModal: () => void;
+  ghostMode: boolean;
+  mood: string;
   onClose: () => void;
 }): JSX.Element {
   return (
@@ -3196,6 +3796,46 @@ function SettingsSheet({
         <SettingsRow label="Pubkey" value={identity.pubkeyHash} />
         <SettingsRow label="Seed backup" value={identity.seedBackupStatus} />
         <SettingsRow label="Plan" value="Free" />
+      </div>
+
+      {/* Privacy controls */}
+      <div className="mt-5">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-nada-secondary">Privacy</p>
+        <div className="space-y-2">
+          <button
+            className="flex w-full items-center justify-between rounded-xl bg-nada-muted px-4 py-3 text-left transition-colors hover:bg-nada-border/30"
+            onClick={onOpenGhostModal}
+          >
+            <div className="flex items-center gap-2.5">
+              <Ghost size={15} className="text-nada-secondary" />
+              <div>
+                <p className="text-sm font-medium text-nada-primary">Ghost Mode</p>
+                <p className="text-xs text-nada-secondary">Hide typing & online status</p>
+              </div>
+            </div>
+            <span className={cn(
+              "rounded-full px-2.5 py-0.5 text-[11px] font-medium",
+              ghostMode ? "bg-nada-accent/15 text-nada-accent" : "bg-nada-surface text-nada-secondary"
+            )}>
+              {ghostMode ? "ON" : "OFF"}
+            </span>
+          </button>
+          <button
+            className="flex w-full items-center justify-between rounded-xl bg-nada-muted px-4 py-3 text-left transition-colors hover:bg-nada-border/30"
+            onClick={onOpenMoodModal}
+          >
+            <div className="flex items-center gap-2.5">
+              <Flame size={15} className="text-nada-secondary" />
+              <div>
+                <p className="text-sm font-medium text-nada-primary">Mood Status</p>
+                <p className="text-xs text-nada-secondary">Visible to yourself</p>
+              </div>
+            </div>
+            <span className="rounded-full bg-nada-surface px-2.5 py-0.5 text-[11px] font-medium text-nada-secondary">
+              {mood}
+            </span>
+          </button>
+        </div>
       </div>
 
       <div className="mt-5 grid gap-2">

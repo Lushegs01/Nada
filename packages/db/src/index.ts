@@ -74,7 +74,9 @@ export const MessageRecordSchema = z.object({
   createdAt: z.number().int().positive(),
   editedAt: z.number().int().positive().optional(),
   deletedAt: z.number().int().positive().optional(),
-  expiresAt: z.number().int().positive().optional()
+  expiresAt: z.number().int().positive().optional(),
+  /** emoji → [senderPubkeyHash, ...] */
+  reactions: z.record(z.string(), z.array(PubkeyHashSchema)).optional()
 });
 
 export const GroupKeyRecordSchema = z.object({

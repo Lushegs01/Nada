@@ -251,6 +251,142 @@ select {
   .nada-typing-dot:nth-child(3) {
     animation-delay: 0.4s;
   }
+
+  /* ── Privacy Blur Shield ──────────────────────────────── */
+
+  .nada-blur-shield {
+    position: absolute;
+    inset: 0;
+    backdrop-filter: blur(24px) saturate(120%);
+    -webkit-backdrop-filter: blur(24px) saturate(120%);
+    background: rgb(var(--nada-bg) / 0.5);
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  /* ── Vanish Mode ─────────────────────────────────────── */
+
+  .nada-vanish-banner {
+    background: linear-gradient(90deg, rgb(var(--nada-accent) / 0.12), rgb(var(--nada-accent) / 0.06));
+    border-bottom: 1px solid rgb(var(--nada-accent) / 0.15);
+    color: rgb(var(--nada-accent));
+  }
+
+  .nada-vanish-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: rgb(var(--nada-accent));
+    animation: nada-pulse-ring 2s ease-out infinite;
+    flex-shrink: 0;
+  }
+
+  /* ── Mood Pill ────────────────────────────────────────── */
+
+  .nada-mood-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    background: rgb(var(--nada-muted));
+    color: rgb(var(--nada-secondary));
+    border: 1px solid rgb(var(--nada-border) / 0.5);
+  }
+
+  /* ── Reaction Chips ──────────────────────────────────── */
+
+  .nada-reaction-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 12px;
+    background: rgb(var(--nada-surface));
+    border: 1.5px solid rgb(var(--nada-border) / 0.6);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+    line-height: 1.4;
+  }
+
+  .nada-reaction-chip:hover {
+    background: rgb(var(--nada-muted));
+    border-color: rgb(var(--nada-accent) / 0.4);
+    transform: scale(1.06);
+  }
+
+  .nada-reaction-chip.nada-reaction-mine {
+    background: rgb(var(--nada-accent) / 0.12);
+    border-color: rgb(var(--nada-accent) / 0.5);
+    color: rgb(var(--nada-accent));
+  }
+
+  /* ── Pinned Message Banner ────────────────────────────── */
+
+  .nada-pinned-banner {
+    background: rgb(var(--nada-surface));
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.5);
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .nada-pinned-banner:hover {
+    background: rgb(var(--nada-muted));
+  }
+
+  /* ── Ghost Mode badge ─────────────────────────────────── */
+
+  .nada-ghost-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 500;
+    background: rgb(var(--nada-muted));
+    color: rgb(var(--nada-secondary));
+    border: 1px solid rgb(var(--nada-border) / 0.5);
+  }
+
+  /* ── Quick Reply Chips ────────────────────────────────── */
+
+  .nada-quick-reply {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    background: rgb(var(--nada-surface));
+    border: 1.5px solid rgb(var(--nada-border) / 0.6);
+    color: rgb(var(--nada-primary));
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .nada-quick-reply:hover {
+    background: rgb(var(--nada-accent) / 0.08);
+    border-color: rgb(var(--nada-accent) / 0.5);
+    color: rgb(var(--nada-accent));
+    transform: translateY(-1px);
+  }
+
+  .nada-quick-reply:active {
+    transform: scale(0.97);
+  }
 }
 
 /* ── Keyframes ────────────────────────────────────────── */
