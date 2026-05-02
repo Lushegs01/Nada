@@ -475,4 +475,12 @@ select {
   .border-accent {
     border-color: rgb(var(--nada-accent));
   }
+
+  .pt-safe-area {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .pb-safe-area {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }

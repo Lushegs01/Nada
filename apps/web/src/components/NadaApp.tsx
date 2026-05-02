@@ -71,6 +71,11 @@ import {
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { useCallStore } from "@/stores/useCallStore";
 import { QRCodeSVG } from "qrcode.react";
+import { 
+  MobileChatsHome, 
+  ChatListItem, 
+  ArchivedRow 
+} from "./NadaMobileUI";
 
 import {
   createAnonymousIdentity,
@@ -451,6 +456,10 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [blurShieldRevealed, setBlurShieldRevealed] = useState(false);
   const [showGhostModal, setShowGhostModal] = useState(false);
   const [showMoodModal, setShowMoodModal] = useState(false);
+  
+  // Mobile UI state
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [activeTab, setActiveTab] = useState("chats");
   // last-message preview cache: chatId -> { body, ts }
   const [lastMessages, setLastMessages] = useState<Record<string, { body: string; ts: number }>>({});
   // unread count cache: chatId -> count
@@ -532,6 +541,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   );
 
   const chatIsMuted = useMemo(() => isMuted(chatPref), [chatPref]);
+
+  const totalUnreadCount = useMemo(() => 
+    Object.values(unreadCounts).reduce((acc, count) => acc + count, 0),
+    [unreadCounts]
+  );
 
   const [dashboardToast, setDashboardToast] = useState<string | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -1759,220 +1773,97 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     <section className="mx-auto flex min-h-dvh w-full max-w-7xl bg-nada-bg md:p-3 md:gap-3">
       <aside
         className={cn(
-          "nada-sidebar relative flex w-full flex-col overflow-hidden md:w-[380px] md:rounded-2xl",
+          "nada-sidebar relative flex w-full flex-col overflow-hidden md:w-[380px] md:rounded-2xl border-none md:border-solid",
           selectedContact || selectedGroup ? "hidden md:flex" : "flex"
         )}
       >
-        <header className="flex items-center justify-between px-5 pt-5 pb-2">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-nada-accent">
-              NADA
-            </p>
-            <h1 className="mt-0.5 text-xl font-semibold text-nada-primary">{displayName}</h1>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              <button
-                className="nada-mood-pill"
-                onClick={() => setShowMoodModal(true)}
-                type="button"
-                title="Change mood"
-              >
-                {mood === "Available" ? "🟢" :
-                 mood === "Busy" ? "🔴" :
-                 mood === "Studying" ? "📚" :
-                 mood === "Chilling" ? "😎" :
-                 mood === "Do Not Disturb" ? "🌙" :
-                 mood === "Invisible" ? "👻" : "●"}
-                {" "}{mood}
-              </button>
-              {ghostMode && (
-                <span className="nada-ghost-badge">
-                  <Ghost size={10} /> Ghost
-                </span>
-              )}
-            </div>
+        <MobileChatsHome
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
+          unreadTotal={totalUnreadCount}
+          onComposeClick={() => setPanel("contacts")}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          headerProps={{
+            displayName: displayName,
+            onCameraClick: () => showToast("Camera feature coming soon!"),
+            onMoreClick: () => setPanel("settings")
+          }}
+        >
+          <div className="flex flex-col">
+            <RelayStatus status={relayStatus} />
+            <ArchivedRow count={0} />
+            
+            {contacts.length === 0 && chats.length === 0 ? (
+              <EmptyChatListState onAdd={() => setPanel("contacts")} />
+            ) : (
+              <>
+                {chats
+                  .filter((chat) => {
+                    if (activeFilter === "groups") return true;
+                    if (activeFilter === "unread" && (unreadCounts[chat.id] ?? 0) === 0) return false;
+                    return matchesSearch(chat.title, searchQuery);
+                  })
+                  .map((chat) => {
+                    const chatId = chat.id;
+                    const lastMsg = lastMessages[chatId];
+                    const unread = unreadCounts[chatId] ?? 0;
+                    return (
+                      <ChatListItem
+                        key={chat.id}
+                        name={chat.title}
+                        preview={lastMsg?.body || "Start a conversation"}
+                        timestamp={lastMsg && lastMsg.ts > 0 ? formatRelativeTime(lastMsg.ts) : ""}
+                        unreadCount={unread}
+                        initials={chat.title.slice(0, 1).toUpperCase()}
+                        isSelected={selectedGroupId === chat.id}
+                        onClick={() => {
+                          setSelectedContactHash(null);
+                          setSelectedGroupId(chat.id);
+                          setDisappearingTimer(chat.disappearingTimer);
+                          setMessageSearchQuery("");
+                        }}
+                      />
+                    );
+                  })}
+                {contacts
+                  .filter((contact) => {
+                    if (activeFilter === "groups") return false;
+                    const chatId = directChatId(identity.pubkeyHash, contact.pubkeyHash);
+                    if (activeFilter === "unread" && (unreadCounts[chatId] ?? 0) === 0) return false;
+                    return matchesSearch(
+                      `${contact.localDisplayName} ${contact.pubkeyHash}`,
+                      searchQuery
+                    );
+                  })
+                  .map((contact) => {
+                    const chatId = directChatId(identity.pubkeyHash, contact.pubkeyHash);
+                    const lastMsg = lastMessages[chatId];
+                    const unread = unreadCounts[chatId] ?? 0;
+                    return (
+                      <ChatListItem
+                        key={contact.id}
+                        name={contact.localDisplayName}
+                        preview={lastMsg?.body || "Start a conversation"}
+                        timestamp={lastMsg && lastMsg.ts > 0 ? formatRelativeTime(lastMsg.ts) : ""}
+                        unreadCount={unread}
+                        initials={contact.localDisplayName.slice(0, 1).toUpperCase()}
+                        isSelected={selectedContactHash === contact.pubkeyHash}
+                        isOnline={true}
+                        onClick={() => {
+                          setSelectedGroupId(null);
+                          setSelectedContactHash(contact.pubkeyHash);
+                          setMessageSearchQuery("");
+                        }}
+                      />
+                    );
+                  })}
+              </>
+            )}
           </div>
-          <div className="flex gap-1">
-            <IconButton
-              label="Add contact"
-              onClick={() => {
-                setPanel("contacts");
-              }}
-            >
-              <Plus size={18} />
-            </IconButton>
-            <IconButton
-              label="Create group"
-              onClick={() => {
-                setPanel("group");
-              }}
-            >
-              <Users size={18} />
-            </IconButton>
-            <IconButton
-              label="Settings"
-              onClick={() => {
-                setPanel("settings");
-              }}
-            >
-              <Settings size={18} />
-            </IconButton>
-          </div>
-        </header>
-
-        <RelayStatus status={relayStatus} />
-
-        <div className="px-4 pb-3">
-          <label className="nada-input flex h-10 items-center gap-2.5 px-3.5 text-nada-secondary">
-            <Search size={16} />
-            <input
-              className="min-w-0 flex-1 bg-transparent text-sm text-nada-primary outline-none placeholder:text-nada-secondary/60"
-              onChange={(event) => {
-                setSearchQuery(event.target.value);
-              }}
-              placeholder="Search chats..."
-              value={searchQuery}
-            />
-          </label>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-2 pb-20">
-          {contacts.length === 0 && chats.length === 0 ? (
-            <EmptyContacts
-              onAdd={() => {
-                setPanel("contacts");
-              }}
-            />
-          ) : (
-          <>
-              {chats
-                .filter((chat) => matchesSearch(chat.title, searchQuery))
-                .map((chat) => {
-                  const chatId = chat.id;
-                  const lastMsg = lastMessages[chatId];
-                  const unread = unreadCounts[chatId] ?? 0;
-                  return (
-                    <button
-                      className={cn(
-                        "group flex w-full items-center gap-3.5 rounded-xl px-3 py-3.5 text-left transition-colors duration-150",
-                        selectedGroupId === chat.id
-                          ? "bg-nada-accent/10"
-                          : "hover:bg-nada-muted"
-                      )}
-                      key={chat.id}
-                      onClick={() => {
-                        setSelectedContactHash(null);
-                        setSelectedGroupId(chat.id);
-                        setDisappearingTimer(chat.disappearingTimer);
-                        setMessageSearchQuery("");
-                      }}
-                      type="button"
-                    >
-                      <div className={cn("relative shrink-0", unread > 0 && "nada-avatar-unread")}>
-                        <Avatar label={chat.title} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="truncate text-[14px] font-semibold text-nada-primary">
-                            {chat.title}
-                          </span>
-                          {lastMsg && lastMsg.ts > 0 && (
-                            <span className={cn("shrink-0 text-[10px]", unread > 0 ? "text-nada-success font-semibold" : "text-nada-secondary/70")}>
-                              {formatRelativeTime(lastMsg.ts)}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between gap-2 mt-0.5">
-                          <span className={cn(
-                            "truncate text-xs",
-                            unread > 0 ? "text-nada-primary font-medium" : "text-nada-secondary"
-                          )}>
-                            {lastMsg?.body || "Start a conversation"}
-                          </span>
-                          {unread > 0 && (
-                            <span className="nada-badge">
-                              {unread > 99 ? "99+" : unread}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              {contacts
-                .filter((contact) =>
-                  matchesSearch(
-                    `${contact.localDisplayName} ${contact.pubkeyHash}`,
-                    searchQuery
-                  )
-                )
-                .map((contact) => {
-                  const chatId = directChatId(identity.pubkeyHash, contact.pubkeyHash);
-                  const lastMsg = lastMessages[chatId];
-                  const unread = unreadCounts[chatId] ?? 0;
-                  return (
-                    <button
-                      className={cn(
-                        "group flex w-full items-center gap-3.5 rounded-xl px-3 py-3.5 text-left transition-colors duration-150",
-                        selectedContactHash === contact.pubkeyHash
-                          ? "bg-nada-accent/10"
-                          : "hover:bg-nada-muted"
-                      )}
-                      key={contact.id}
-                      onClick={() => {
-                        setSelectedGroupId(null);
-                        setSelectedContactHash(contact.pubkeyHash);
-                        setMessageSearchQuery("");
-                      }}
-                      type="button"
-                    >
-                      <div className={cn("relative shrink-0", unread > 0 && "nada-avatar-unread")}>
-                        <Avatar label={contact.localDisplayName} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="truncate text-[14px] font-semibold text-nada-primary">
-                            {contact.localDisplayName}
-                          </span>
-                          {lastMsg && lastMsg.ts > 0 && (
-                            <span className={cn("shrink-0 text-[10px]", unread > 0 ? "text-nada-success font-semibold" : "text-nada-secondary/70")}>
-                              {formatRelativeTime(lastMsg.ts)}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between gap-2 mt-0.5">
-                          <span className={cn(
-                            "truncate text-xs",
-                            unread > 0 ? "text-nada-primary font-medium" : "text-nada-secondary"
-                          )}>
-                            {lastMsg?.body || "Start a conversation"}
-                          </span>
-                          {unread > 0 && (
-                            <span className="nada-badge">
-                              {unread > 99 ? "99+" : unread}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-            </>
-          )}
-        </div>
-        <FloatingNav
-          onAddContact={() => {
-            setPanel("contacts");
-          }}
-          onCreateGroup={() => {
-            setPanel("group");
-          }}
-          onOpenSettings={() => {
-            setPanel("settings");
-          }}
-          onOpenShare={() => {
-            setPanel("share");
-          }}
-        />
+        </MobileChatsHome>
       </aside>
 
       <ChatPanel
