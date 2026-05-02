@@ -10,9 +10,7 @@ services:
           name: app-relay
           type: web
           property: host
-      # ── WebRTC TURN (get credentials at dashboard.metered.ca) ──────────────
-      - key: NEXT_PUBLIC_TURN_URL
-        value: "turn:a.relay.metered.ca:443?transport=tcp"
+      # ── WebRTC TURN (Metered) — set USERNAME + CREDENTIAL in Render dashboard ──
       - key: NEXT_PUBLIC_TURN_USERNAME
         sync: false
       - key: NEXT_PUBLIC_TURN_CREDENTIAL

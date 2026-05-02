@@ -1,19 +1,12 @@
 // ─── WebRTC Peer Connection Layer ────────────────────────────────────────────
 //
-// TURN server is required for calls to work across:
-//   - Mobile data (4G/5G)
-//   - Corporate / university firewalls
-//   - Hotel / airport WiFi
-//   - Any symmetric NAT
+// TURN credentials come from environment variables — never hardcode them.
 //
-// Get free TURN credentials at: https://dashboard.metered.ca
+// Set in Render → app-web → Environment:
+//   NEXT_PUBLIC_TURN_USERNAME   = 9800b84976b89f894da35b93
+//   NEXT_PUBLIC_TURN_CREDENTIAL = WcsKs/M2tfnDx1QE
 //
-// Set these in Render → app-web → Environment:
-//   NEXT_PUBLIC_TURN_URL        turn:a.relay.metered.ca:443?transport=tcp
-//   NEXT_PUBLIC_TURN_USERNAME   (from Metered dashboard)
-//   NEXT_PUBLIC_TURN_CREDENTIAL (from Metered dashboard)
-//
-// For local development copy .env.example → apps/web/.env.local and fill them in.
+// For local dev: copy apps/web/.env.local.example → apps/web/.env.local
 
 export type CallMode = "voice" | "video";
 
@@ -28,53 +21,40 @@ export interface LocalCallSession {
 // ── ICE / TURN configuration ──────────────────────────────────────────────────
 
 function buildIceServers(): RTCIceServer[] {
-  // Always include multiple public STUN servers as baseline
-  const servers: RTCIceServer[] = [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun.cloudflare.com:3478" }
-  ];
-
   const turnUser = process.env["NEXT_PUBLIC_TURN_USERNAME"];
   const turnCred = process.env["NEXT_PUBLIC_TURN_CREDENTIAL"];
 
+  // Always include Metered STUN as baseline
+  const servers: RTCIceServer[] = [
+    { urls: "stun:stun.relay.metered.ca:80" }
+  ];
+
   if (turnUser && turnCred) {
-    // Add all Metered TURN endpoints in priority order:
-    // 1. TCP port 443  — bypasses almost every firewall (preferred)
-    // 2. TCP port 80   — fallback for firewalls blocking 443 non-HTTPS
-    // 3. UDP port 443  — faster when TCP port 443 is open
-    // 4. UDP port 80   — standard UDP TURN
-    // Browser will try them all and use the first that works.
-    const turnServers: RTCIceServer[] = [
+    // Exact ICE server array from Metered dashboard — all 4 endpoints for
+    // maximum NAT traversal coverage across UDP, TCP, and TLS.
+    servers.push(
       {
-        urls: "turn:a.relay.metered.ca:443?transport=tcp",
+        urls: "turn:global.relay.metered.ca:80",
         username: turnUser,
         credential: turnCred
       },
       {
-        urls: "turn:a.relay.metered.ca:80?transport=tcp",
+        urls: "turn:global.relay.metered.ca:80?transport=tcp",
         username: turnUser,
         credential: turnCred
       },
       {
-        urls: "turn:a.relay.metered.ca:443",
+        urls: "turn:global.relay.metered.ca:443",
         username: turnUser,
         credential: turnCred
       },
       {
-        urls: "turn:a.relay.metered.ca:80",
+        // TURNS = TURN over TLS — bypasses the strictest firewalls
+        urls: "turns:global.relay.metered.ca:443?transport=tcp",
         username: turnUser,
         credential: turnCred
       }
-    ];
-
-    // Also support a custom TURN_URL override (for self-hosted Coturn etc.)
-    const customUrl = process.env["NEXT_PUBLIC_TURN_URL"];
-    if (customUrl && !customUrl.includes("metered.ca")) {
-      servers.push({ urls: customUrl, username: turnUser, credential: turnCred });
-    }
-
-    servers.push(...turnServers);
+    );
   }
 
   return servers;
@@ -83,7 +63,6 @@ function buildIceServers(): RTCIceServer[] {
 export function createPeerConnection(): RTCPeerConnection {
   return new RTCPeerConnection({
     iceServers: buildIceServers(),
-    // Prefer UDP for low latency; TCP is the fallback handled by TURN
     iceTransportPolicy: "all"
   });
 }
@@ -109,7 +88,6 @@ export async function createLocalCallSession(
   const peerConnection = createPeerConnection();
   const remoteStream = new MediaStream();
 
-  // Add all local tracks to the connection before creating the offer
   stream.getTracks().forEach((track) => {
     peerConnection.addTrack(track, stream);
   });
@@ -120,32 +98,25 @@ export async function createLocalCallSession(
 // ── Cleanup ───────────────────────────────────────────────────────────────────
 
 export function stopLocalCallSession(session: LocalCallSession): void {
-  // Stop all local media tracks (releases mic/camera hardware)
   session.stream.getTracks().forEach((t) => t.stop());
-  // Stop all remote tracks
   session.remoteStream.getTracks().forEach((t) => t.stop());
-  // Close the RTCPeerConnection
   try {
     session.peerConnection.close();
   } catch {
-    // already closed — safe to ignore
+    // already closed
   }
 }
 
-// ── Diagnostics helper (call from browser console during testing) ─────────────
-// Usage: import { logIceConfig } from "@/lib/webrtc"; logIceConfig();
-
+// ── Dev diagnostic — run in browser console to verify TURN is wired ──────────
+// import { logIceConfig } from "@/lib/webrtc"; logIceConfig();
 export function logIceConfig(): void {
   const servers = buildIceServers();
-  const hasTurn = servers.some((s) =>
-    String(s.urls).startsWith("turn:")
-  );
+  const hasTurn = servers.some((s) => String(s.urls).startsWith("turn:") || String(s.urls).startsWith("turns:"));
   console.group("Nada WebRTC ICE Configuration");
-  console.log("Servers:", servers);
-  console.log(
-    hasTurn
-      ? "✅ TURN configured — calls will work on all networks"
-      : "⚠️  No TURN configured — calls may fail on mobile/strict NAT"
+  console.table(servers.map((s) => ({ urls: s.urls, username: (s as RTCIceServer).username ?? "—" })));
+  console.log(hasTurn
+    ? "✅ TURN configured — calls work on all networks"
+    : "⚠️  No TURN — calls may fail on mobile/strict NAT (set NEXT_PUBLIC_TURN_USERNAME + CREDENTIAL)"
   );
   console.groupEnd();
 }
