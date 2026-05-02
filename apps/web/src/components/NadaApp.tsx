@@ -686,14 +686,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     void Promise.all(
       allChatIds.map(async (chatId) => {
         const msgs = await loadMessagesForChat(chatId);
-        const visible = msgs.filter((m) => !m.deletedAt);
+        const visible = msgs.filter((m) => !m.deletedAt || m.senderPubkeyHash === identity.pubkeyHash);
         const last = visible[visible.length - 1];
         const unread = visible.filter(
           (m) => m.direction === "inbound" && !m.readAt
         ).length;
+        
         return {
           chatId,
-          body: last ? previewForMessage(last) : "",
+          body: last ? previewForMessage(last, identity.pubkeyHash) : "Start a conversation",
           ts: last?.createdAt ?? 0,
           unread
         };
@@ -1874,26 +1875,23 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                           <span className="truncate text-[14px] font-semibold text-nada-primary">
                             {chat.title}
                           </span>
-                          {lastMsg && (
+                          {lastMsg && lastMsg.ts > 0 && (
                             <span className={cn("shrink-0 text-[10px]", unread > 0 ? "text-nada-success font-semibold" : "text-nada-secondary/70")}>
                               {formatRelativeTime(lastMsg.ts)}
                             </span>
                           )}
                         </div>
                         <div className="flex items-center justify-between gap-2 mt-0.5">
-                          <span className="truncate text-xs text-nada-secondary">
-                            {lastMsg?.body ? (
-                              lastMsg.body.startsWith("data:audio")
-                                ? "🎙 Voice note"
-                                : lastMsg.body.length > 32
-                                ? lastMsg.body.slice(0, 32) + "…"
-                                : lastMsg.body
-                            ) : (
-                              `${chat.memberPubkeyHashes.length} members`
-                            )}
+                          <span className={cn(
+                            "truncate text-xs",
+                            unread > 0 ? "text-nada-primary font-medium" : "text-nada-secondary"
+                          )}>
+                            {lastMsg?.body || "Start a conversation"}
                           </span>
                           {unread > 0 && (
-                            <span className="nada-badge">{unread}</span>
+                            <span className="nada-badge">
+                              {unread > 99 ? "99+" : unread}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -1935,26 +1933,23 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                           <span className="truncate text-[14px] font-semibold text-nada-primary">
                             {contact.localDisplayName}
                           </span>
-                          {lastMsg && (
+                          {lastMsg && lastMsg.ts > 0 && (
                             <span className={cn("shrink-0 text-[10px]", unread > 0 ? "text-nada-success font-semibold" : "text-nada-secondary/70")}>
                               {formatRelativeTime(lastMsg.ts)}
                             </span>
                           )}
                         </div>
                         <div className="flex items-center justify-between gap-2 mt-0.5">
-                          <span className="truncate text-xs text-nada-secondary">
-                            {lastMsg?.body ? (
-                              lastMsg.body.startsWith("data:audio")
-                                ? "🎙 Voice note"
-                                : lastMsg.body.length > 32
-                                ? lastMsg.body.slice(0, 32) + "…"
-                                : lastMsg.body
-                            ) : (
-                              contact.pubkeyHash.slice(0, 16) + "..."
-                            )}
+                          <span className={cn(
+                            "truncate text-xs",
+                            unread > 0 ? "text-nada-primary font-medium" : "text-nada-secondary"
+                          )}>
+                            {lastMsg?.body || "Start a conversation"}
                           </span>
                           {unread > 0 && (
-                            <span className="nada-badge">{unread}</span>
+                            <span className="nada-badge">
+                              {unread > 99 ? "99+" : unread}
+                            </span>
                           )}
                         </div>
                       </div>

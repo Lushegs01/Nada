@@ -57,34 +57,58 @@ export function textFromMessage(message: MessageRecord): string {
   return payload?.text ?? message.body;
 }
 
-export function previewForMessage(message: MessageRecord): string {
-  if (message.deletedAt) return "Message unavailable.";
+export function previewForMessage(message: MessageRecord, myPubkeyHash?: string): string {
+  if (message.deletedAt) return "This message was deleted";
 
   const payload = decodeMessagePayload(message.body);
   const type = payload?.type ?? message.kind;
   const media = payload?.media;
+  let preview = "";
 
   switch (type) {
     case "image":
-      return "Photo";
+      preview = "📷 Photo";
+      break;
     case "video":
-      return "Video";
+      preview = "🎥 Video";
+      break;
     case "audio":
-      return media?.fileName ?? "Audio";
+      preview = media?.fileName ? `🎵 ${media.fileName}` : "🎵 Audio";
+      break;
     case "voice_note":
-      return "Voice note";
+      preview = "🎙 Voice note";
+      break;
     case "file":
-      return media?.fileName ?? "Document";
+      preview = media?.fileName ? `📎 ${media.fileName}` : "📎 Document";
+      break;
     case "call":
-      return "Call";
+      preview = "📞 Call";
+      break;
     case "system":
-      return payload?.text ?? "System message";
+      preview = payload?.text ?? "System message";
+      break;
     case "text":
     default: {
       const text = payload?.text ?? message.body;
-      return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+      preview = text;
+      break;
     }
   }
+
+  if (message.status === "failed") {
+    return "Message failed to send";
+  }
+
+  if (message.editedAt && type === "text") {
+    preview += " (edited)";
+  }
+
+  const isMe = myPubkeyHash && message.senderPubkeyHash === myPubkeyHash;
+  if (isMe && type !== "system") {
+    return `You: ${preview}`;
+  }
+
+  return preview;
 }
 
 export function buildReplySnapshot({
