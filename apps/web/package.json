@@ -14,12 +14,15 @@
     "clean": "rimraf .next coverage test-results playwright-report"
   },
   "dependencies": {
+    "@livekit/components-react": "^2.9.20",
+    "@livekit/components-styles": "^1.2.0",
     "@nada/crypto": "workspace:0.1.0",
     "@nada/db": "workspace:0.1.0",
     "@nada/types": "workspace:0.1.0",
     "@nada/ui": "workspace:0.1.0",
     "dexie": "4.2.0",
     "framer-motion": "12.23.24",
+    "livekit-client": "^2.18.8",
     "lucide-react": "0.468.0",
     "next": "14.2.32",
     "next-pwa": "5.6.0",

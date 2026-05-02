@@ -8,7 +8,7 @@
 //
 // For local dev: copy apps/web/.env.local.example → apps/web/.env.local
 
-export type CallMode = "voice" | "video";
+export type CallMode = "voice" | "video" | "group";
 
 export interface LocalCallSession {
   callId: string;

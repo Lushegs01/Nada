@@ -58,6 +58,7 @@ import {
   Zap
 } from "lucide-react";
 import { IncomingCallModal, VoiceCallOverlay, VideoCallOverlay } from "@/components/CallOverlay";
+import { GroupCallOverlay } from "@/components/GroupCallOverlay";
 import {
   VoiceNoteBubble,
   VoiceRecorderBar,
@@ -1356,6 +1357,18 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   };
 
   const startCall = async (mode: CallMode): Promise<void> => {
+    if (mode === "group") {
+      if (!selectedGroup) return;
+      callStore.setOutgoingCall({
+        callId: selectedGroup.id,
+        mode: "group",
+        peerPubkeyHash: selectedGroup.id,
+        peerName: selectedGroup.title,
+        localSession: null as any
+      });
+      return;
+    }
+
     if (!selectedContact) return;
 
     const callId = crypto.randomUUID();
@@ -2107,6 +2120,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       />
       <VoiceCallOverlay onEnd={endCall} />
       <VideoCallOverlay onEnd={endCall} />
+      <GroupCallOverlay />
 
       {/* Dashboard-level toast */}
       <AnimatePresence>
@@ -2719,13 +2733,23 @@ function ChatPanel({
           <p className="truncate text-xs text-nada-secondary">{subtitle}</p>
         </div>
         {isGroup ? (
-          <IconButton
-            disabled={!canCopyGroupInvite}
-            label="Copy group invite"
-            onClick={onCopyGroupInvite}
-          >
-            <Copy size={16} />
-          </IconButton>
+          <>
+            <IconButton
+              label="Group Call"
+              onClick={() => {
+                onStartCall("group");
+              }}
+            >
+              <Video size={16} />
+            </IconButton>
+            <IconButton
+              disabled={!canCopyGroupInvite}
+              label="Copy group invite"
+              onClick={onCopyGroupInvite}
+            >
+              <Copy size={16} />
+            </IconButton>
+          </>
         ) : (
           <>
             <IconButton
