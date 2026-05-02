@@ -5,6 +5,8 @@ const EnvSchema = z.object({
   CAPABILITY_ISSUER_SECRET: z.string().min(32).optional(),
   CAPABILITY_TOKEN_SECRET: z.string().min(32).optional(),
   DATABASE_URL: z.string().url().optional(),
+  MEDIA_MAX_BYTES: z.coerce.number().int().positive().optional(),
+  MEDIA_STORAGE_DIR: z.string().min(1).optional(),
   NODE_ENV: z.string().optional(),
   PORT: z.coerce.number().int().positive(),
   REDIS_URL: z.string().url().optional(),
@@ -25,6 +27,8 @@ export interface RelayEnv {
   capabilityIssuerSecret: string | undefined;
   capabilityTokenSecret: string | undefined;
   databaseUrl: string | undefined;
+  mediaMaxBytes: number;
+  mediaStorageDir: string;
   nodeEnv: string;
   port: number;
   redisUrl: string | undefined;
@@ -52,6 +56,8 @@ export function readEnv(): RelayEnv {
     capabilityIssuerSecret: result.data.CAPABILITY_ISSUER_SECRET,
     capabilityTokenSecret: result.data.CAPABILITY_TOKEN_SECRET,
     databaseUrl: result.data.DATABASE_URL,
+    mediaMaxBytes: result.data.MEDIA_MAX_BYTES ?? 25 * 1024 * 1024,
+    mediaStorageDir: result.data.MEDIA_STORAGE_DIR ?? ".nada-media",
     nodeEnv,
     port: result.data.PORT,
     redisUrl: result.data.REDIS_URL,

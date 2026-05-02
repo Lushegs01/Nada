@@ -33,6 +33,10 @@ services:
         sync: false
       - key: RELAY_QUEUE_TTL_SECONDS
         sync: false
+      - key: MEDIA_STORAGE_DIR
+        value: ".nada-media"
+      - key: MEDIA_MAX_BYTES
+        value: "26214400"
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET

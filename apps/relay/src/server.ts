@@ -54,7 +54,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
   await app.register(websocket);
   await registerMonetizationRoutes(app, env);
   await registerPushRoutes(app, env);
-  await registerUploadRoutes(app);
+  await registerUploadRoutes(app, env);
 
   app.addHook("onClose", async () => {
     await queue.close();

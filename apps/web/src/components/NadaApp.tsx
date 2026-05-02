@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   Bell,
   BellOff,
+  Camera,
   ChevronDown,
   ChevronUp,
   Clock,
@@ -24,12 +25,16 @@ import {
   Edit3,
   Eye,
   EyeOff,
+  FileText,
   Flame,
   Ghost,
   Gift,
+  Image,
+  Loader2,
   MessageCircle,
   Mic,
   MoreVertical,
+  Music,
   Paperclip,
   Phone,
   Pin,
@@ -60,8 +65,7 @@ import {
   parseVoiceNoteBody,
   isInlineImageMessage,
   isInlineFileMessage,
-  parseInlineFileMessage,
-  formatFileSize
+  parseInlineFileMessage
 } from "@/components/VoiceNote";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { useCallStore } from "@/stores/useCallStore";
@@ -89,6 +93,9 @@ import type {
   MessageEnvelope,
   PaidBillingPlan,
   ReactionEnvelope,
+  MediaAttachment,
+  MessageKind,
+  ReplyToMessage,
   SubscriptionStatusResponse
 } from "@nada/types";
 import { Avatar, Button, IconButton, cn } from "@nada/ui";
@@ -111,8 +118,6 @@ import {
   redeemReferral,
   startCheckout
 } from "@/lib/billing";
-import { requestBlindUploadSlot } from "@/lib/blind-upload";
-import { encryptFileForBlindUpload } from "@/lib/file-encryption";
 import {
   buildGroupMigrationPayload,
   parseGroupMigrationPayload
@@ -129,6 +134,25 @@ import {
   buildShareCardPayload,
   shareInviteCard
 } from "@/lib/share-card";
+import {
+  buildMediaPayload,
+  buildReplySnapshot,
+  buildTextPayload,
+  decodeMessagePayload,
+  encodeMessagePayload,
+  mediaFromMessage,
+  messageKindFromRecord,
+  previewForMessage,
+  textFromMessage
+} from "@/lib/media-message";
+import {
+  formatBytes,
+  openDecryptedMedia,
+  prepareMediaFile,
+  uploadEncryptedMedia,
+  validateMediaFile,
+  type PreparedMediaFile
+} from "@/lib/media-upload";
 import { createLocalCallSession } from "@/lib/webrtc";
 import type { CallMode } from "@/lib/webrtc";
 import { useSocketStore } from "@/stores/useSocketStore";
@@ -461,6 +485,23 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     () => messages.find((message) => message.id === replyToId) ?? null,
     [messages, replyToId]
   );
+  const replySnapshot = useMemo<ReplyToMessage | undefined>(() => {
+    if (!replyMessage) {
+      return undefined;
+    }
+
+    const senderName =
+      replyMessage.senderPubkeyHash === identity.pubkeyHash
+        ? "You"
+        : contacts.find((contact) => contact.pubkeyHash === replyMessage.senderPubkeyHash)
+            ?.localDisplayName;
+
+    return buildReplySnapshot({
+      message: replyMessage,
+      myPubkeyHash: identity.pubkeyHash,
+      senderName
+    });
+  }, [contacts, identity.pubkeyHash, replyMessage]);
   const editingMessage = useMemo(
     () => messages.find((message) => message.id === editingMessageId) ?? null,
     [editingMessageId, messages]
@@ -470,7 +511,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       messages.filter((message) =>
         message.createdAt > chatPref.clearedAt &&
         matchesSearch(
-          `${message.body} ${message.status} ${message.mentions?.join(" ") ?? ""}`,
+          `${previewForMessage(message)} ${message.status} ${
+            message.mentions?.join(" ") ?? ""
+          }`,
           messageSearchQuery
         )
       ),
@@ -608,7 +651,12 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         const unread = visible.filter(
           (m) => m.direction === "inbound" && m.status !== "delivered"
         ).length;
-        return { chatId, body: last?.body ?? "", ts: last?.createdAt ?? 0, unread };
+        return {
+          chatId,
+          body: last ? previewForMessage(last) : "",
+          ts: last?.createdAt ?? 0,
+          unread
+        };
       })
     ).then((results) => {
       if (!active) return;
@@ -956,11 +1004,16 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const expiresAt =
       disappearingTimer > 0 ? timestamp + disappearingTimer : undefined;
     const mentions = extractMentions(trimmed, contacts);
+    const payload = buildTextPayload({
+      text: trimmed,
+      ...(replySnapshot ? { replyTo: replySnapshot } : {})
+    });
+    const body = encodeMessagePayload(payload);
     const ciphertext = selectedGroup?.groupSenderKey
       ? JSON.stringify(
-          await encryptGroupMessage(trimmed, selectedGroup.groupSenderKey)
+          await encryptGroupMessage(body, selectedGroup.groupSenderKey)
         )
-      : await mockEncryptMessage(trimmed);
+      : await mockEncryptMessage(body);
     const statusFallback = selectedGroup ? "local" : "queued";
     let sent = false;
 
@@ -976,7 +1029,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         sender: identity.pubkeyHash,
         timestamp,
         ciphertext,
+        messageKind: "text" as const,
         ...(replyToId ? { replyToId } : {}),
+        ...(replySnapshot ? { replyTo: replySnapshot } : {}),
         ...(mentions.length > 0 ? { mentions } : {}),
         ...(expiresAt ? { expiresAt } : {})
       };
@@ -986,7 +1041,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           : {
               ...baseEnvelope,
               // ⚠️ MVP_ONLY — replace before production
-              devPlaintext: trimmed
+              devPlaintext: body
             };
       sent = sendGroupEnvelope(groupEnvelope);
     } else if (selectedContact) {
@@ -996,7 +1051,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         recipient: selectedContact.pubkeyHash,
         sender: identity.pubkeyHash,
         timestamp,
-        ciphertext
+        ciphertext,
+        messageKind: "text" as const,
+        ...(replySnapshot ? { replyTo: replySnapshot } : {})
       };
       const envelope: MessageEnvelope =
         process.env["NODE_ENV"] === "production"
@@ -1004,7 +1061,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           : {
               ...baseEnvelope,
               // ⚠️ MVP_ONLY — replace before production
-              devPlaintext: trimmed
+              devPlaintext: body
             };
       sent = sendEnvelope(envelope);
     }
@@ -1022,13 +1079,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       recipientPubkeyHash: recipientHash,
       direction: "outbound",
       kind: "text",
-      body: trimmed,
+      body,
       encryptedPayload: ciphertext,
       status: sent ? "sent" : statusFallback,
       createdAt: timestamp,
       ...(expiresAt ? { expiresAt } : {}),
       ...(mentions.length > 0 ? { mentions } : {}),
-      ...(replyToId ? { replyToId } : {})
+      ...(replyToId ? { replyToId } : {}),
+      ...(replySnapshot ? { replyTo: replySnapshot } : {})
     };
 
     await nadaDb.messages.put(record);
@@ -1048,52 +1106,53 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     }
   };
 
-  const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB inline limit
+  const attachFile = async (file: File): Promise<boolean> => {
+    if (!selectedChatId || (!selectedContact && !selectedGroup)) return false;
 
-  const attachFile = async (file: File): Promise<void> => {
-    if (!selectedChatId) return;
-    if (!selectedContact && !selectedGroup) return;
-
-    // Reject oversized files
-    if (file.size > MAX_FILE_BYTES) {
-      showToast(`File too large (max ${MAX_FILE_BYTES / 1024 / 1024} MB). Please choose a smaller file.`);
-      return;
+    const validationError = validateMediaFile(file);
+    if (validationError) {
+      showToast(validationError);
+      return false;
     }
 
-    const ALLOWED_TYPES = [
-      "image/", "video/", "audio/",
-      "application/pdf",
-      "application/zip",
-      "application/x-zip-compressed",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument",
-      "text/"
-    ];
-    const allowed = ALLOWED_TYPES.some((t) => file.type.startsWith(t));
-    if (!allowed) {
-      showToast(`Unsupported file type: ${file.type || "unknown"}`);
-      return;
-    }
+    setUploadStatus(`Preparing ${file.name}...`);
+    const prepared = await prepareMediaFile(file);
+    setUploadStatus(`Encrypting ${file.name}...`);
+    const recipientHash =
+      selectedGroup?.id ?? selectedContact?.pubkeyHash ?? identity.pubkeyHash;
+    const media = await uploadEncryptedMedia({
+      chatId: selectedChatId,
+      file: prepared.file,
+      recipientPubkeyHash: recipientHash,
+      senderPubkeyHash: identity.pubkeyHash
+    });
 
-    setUploadStatus(`Preparing ${file.name}…`);
-
-    // Read as data URL
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error("Failed to read file"));
-      reader.readAsDataURL(file);
-    }).catch(() => null);
-
-    if (!dataUrl) {
-      showToast("Failed to read file. Please try again.");
+    if (!media) {
       setUploadStatus(null);
-      return;
+      showToast("Media upload failed. Check the relay and try again.");
+      return false;
     }
 
-    // Encode as: __media__:<mimeType>|<filename>|<sizeBytes>|<dataUrl>
-    const body = `__media__:${file.type || "application/octet-stream"}|${file.name}|${file.size}|${dataUrl}`;
-
+    const mediaWithPreview: MediaAttachment = {
+      ...media,
+      mimeType: prepared.file.type || media.mimeType,
+      originalName: prepared.originalFile.name,
+      fileName: prepared.originalFile.name,
+      size: prepared.originalFile.size,
+      ...(prepared.width ? { width: prepared.width } : {}),
+      ...(prepared.height ? { height: prepared.height } : {}),
+      ...(prepared.duration ? { duration: prepared.duration } : {}),
+      ...(prepared.thumbnailDataUrl
+        ? { thumbnailDataUrl: prepared.thumbnailDataUrl }
+        : {})
+    };
+    const messageKind = prepared.kind;
+    const payload = buildMediaPayload({
+      media: mediaWithPreview,
+      type: messageKind,
+      ...(replySnapshot ? { replyTo: replySnapshot } : {})
+    });
+    const body = encodeMessagePayload(payload);
     const id = crypto.randomUUID();
     const timestamp = Date.now();
     const expiresAt = disappearingTimer > 0 ? timestamp + disappearingTimer : undefined;
@@ -1113,7 +1172,10 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         sender: identity.pubkeyHash,
         timestamp,
         ciphertext,
+        messageKind,
         ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {}),
+        ...(replyToId ? { replyToId } : {}),
+        ...(replySnapshot ? { replyTo: replySnapshot } : {}),
         ...(expiresAt ? { expiresAt } : {})
       });
     } else if (selectedContact) {
@@ -1124,24 +1186,26 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         sender: identity.pubkeyHash,
         timestamp,
         ciphertext,
+        messageKind,
+        ...(replySnapshot ? { replyTo: replySnapshot } : {}),
         ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
       });
     }
 
-    const recipientHash = selectedGroup?.id ?? selectedContact?.pubkeyHash ?? identity.pubkeyHash;
     const record: MessageRecord = {
       id,
       chatId: selectedChatId,
       senderPubkeyHash: identity.pubkeyHash,
       recipientPubkeyHash: recipientHash,
       direction: "outbound",
-      kind: "file",
+      kind: messageKind,
       body,
       encryptedPayload: ciphertext,
       status: sent ? "sent" : "queued",
       createdAt: timestamp,
       ...(expiresAt ? { expiresAt } : {}),
-      ...(replyToId ? { replyToId } : {})
+      ...(replyToId ? { replyToId } : {}),
+      ...(replySnapshot ? { replyTo: replySnapshot } : {})
     };
 
     await nadaDb.messages.put(record);
@@ -1156,7 +1220,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     setMessages((current) => [...current, record]);
     setReplyToId(null);
     setUploadStatus(null);
-    showToast(`${file.type.startsWith("image/") ? "📷 Image" : "📎 File"} sent!`);
+    showToast(`${previewForMessage(record)} sent.`);
+    return true;
   };
 
   const createGroup = async (
@@ -1202,11 +1267,28 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const id = crypto.randomUUID();
     const timestamp = Date.now();
     const expiresAt = disappearingTimer > 0 ? timestamp + disappearingTimer : undefined;
+    const parsedVoice = parseVoiceNoteBody(body);
+    const mimeType =
+      parsedVoice.src.match(/^data:([^;]+);/)?.[1] ?? "audio/webm";
+    const media: MediaAttachment = {
+      url: parsedVoice.src,
+      fileName: `voice-note-${timestamp}.webm`,
+      originalName: `voice-note-${timestamp}.webm`,
+      mimeType,
+      size: dataUrlSize(parsedVoice.src),
+      duration: parsedVoice.durationSeconds
+    };
+    const payload = buildMediaPayload({
+      media,
+      type: "voice_note",
+      ...(replySnapshot ? { replyTo: replySnapshot } : {})
+    });
+    const structuredBody = encodeMessagePayload(payload);
 
     // Encrypt the body the same way a text message is encrypted
     const ciphertext = selectedGroup?.groupSenderKey
-      ? JSON.stringify(await encryptGroupMessage(body, selectedGroup.groupSenderKey))
-      : await mockEncryptMessage(body);
+      ? JSON.stringify(await encryptGroupMessage(structuredBody, selectedGroup.groupSenderKey))
+      : await mockEncryptMessage(structuredBody);
 
     let sent = false;
     if (selectedGroup) {
@@ -1221,7 +1303,10 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         sender: identity.pubkeyHash,
         timestamp,
         ciphertext,
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {}),
+        messageKind: "voice_note",
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: structuredBody } : {}),
+        ...(replyToId ? { replyToId } : {}),
+        ...(replySnapshot ? { replyTo: replySnapshot } : {}),
         ...(expiresAt ? { expiresAt } : {})
       });
     } else if (selectedContact) {
@@ -1232,7 +1317,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         sender: identity.pubkeyHash,
         timestamp,
         ciphertext,
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+        messageKind: "voice_note",
+        ...(replySnapshot ? { replyTo: replySnapshot } : {}),
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: structuredBody } : {})
       });
     }
 
@@ -1245,12 +1332,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       senderPubkeyHash: identity.pubkeyHash,
       recipientPubkeyHash: recipientHash,
       direction: "outbound",
-      kind: "text",
-      body,
+      kind: "voice_note",
+      body: structuredBody,
       encryptedPayload: ciphertext,
       status: sent ? "sent" : "queued",
       createdAt: timestamp,
-      ...(expiresAt ? { expiresAt } : {})
+      ...(expiresAt ? { expiresAt } : {}),
+      ...(replyToId ? { replyToId } : {}),
+      ...(replySnapshot ? { replyTo: replySnapshot } : {})
     };
 
     await nadaDb.messages.put(record);
@@ -1263,6 +1352,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       );
     }
     setMessages((current) => [...current, record]);
+    setReplyToId(null);
   };
 
   const startCall = async (mode: CallMode): Promise<void> => {
@@ -1736,7 +1826,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       </aside>
 
       <ChatPanel
-        canAttachFile={Boolean(selectedContact)}
+        canAttachFile={Boolean(selectedContact || selectedGroup)}
         canCopyGroupInvite={Boolean(selectedGroup?.groupSenderKey)}
         contact={selectedContact}
         disappearingTimer={disappearingTimer}
@@ -1750,9 +1840,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           setSelectedGroupId(null);
           setMessageSearchQuery("");
         }}
-        onAttachFile={(file) => {
-          void attachFile(file);
-        }}
+        onAttachFile={attachFile}
         onCancelEdit={() => {
           setEditingMessageId(null);
           setMessageText("");
@@ -2249,8 +2337,10 @@ function ChatPanel({
   onBlock,
   onUnblock,
   onTyping,
+  onTypingStop,
   onReact,
   onPin,
+  contacts,
   pinnedMessageId,
   pinnedMessageBody,
   myPubkeyHash,
@@ -2269,7 +2359,7 @@ function ChatPanel({
   messageText: string;
   messages: MessageRecord[];
   onBack: () => void;
-  onAttachFile: (file: File) => void;
+  onAttachFile: (file: File) => Promise<boolean>;
   onCancelEdit: () => void;
   onCancelReply: () => void;
   onCopyGroupInvite: () => void;
@@ -2321,19 +2411,31 @@ function ChatPanel({
   const [toast, setToast] = useState<string | null>(null);
   const [chatSearchActive, setChatSearchActive] = useState(false);
   const [chatSearchIdx, setChatSearchIdx] = useState(0);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [attachmentAccept, setAttachmentAccept] = useState("*/*");
+  const [attachmentCapture, setAttachmentCapture] = useState<"environment" | undefined>();
+  const [attachmentDraft, setAttachmentDraft] = useState<PreparedMediaFile | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [attachmentSending, setAttachmentSending] = useState(false);
+  const [mediaViewer, setMediaViewer] = useState<{
+    name: string;
+    url: string;
+    mimeType: string;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const pinnedMsgRef = useRef<HTMLDivElement | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const swipeStartX = useRef<number | null>(null);
-  const swipeOffsetX = useRef<number>(0);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const recordingTimer = useRef<number | null>(null);
+  const recordingAudioContext = useRef<AudioContext | null>(null);
+  const [recordingAnalyser, setRecordingAnalyser] = useState<AnalyserNode | null>(null);
   // Use a ref for duration so onstop captures the live value, not a stale closure
   const recordingSecondsRef = useRef(0);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasTyping = useRef(false);
+  const lastTypingEmitAt = useRef(0);
 
   const QUICK_REPLIES = [
     "👍 Got it!",
@@ -2365,7 +2467,10 @@ function ChatPanel({
   const searchMatchIds = useMemo(() => {
     if (!messageSearchQuery.trim()) return [];
     return messages
-      .filter((m) => !m.deletedAt && m.body.toLowerCase().includes(messageSearchQuery.toLowerCase()))
+      .filter((m) =>
+        !m.deletedAt &&
+        previewForMessage(m).toLowerCase().includes(messageSearchQuery.toLowerCase())
+      )
       .map((m) => m.id);
   }, [messages, messageSearchQuery]);
 
@@ -2382,6 +2487,7 @@ function ChatPanel({
     return () => {
       // Cleanup any active recordings when the chat panel unmounts
       if (recordingTimer.current) window.clearInterval(recordingTimer.current);
+      void recordingAudioContext.current?.close();
       if (mediaRecorder.current && mediaRecorder.current.state !== "inactive") {
         mediaRecorder.current.stream?.getTracks().forEach((t) => t.stop());
         mediaRecorder.current.stop();
@@ -2389,10 +2495,43 @@ function ChatPanel({
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (attachmentDraft?.previewUrl) {
+        URL.revokeObjectURL(attachmentDraft.previewUrl);
+      }
+    };
+  }, [attachmentDraft]);
+
+  useEffect(() => {
+    return () => {
+      if (wasTyping.current) {
+        wasTyping.current = false;
+        onTypingStop();
+      }
+      if (typingTimeout.current) {
+        window.clearTimeout(typingTimeout.current);
+      }
+    };
+  }, [contact?.pubkeyHash, isGroup, onTypingStop]);
+
   const startRecording = async () => {
     if (isRecording) return; // prevent double-start
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const AudioContextClass =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (AudioContextClass) {
+        const audioContext = new AudioContextClass();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        recordingAudioContext.current = audioContext;
+        setRecordingAnalyser(analyser);
+      }
 
       // Detect supported MIME type — Safari needs audio/mp4
       const mimeType = [
@@ -2413,10 +2552,13 @@ function ChatPanel({
       recorder.onstop = () => {
         // Stop all mic tracks
         stream.getTracks().forEach((t) => t.stop());
+        void recordingAudioContext.current?.close();
+        recordingAudioContext.current = null;
+        setRecordingAnalyser(null);
 
         const chunks = audioChunks.current;
         if (chunks.length === 0) {
-          alert("No audio was captured. Please try again.");
+          showToast("No audio was captured. Please try again.");
           return;
         }
 
@@ -2425,7 +2567,7 @@ function ChatPanel({
         const blob = new Blob(chunks, { type: actualMime });
 
         if (blob.size === 0) {
-          alert("Recording failed — audio blob is empty. Please try again.");
+          showToast("Recording failed. Please try again.");
           return;
         }
 
@@ -2458,13 +2600,16 @@ function ChatPanel({
         setRecordingSeconds((s) => s + 1);
       }, 1000);
     } catch {
-      alert("Microphone access denied. Please allow microphone access and try again.");
+      showToast("Microphone access denied. Please allow microphone access and try again.");
     }
   };
 
   const stopRecording = () => {
     if (mediaRecorder.current && isRecording) {
       if (recordingTimer.current) window.clearInterval(recordingTimer.current);
+      void recordingAudioContext.current?.close();
+      recordingAudioContext.current = null;
+      setRecordingAnalyser(null);
       setIsRecording(false);
       // stop() triggers onstop async — chunks are finalized there
       mediaRecorder.current.stop();
@@ -2478,11 +2623,72 @@ function ChatPanel({
       mediaRecorder.current.ondataavailable = null;
       mediaRecorder.current.onstop = () => {
         mediaRecorder.current?.stream.getTracks().forEach((t) => t.stop());
+        void recordingAudioContext.current?.close();
+        recordingAudioContext.current = null;
+        setRecordingAnalyser(null);
       };
       mediaRecorder.current.stop();
       audioChunks.current = [];
       setIsRecording(false);
     }
+  };
+
+  const openAttachmentPicker = (
+    accept: string,
+    capture?: "environment"
+  ): void => {
+    setAttachmentAccept(accept);
+    setAttachmentCapture(capture);
+    setAttachmentMenuOpen(false);
+    window.setTimeout(() => {
+      fileInputRef.current?.click();
+    }, 0);
+  };
+
+  const prepareAttachmentDraft = async (file: File): Promise<void> => {
+    const validationError = validateMediaFile(file);
+    if (validationError) {
+      setAttachmentError(validationError);
+      showToast(validationError);
+      return;
+    }
+
+    try {
+      setAttachmentError(null);
+      const prepared = await prepareMediaFile(file);
+      setAttachmentDraft((current) => {
+        if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+        return prepared;
+      });
+    } catch {
+      setAttachmentError("Could not prepare this attachment.");
+      showToast("Could not prepare this attachment.");
+    }
+  };
+
+  const sendAttachmentDraft = async (): Promise<void> => {
+    if (!attachmentDraft || attachmentSending) return;
+    setAttachmentSending(true);
+    setAttachmentError(null);
+    onTypingStop();
+    const ok = await onAttachFile(attachmentDraft.file);
+    setAttachmentSending(false);
+    if (ok) {
+      if (attachmentDraft.previewUrl) URL.revokeObjectURL(attachmentDraft.previewUrl);
+      setAttachmentDraft(null);
+      setAttachmentError(null);
+    } else {
+      setAttachmentError("Upload failed. You can retry or cancel.");
+    }
+  };
+
+  const cancelAttachmentDraft = (): void => {
+    setAttachmentDraft((current) => {
+      if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+      return null;
+    });
+    setAttachmentError(null);
+    setAttachmentSending(false);
   };
 
   if (!contact && !isGroup) {
@@ -3026,9 +3232,23 @@ function ChatPanel({
               <motion.div
                 animate={{ opacity: 1, y: 0 }}
                 className={cn(
-                  "group relative flex px-1 py-0.5",
+                  "group relative flex touch-pan-y px-1 py-0.5",
                   message.direction === "outbound" ? "justify-end" : "justify-start"
                 )}
+                drag="x"
+                dragConstraints={
+                  message.direction === "outbound"
+                    ? { left: -96, right: 0 }
+                    : { left: 0, right: 96 }
+                }
+                dragDirectionLock
+                dragElastic={0.16}
+                onDragEnd={(_event, info) => {
+                  if (Math.abs(info.offset.x) > 64) {
+                    onReply(message);
+                    if ("vibrate" in navigator) navigator.vibrate(10);
+                  }
+                }}
                 initial={{ opacity: 0, y: 6 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
                 onContextMenu={(e) => {
@@ -3039,45 +3259,25 @@ function ChatPanel({
                   longPressTimer.current = setTimeout(() => {
                     setActiveMessageMenu(message.id);
                   }, 500);
-                  swipeStartX.current = e.clientX;
-                  swipeOffsetX.current = 0;
-                }}
-                onPointerMove={(e) => {
-                  if (swipeStartX.current !== null) {
-                    const diff = e.clientX - swipeStartX.current;
-                    // Only allow swipe left for sent, right for received
-                    if ((message.direction === "outbound" && diff < 0) || 
-                        (message.direction === "inbound" && diff > 0)) {
-                      if (longPressTimer.current) clearTimeout(longPressTimer.current);
-                      swipeOffsetX.current = diff;
-                      e.currentTarget.style.transform = `translateX(${diff}px)`;
-                      // Trigger reply feedback
-                      if (Math.abs(diff) > 50 && swipeStartX.current !== -1) {
-                         if ("vibrate" in navigator) navigator.vibrate(10);
-                         swipeStartX.current = -1; // Mark triggered
-                      }
-                    }
+                  if (e.pointerType === "mouse") {
+                    clearTimeout(longPressTimer.current);
                   }
                 }}
-                onPointerUp={(e) => {
+                onPointerUp={() => {
                   if (longPressTimer.current) clearTimeout(longPressTimer.current);
-                  if (swipeStartX.current === -1) {
-                    onReply(message);
-                  }
-                  swipeStartX.current = null;
-                  swipeOffsetX.current = 0;
-                  e.currentTarget.style.transform = `translateX(0px)`;
-                  e.currentTarget.style.transition = 'transform 0.2s ease-out';
-                  setTimeout(() => {
-                    if (e.currentTarget) e.currentTarget.style.transition = '';
-                  }, 200);
                 }}
-                onPointerLeave={(e) => {
+                onPointerLeave={() => {
                   if (longPressTimer.current) clearTimeout(longPressTimer.current);
-                  swipeStartX.current = null;
-                  e.currentTarget.style.transform = `translateX(0px)`;
                 }}
               >
+                <div
+                  className={cn(
+                    "pointer-events-none absolute top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-nada-accent/15 text-nada-accent opacity-0 transition-opacity group-active:opacity-100",
+                    message.direction === "outbound" ? "right-2" : "left-2"
+                  )}
+                >
+                  <Reply size={16} />
+                </div>
                 <div
                   className={cn(
                     "relative max-w-[75%] px-3 py-2",
@@ -3103,74 +3303,32 @@ function ChatPanel({
                     >
                       {(() => {
                         const original = messages.find((m) => m.id === message.replyToId);
-                        if (!original) return "Reply to deleted message";
-                        const senderName = original.senderPubkeyHash === myPubkeyHash ? "You" : 
-                          contacts.find(c => c.pubkeyHash === original.senderPubkeyHash)?.localDisplayName || "Someone";
-                        
-                        let previewText = original.body;
-                        if (isVoiceNoteMessage(original.body)) previewText = "🎙 Voice note";
-                        else if (isInlineImageMessage(original.body)) previewText = "📷 Image";
-                        else if (isInlineFileMessage(original.body)) previewText = "📎 File";
-                        else if (previewText.length > 40) previewText = previewText.slice(0, 40) + "…";
+                        const snapshot = message.replyTo;
+                        const senderName = original
+                          ? original.senderPubkeyHash === myPubkeyHash
+                            ? "You"
+                            : contacts.find(c => c.pubkeyHash === original.senderPubkeyHash)?.localDisplayName || "Someone"
+                          : snapshot?.senderName ?? "Someone";
+                        const previewText = original
+                          ? previewForMessage(original)
+                          : snapshot?.textPreview ?? snapshot?.fileName ?? "Message unavailable.";
                         
                         return (
                           <div className="flex flex-col border-l-2 border-nada-accent pl-2">
                             <span className="font-semibold text-[10px] text-nada-accent">{senderName}</span>
-                            <span className="truncate opacity-80">{previewText}</span>
+                            <span className="truncate opacity-80">
+                              {previewText.length > 48 ? `${previewText.slice(0, 48)}...` : previewText}
+                            </span>
                           </div>
                         );
                       })()}
                     </div>
                   ) : null}
-                  {message.deletedAt ? (
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed italic opacity-50">
-                      Message deleted
-                    </p>
-                  ) : isVoiceNoteMessage(message.body) ? (
-                    <VoiceNoteBubble 
-                      src={parseVoiceNoteBody(message.body).src} 
-                      durationSeconds={parseVoiceNoteBody(message.body).durationSeconds}
-                      outbound={message.direction === "outbound"}
-                    />
-                  ) : isInlineImageMessage(message.body) ? (
-                    <div className="flex flex-col gap-1">
-                      <img 
-                        src={parseInlineFileMessage(message.body)?.dataUrl} 
-                        alt="Attached image" 
-                        className="rounded-lg max-h-64 object-contain bg-black/5"
-                        loading="lazy"
-                      />
-                      <span className="text-[10px] opacity-70">
-                        {parseInlineFileMessage(message.body)?.filename}
-                      </span>
-                    </div>
-                  ) : isInlineFileMessage(message.body) ? (
-                    <div className="flex items-center gap-3 rounded-lg bg-black/5 p-2">
-                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-nada-accent/20 text-nada-accent">
-                        <Download size={18} />
-                      </div>
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="truncate text-sm font-medium">
-                          {parseInlineFileMessage(message.body)?.filename}
-                        </span>
-                        <span className="text-[10px] opacity-70">
-                          {formatFileSize(parseInlineFileMessage(message.body)?.sizeBytes || 0)}
-                        </span>
-                      </div>
-                      <a 
-                        href={parseInlineFileMessage(message.body)?.dataUrl}
-                        download={parseInlineFileMessage(message.body)?.filename}
-                        className="p-1 text-nada-secondary hover:text-nada-primary"
-                        title="Download file"
-                      >
-                        <Download size={16} />
-                      </a>
-                    </div>
-                  ) : (
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
-                      {message.body}
-                    </p>
-                  )}
+                  <MessageContent
+                    message={message}
+                    outbound={message.direction === "outbound"}
+                    onOpenMedia={setMediaViewer}
+                  />
                   {message.mentions?.length ? (
                     <p className="mt-0.5 text-[11px] opacity-60">
                       @{message.mentions.length} mention{message.mentions.length === 1 ? "" : "s"}
@@ -3320,7 +3478,7 @@ function ChatPanel({
 
       <form
         className={cn(
-          "sticky bottom-0 z-header border-t border-nada-border/40 bg-nada-surface px-3 py-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))]",
+          "relative sticky bottom-0 z-header border-t border-nada-border/40 bg-nada-surface px-3 py-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))]",
           peerIsBlocked && "pointer-events-none opacity-50"
         )}
         onSubmit={onSend}
@@ -3349,10 +3507,7 @@ function ChatPanel({
                   contact?.pubkeyHash === replyMessage.senderPubkeyHash ? contact?.localDisplayName : "someone"}
               </span>
               <span className="truncate opacity-80">
-                {isVoiceNoteMessage(replyMessage.body) ? "🎙 Voice note" : 
-                 isInlineImageMessage(replyMessage.body) ? "📷 Image" :
-                 isInlineFileMessage(replyMessage.body) ? "📎 File" :
-                 replyMessage.body}
+                {previewForMessage(replyMessage)}
               </span>
             </div>
             <button className="ml-2 shrink-0 p-1 hover:bg-nada-surface rounded-md transition-colors" onClick={onCancelReply} type="button">
@@ -3368,15 +3523,28 @@ function ChatPanel({
             </button>
           </div>
         ) : null}
+        {attachmentDraft ? (
+          <AttachmentPreview
+            draft={attachmentDraft}
+            error={attachmentError}
+            isSending={attachmentSending}
+            onCancel={cancelAttachmentDraft}
+            onSend={() => {
+              void sendAttachmentDraft();
+            }}
+          />
+        ) : null}
         <div className="flex items-center gap-2">
           {!isRecording ? (
             <>
               <input
+                accept={attachmentAccept}
+                capture={attachmentCapture}
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (file) {
-                    onAttachFile(file);
+                    void prepareAttachmentDraft(file);
                   }
                   event.target.value = "";
                 }}
@@ -3406,12 +3574,25 @@ function ChatPanel({
                 className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary disabled:opacity-30"
                 disabled={!canAttachFile || peerIsBlocked}
                 onClick={() => {
-                  fileInputRef.current?.click();
+                  setAttachmentMenuOpen((current) => !current);
                 }}
                 type="button"
               >
                 <Paperclip size={20} />
               </button>
+              {attachmentMenuOpen ? (
+                <AttachmentMenu
+                  onPickAudio={() => openAttachmentPicker("audio/*")}
+                  onPickCamera={() => openAttachmentPicker("image/*", "environment")}
+                  onPickDocument={() =>
+                    openAttachmentPicker(
+                      ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,application/pdf,application/zip,text/*"
+                    )
+                  }
+                  onPickImage={() => openAttachmentPicker("image/*")}
+                  onPickVideo={() => openAttachmentPicker("video/*")}
+                />
+              ) : null}
               <input
                 className="nada-input h-10 min-w-0 flex-1 px-4 text-sm disabled:opacity-50"
                 disabled={peerIsBlocked}
@@ -3429,6 +3610,10 @@ function ChatPanel({
                   if (!wasTyping.current) {
                     wasTyping.current = true;
                     onTyping(true);
+                    lastTypingEmitAt.current = Date.now();
+                  } else if (Date.now() - lastTypingEmitAt.current > 2500) {
+                    onTyping(true);
+                    lastTypingEmitAt.current = Date.now();
                   }
                   if (typingTimeout.current) clearTimeout(typingTimeout.current);
                   typingTimeout.current = setTimeout(() => {
@@ -3470,12 +3655,400 @@ function ChatPanel({
                 seconds={recordingSeconds} 
                 onStop={stopRecording} 
                 onCancel={cancelRecording} 
+                analyser={recordingAnalyser}
               />
             </div>
           )}
         </div>
       </form>
+      <AnimatePresence>
+        {mediaViewer ? (
+          <motion.div
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 z-[960] flex flex-col bg-black/90 p-4 backdrop-blur-xl"
+            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3 text-white">
+              <p className="min-w-0 truncate text-sm font-semibold">{mediaViewer.name}</p>
+              <div className="flex gap-2">
+                <a
+                  className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white"
+                  download={mediaViewer.name}
+                  href={mediaViewer.url}
+                >
+                  <Download size={18} />
+                </a>
+                <button
+                  className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white"
+                  onClick={() => setMediaViewer(null)}
+                  type="button"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="grid min-h-0 flex-1 place-items-center">
+              {mediaViewer.mimeType.startsWith("image/") ? (
+                <img
+                  alt={mediaViewer.name}
+                  className="max-h-full max-w-full rounded-2xl object-contain"
+                  src={mediaViewer.url}
+                />
+              ) : mediaViewer.mimeType.startsWith("video/") ? (
+                <video
+                  className="max-h-full max-w-full rounded-2xl"
+                  controls
+                  src={mediaViewer.url}
+                />
+              ) : (
+                <a
+                  className="rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-black"
+                  download={mediaViewer.name}
+                  href={mediaViewer.url}
+                >
+                  Open file
+                </a>
+              )}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </section>
+  );
+}
+
+function MessageContent({
+  message,
+  outbound,
+  onOpenMedia
+}: {
+  message: MessageRecord;
+  outbound: boolean;
+  onOpenMedia: (viewer: { name: string; url: string; mimeType: string }) => void;
+}): JSX.Element {
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const media = useMemo(() => mediaFromMessage(message), [message]);
+  const payload = useMemo(() => decodeMessagePayload(message.body), [message.body]);
+  const kind = useMemo(() => messageKindFromRecord(message), [message]);
+  const mediaUrl = media?.url ?? "";
+  const mediaKeyBase64 = media?.keyBase64 ?? "";
+  const mediaNonceBase64 = media?.nonceBase64 ?? "";
+
+  useEffect(() => {
+    let active = true;
+    setLoadError(null);
+    setResolvedUrl(null);
+
+    if (!media) {
+      return () => {
+        active = false;
+      };
+    }
+
+    if (media.url.startsWith("data:") || media.url.startsWith("blob:")) {
+      setResolvedUrl(media.url);
+      return () => {
+        active = false;
+      };
+    }
+
+    if (kind === "image" || kind === "video" || kind === "audio" || kind === "voice_note") {
+      void openDecryptedMedia(media)
+        .then((url) => {
+          if (active) setResolvedUrl(url);
+        })
+        .catch(() => {
+          if (active) setLoadError("Media unavailable");
+        });
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [kind, media, mediaKeyBase64, mediaNonceBase64, mediaUrl]);
+
+  if (message.deletedAt) {
+    return (
+      <p className="whitespace-pre-wrap break-words text-[15px] italic leading-relaxed opacity-50">
+        Message deleted
+      </p>
+    );
+  }
+
+  if (media) {
+    const displayUrl = resolvedUrl ?? media.thumbnailDataUrl ?? media.thumbnailUrl ?? null;
+    if (kind === "voice_note" || kind === "audio") {
+      return resolvedUrl ? (
+        <VoiceNoteBubble
+          durationSeconds={Math.round(media.duration ?? 0)}
+          outbound={outbound}
+          src={resolvedUrl}
+        />
+      ) : (
+        <MediaLoadingState error={loadError} label={kind === "voice_note" ? "Voice note" : media.fileName} />
+      );
+    }
+
+    if (kind === "image") {
+      return (
+        <button
+          className="flex max-w-[280px] flex-col gap-1 text-left"
+          disabled={!displayUrl}
+          onClick={() => {
+            if (resolvedUrl) {
+              onOpenMedia({
+                name: media.originalName,
+                url: resolvedUrl,
+                mimeType: media.mimeType
+              });
+            }
+          }}
+          type="button"
+        >
+          {displayUrl ? (
+            <img
+              alt={media.originalName}
+              className="max-h-72 rounded-xl bg-black/10 object-contain"
+              loading="lazy"
+              src={displayUrl}
+            />
+          ) : (
+            <MediaLoadingState error={loadError} label="Photo" />
+          )}
+          <span className="text-[10px] opacity-70">{media.originalName}</span>
+        </button>
+      );
+    }
+
+    if (kind === "video") {
+      return displayUrl ? (
+        <video className="max-h-72 rounded-xl" controls src={displayUrl} />
+      ) : (
+        <MediaLoadingState error={loadError} label="Video" />
+      );
+    }
+
+    return (
+      <div className="flex min-w-[220px] items-center gap-3 rounded-xl bg-black/5 p-2">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-nada-accent/20 text-nada-accent">
+          <FileText size={18} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{media.originalName}</span>
+          <span className="text-[10px] opacity-70">
+            {formatBytes(media.size)} - {media.mimeType}
+          </span>
+        </div>
+        <button
+          className="p-1 text-nada-secondary hover:text-nada-primary"
+          onClick={() => {
+            void openDecryptedMedia(media)
+              .then((url) => {
+                onOpenMedia({
+                  name: media.originalName,
+                  url,
+                  mimeType: media.mimeType
+                });
+              })
+              .catch(() => setLoadError("File unavailable"));
+          }}
+          title="Open file"
+          type="button"
+        >
+          <Download size={16} />
+        </button>
+      </div>
+    );
+  }
+
+  if (isVoiceNoteMessage(message.body)) {
+    const voice = parseVoiceNoteBody(message.body);
+    return (
+      <VoiceNoteBubble
+        durationSeconds={voice.durationSeconds}
+        outbound={outbound}
+        src={voice.src}
+      />
+    );
+  }
+
+  if (isInlineImageMessage(message.body)) {
+    const legacy = parseInlineFileMessage(message.body);
+    return legacy ? (
+      <button
+        className="flex flex-col gap-1 text-left"
+        onClick={() =>
+          onOpenMedia({
+            name: legacy.filename,
+            url: legacy.dataUrl,
+            mimeType: legacy.mimeType
+          })
+        }
+        type="button"
+      >
+        <img
+          alt={legacy.filename}
+          className="max-h-64 rounded-lg bg-black/5 object-contain"
+          loading="lazy"
+          src={legacy.dataUrl}
+        />
+        <span className="text-[10px] opacity-70">{legacy.filename}</span>
+      </button>
+    ) : (
+      <MediaLoadingState error="Image unavailable" label="Photo" />
+    );
+  }
+
+  if (isInlineFileMessage(message.body)) {
+    const legacy = parseInlineFileMessage(message.body);
+    return legacy ? (
+      <div className="flex items-center gap-3 rounded-lg bg-black/5 p-2">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-nada-accent/20 text-nada-accent">
+          <Download size={18} />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-medium">{legacy.filename}</span>
+          <span className="text-[10px] opacity-70">{formatBytes(legacy.sizeBytes)}</span>
+        </div>
+        <a
+          className="p-1 text-nada-secondary hover:text-nada-primary"
+          download={legacy.filename}
+          href={legacy.dataUrl}
+          title="Download file"
+        >
+          <Download size={16} />
+        </a>
+      </div>
+    ) : (
+      <MediaLoadingState error="File unavailable" label="Document" />
+    );
+  }
+
+  return (
+    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
+      {payload?.text ?? textFromMessage(message)}
+    </p>
+  );
+}
+
+function MediaLoadingState({
+  error,
+  label
+}: {
+  error: string | null;
+  label: string;
+}): JSX.Element {
+  return (
+    <div className="flex min-w-[180px] items-center gap-2 rounded-xl bg-black/5 p-3 text-xs opacity-80">
+      {error ? <ShieldAlert size={15} /> : <Loader2 className="animate-spin" size={15} />}
+      <span>{error ?? `Loading ${label.toLowerCase()}...`}</span>
+    </div>
+  );
+}
+
+function AttachmentMenu({
+  onPickAudio,
+  onPickCamera,
+  onPickDocument,
+  onPickImage,
+  onPickVideo
+}: {
+  onPickAudio: () => void;
+  onPickCamera: () => void;
+  onPickDocument: () => void;
+  onPickImage: () => void;
+  onPickVideo: () => void;
+}): JSX.Element {
+  const options = [
+    { label: "Photo", icon: Image, action: onPickImage },
+    { label: "Camera", icon: Camera, action: onPickCamera },
+    { label: "Document", icon: FileText, action: onPickDocument },
+    { label: "Video", icon: Video, action: onPickVideo },
+    { label: "Audio", icon: Music, action: onPickAudio }
+  ];
+
+  return (
+    <div className="absolute bottom-16 left-3 z-40 grid w-52 gap-1 rounded-2xl border border-nada-border/50 bg-nada-surface p-2 shadow-xl animate-scale-in">
+      {options.map((option) => (
+        <button
+          className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-nada-primary transition-colors hover:bg-nada-muted"
+          key={option.label}
+          onClick={option.action}
+          type="button"
+        >
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-nada-accent/10 text-nada-accent">
+            <option.icon size={17} />
+          </span>
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AttachmentPreview({
+  draft,
+  error,
+  isSending,
+  onCancel,
+  onSend
+}: {
+  draft: PreparedMediaFile;
+  error: string | null;
+  isSending: boolean;
+  onCancel: () => void;
+  onSend: () => void;
+}): JSX.Element {
+  const name = draft.originalFile.name;
+  return (
+    <div className="mb-2 rounded-2xl border border-nada-border/50 bg-nada-muted/70 p-3">
+      <div className="flex gap-3">
+        <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl bg-nada-surface">
+          {draft.kind === "image" && draft.previewUrl ? (
+            <img alt="" className="h-full w-full object-cover" src={draft.previewUrl} />
+          ) : draft.kind === "video" && draft.previewUrl ? (
+            <video className="h-full w-full object-cover" muted src={draft.previewUrl} />
+          ) : draft.kind === "audio" ? (
+            <Music className="text-nada-accent" size={24} />
+          ) : (
+            <FileText className="text-nada-accent" size={24} />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-nada-primary">{name}</p>
+          <p className="mt-1 text-xs text-nada-secondary">
+            {draft.file.type || "application/octet-stream"} - {formatBytes(draft.originalFile.size)}
+          </p>
+          {draft.width && draft.height ? (
+            <p className="mt-1 text-xs text-nada-secondary">
+              {draft.width} x {draft.height}
+            </p>
+          ) : null}
+          {error ? <p className="mt-2 text-xs text-nada-danger">{error}</p> : null}
+        </div>
+      </div>
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          className="rounded-xl px-3 py-2 text-xs font-medium text-nada-secondary transition-colors hover:bg-nada-surface"
+          disabled={isSending}
+          onClick={onCancel}
+          type="button"
+        >
+          Cancel
+        </button>
+        <button
+          className="inline-flex items-center gap-2 rounded-xl bg-nada-accent px-4 py-2 text-xs font-semibold text-white transition active:scale-95 disabled:opacity-60"
+          disabled={isSending}
+          onClick={onSend}
+          type="button"
+        >
+          {isSending ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />}
+          {isSending ? "Sending" : "Send"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -4217,11 +4790,13 @@ async function persistIncomingMessages(
       senderPubkeyHash: envelope.sender,
       recipientPubkeyHash: identity.pubkeyHash,
       direction: "inbound",
-      kind: "text",
+      kind: envelope.messageKind ?? decodeMessagePayload(body)?.type ?? "text",
       body,
       encryptedPayload: envelope.ciphertext,
       status: "delivered",
-      createdAt: envelope.timestamp
+      createdAt: envelope.timestamp,
+      ...(envelope.replyTo ? { replyTo: envelope.replyTo } : {}),
+      ...(envelope.replyTo ? { replyToId: envelope.replyTo.messageId } : {})
     });
   }
 }
@@ -4275,14 +4850,15 @@ async function persistIncomingGroupMessages(
       senderPubkeyHash: envelope.sender,
       recipientPubkeyHash: envelope.groupId,
       direction: "inbound",
-      kind: "text",
+      kind: envelope.messageKind ?? decodeMessagePayload(body)?.type ?? "text",
       body,
       encryptedPayload: envelope.ciphertext,
       status: "delivered",
       createdAt: envelope.timestamp,
       ...(envelope.expiresAt ? { expiresAt: envelope.expiresAt } : {}),
       ...(envelope.mentions ? { mentions: envelope.mentions } : {}),
-      ...(envelope.replyToId ? { replyToId: envelope.replyToId } : {})
+      ...(envelope.replyToId ? { replyToId: envelope.replyToId } : {}),
+      ...(envelope.replyTo ? { replyTo: envelope.replyTo } : {})
     });
   }
 }
@@ -4306,4 +4882,12 @@ function matchesSearch(value: string, query: string): boolean {
   }
 
   return value.toLowerCase().includes(trimmed);
+}
+
+function dataUrlSize(dataUrl: string): number {
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex === -1) return dataUrl.length;
+  const base64 = dataUrl.slice(commaIndex + 1);
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  return Math.max(1, Math.floor((base64.length * 3) / 4) - padding);
 }

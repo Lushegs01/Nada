@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { PubkeyHashSchema, PublicKeySchema } from "@nada/types";
+import {
+  MessageKindSchema,
+  PubkeyHashSchema,
+  PublicKeySchema,
+  ReplyToMessageSchema
+} from "@nada/types";
 
 export const PlanSchema = z.enum(["free", "pro", "business", "enterprise"]);
 export const SubscriptionStatusSchema = z.enum([
@@ -65,11 +70,12 @@ export const MessageRecordSchema = z.object({
   senderPubkeyHash: PubkeyHashSchema,
   recipientPubkeyHash: PubkeyHashSchema,
   direction: z.enum(["inbound", "outbound"]),
-  kind: z.enum(["text", "file", "call", "system"]).default("text"),
+  kind: MessageKindSchema.default("text"),
   body: z.string(),
   encryptedPayload: z.string().min(1),
   status: z.enum(["local", "queued", "sent", "delivered", "failed"]),
   replyToId: z.string().uuid().optional(),
+  replyTo: ReplyToMessageSchema.optional(),
   mentions: z.array(PubkeyHashSchema).optional(),
   createdAt: z.number().int().positive(),
   editedAt: z.number().int().positive().optional(),

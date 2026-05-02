@@ -190,13 +190,14 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   // Track last attached stream so we don't re-assign unnecessarily
   const attachedStreamRef = useRef<MediaStream | null>(null);
+  const remoteStream = call?.localSession?.remoteStream ?? null;
+  const callPhase = call?.phase ?? "idle";
 
   // Attach remote stream every render — the remoteStream object is stable but
   // tracks are added to it asynchronously. By running on every render we
   // guarantee the audio element gets the stream as soon as it exists.
   useEffect(() => {
     const el = remoteAudioRef.current;
-    const remoteStream = call?.localSession?.remoteStream;
     if (!el || !remoteStream) return;
 
     if (attachedStreamRef.current !== remoteStream) {
@@ -205,12 +206,12 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
     }
 
     // Ensure audio is playing — call.phase may have just changed to "active"
-    if (call?.phase === "active" && el.paused) {
+    if (callPhase === "active" && el.paused) {
       el.play().catch(() => {
         // Autoplay policy: accepted call == user gesture, so this should succeed
       });
     }
-  });
+  }, [callPhase, remoteStream]);
 
   if (!call || call.mode !== "voice") return null;
   if (call.phase === "idle" || call.phase === "incoming-ringing") return null;
@@ -295,21 +296,19 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const attachedRemoteRef = useRef<MediaStream | null>(null);
   const attachedLocalRef = useRef<MediaStream | null>(null);
+  const [remoteTrackCount, setRemoteTrackCount] = useState(0);
+  const remoteStream = call?.localSession?.remoteStream ?? null;
+  const localStream = call?.localSession?.stream ?? null;
+  const callPhase = call?.phase ?? "idle";
 
-  // Run on every render — stream tracks are added async via ontrack so we
-  // must keep polling to pick them up as soon as they're available.
   useEffect(() => {
-    const remoteStream = call?.localSession?.remoteStream;
-    const localStream = call?.localSession?.stream;
-
-    // Attach remote stream to remote video
     const remoteEl = remoteVideoRef.current;
     if (remoteEl && remoteStream) {
       if (attachedRemoteRef.current !== remoteStream) {
         attachedRemoteRef.current = remoteStream;
         remoteEl.srcObject = remoteStream;
       }
-      if (call?.phase === "active" && remoteEl.paused) {
+      if (callPhase === "active" && remoteEl.paused) {
         remoteEl.play().catch(() => {});
       }
     }
@@ -321,13 +320,31 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
       localEl.srcObject = localStream;
       localEl.play().catch(() => {});
     }
-  });
+  }, [callPhase, localStream, remoteStream]);
+
+  useEffect(() => {
+    if (!remoteStream) {
+      setRemoteTrackCount(0);
+      return;
+    }
+
+    const updateTrackCount = (): void => {
+      setRemoteTrackCount(remoteStream.getVideoTracks().length);
+    };
+    updateTrackCount();
+    remoteStream.addEventListener("addtrack", updateTrackCount);
+    remoteStream.addEventListener("removetrack", updateTrackCount);
+    return () => {
+      remoteStream.removeEventListener("addtrack", updateTrackCount);
+      remoteStream.removeEventListener("removetrack", updateTrackCount);
+    };
+  }, [remoteStream]);
 
   if (!call || call.mode !== "video") return null;
   if (call.phase === "idle" || call.phase === "incoming-ringing") return null;
 
   const isActive = call.phase === "active";
-  const showAvatar = !isActive || !call.localSession?.remoteStream?.getVideoTracks().length;
+  const showAvatar = !isActive || remoteTrackCount === 0;
 
   return (
     <AnimatePresence>

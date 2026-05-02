@@ -1,8 +1,17 @@
 import { EncryptedFileRecordSchema, type EncryptedFileRecord } from "@nada/db";
 
-function bytesToBase64(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
   return btoa(binary);
+}
+
+export function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -50,4 +59,31 @@ export async function encryptFileForBlindUpload(
     createdAt,
     expiresAt: createdAt + 7 * 24 * 60 * 60 * 1000
   });
+}
+
+export async function decryptEncryptedFileBytes({
+  encryptedBlobBase64,
+  keyBase64,
+  nonceBase64
+}: {
+  encryptedBlobBase64: string;
+  keyBase64: string;
+  nonceBase64: string;
+}): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    base64ToBytes(keyBase64),
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"]
+  );
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      iv: base64ToBytes(nonceBase64),
+      name: "AES-GCM"
+    },
+    key,
+    base64ToBytes(encryptedBlobBase64)
+  );
+  return new Uint8Array(plaintext);
 }

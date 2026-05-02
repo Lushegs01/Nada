@@ -4,6 +4,53 @@ export const PubkeyHashSchema = z.string().min(16).max(128);
 export const PublicKeySchema = z.string().min(32).max(512);
 export const UuidSchema = z.string().uuid();
 
+export const MessageKindSchema = z.enum([
+  "text",
+  "image",
+  "file",
+  "video",
+  "audio",
+  "voice_note",
+  "call",
+  "system"
+]);
+
+export const ReplyToMessageSchema = z.object({
+  messageId: UuidSchema,
+  senderId: PubkeyHashSchema,
+  senderName: z.string().min(1).max(80).optional(),
+  type: MessageKindSchema,
+  textPreview: z.string().max(160).optional(),
+  mediaPreview: z.string().max(512).optional(),
+  fileName: z.string().max(255).optional(),
+  createdAt: z.number().int().positive().optional()
+});
+
+export const MediaAttachmentSchema = z.object({
+  id: z.string().min(1).max(128).optional(),
+  url: z.string().min(1),
+  contentHash: z.string().min(32).max(256).optional(),
+  keyBase64: z.string().min(1).optional(),
+  nonceBase64: z.string().min(1).optional(),
+  fileName: z.string().min(1).max(255),
+  originalName: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(120),
+  size: z.number().int().positive(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  duration: z.number().positive().optional(),
+  thumbnailUrl: z.string().min(1).optional(),
+  thumbnailDataUrl: z.string().min(1).optional()
+});
+
+export const MessagePayloadSchema = z.object({
+  version: z.literal(1),
+  type: MessageKindSchema,
+  text: z.string().max(20000).optional(),
+  media: MediaAttachmentSchema.optional(),
+  replyTo: ReplyToMessageSchema.optional()
+});
+
 export const MessageEnvelopeSchema = z.object({
   type: z.literal("message"),
   id: UuidSchema,
@@ -11,6 +58,8 @@ export const MessageEnvelopeSchema = z.object({
   sender: PubkeyHashSchema,
   timestamp: z.number().int().positive(),
   ciphertext: z.string().min(1),
+  messageKind: MessageKindSchema.optional(),
+  replyTo: ReplyToMessageSchema.optional(),
   devPlaintext: z.string().optional()
 });
 
@@ -22,8 +71,10 @@ export const GroupMessageEnvelopeSchema = z.object({
   sender: PubkeyHashSchema,
   timestamp: z.number().int().positive(),
   ciphertext: z.string().min(1),
+  messageKind: MessageKindSchema.optional(),
   devPlaintext: z.string().optional(),
   replyToId: UuidSchema.optional(),
+  replyTo: ReplyToMessageSchema.optional(),
   mentions: z.array(PubkeyHashSchema).optional(),
   expiresAt: z.number().int().positive().optional()
 });
@@ -161,6 +212,19 @@ export const BlindUploadResponseSchema = z.object({
   storage: z.literal("client-encrypted-blind-upload-mvp")
 });
 
+export const MediaUploadResponseSchema = z.object({
+  id: UuidSchema,
+  url: z.string().min(1),
+  fileName: z.string().min(1).max(255),
+  originalName: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(120),
+  size: z.number().int().positive(),
+  encryptedSize: z.number().int().positive(),
+  contentHash: z.string().min(32).max(256),
+  createdAt: z.number().int().positive(),
+  expiresAt: z.number().int().positive().nullable()
+});
+
 export const BillingPlanSchema = z.enum([
   "free",
   "pro",
@@ -261,6 +325,10 @@ export const GroupMigrationPayloadSchema = z.object({
 
 export type PubkeyHash = z.infer<typeof PubkeyHashSchema>;
 export type PublicKey = z.infer<typeof PublicKeySchema>;
+export type MessageKind = z.infer<typeof MessageKindSchema>;
+export type ReplyToMessage = z.infer<typeof ReplyToMessageSchema>;
+export type MediaAttachment = z.infer<typeof MediaAttachmentSchema>;
+export type MessagePayload = z.infer<typeof MessagePayloadSchema>;
 export type MessageEnvelope = z.infer<typeof MessageEnvelopeSchema>;
 export type GroupMessageEnvelope = z.infer<typeof GroupMessageEnvelopeSchema>;
 export type CallSignalEnvelope = z.infer<typeof CallSignalEnvelopeSchema>;
@@ -275,6 +343,7 @@ export type InvitePayload = z.infer<typeof InvitePayloadSchema>;
 export type GroupInvitePayload = z.infer<typeof GroupInvitePayloadSchema>;
 export type BlindUploadRequest = z.infer<typeof BlindUploadRequestSchema>;
 export type BlindUploadResponse = z.infer<typeof BlindUploadResponseSchema>;
+export type MediaUploadResponse = z.infer<typeof MediaUploadResponseSchema>;
 export type BillingPlan = z.infer<typeof BillingPlanSchema>;
 export type PaidBillingPlan = z.infer<typeof PaidBillingPlanSchema>;
 export type SubscriptionCheckoutRequest = z.infer<
