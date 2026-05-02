@@ -392,7 +392,12 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
         )}
 
         {/* Local video PIP — always muted to prevent echo */}
-        <div className="absolute right-4 top-4 h-36 w-24 overflow-hidden rounded-2xl border-2 border-white/20 bg-black shadow-2xl md:h-44 md:w-32">
+        <motion.div 
+          drag
+          dragConstraints={{ top: 16, right: -16, bottom: -120, left: -16 }}
+          dragElastic={0.1}
+          className="absolute right-4 top-4 z-[900] h-40 w-28 cursor-grab active:cursor-grabbing overflow-hidden rounded-xl bg-black/80 shadow-2xl ring-1 ring-white/20 md:h-48 md:w-32"
+        >
           {!call.isCameraOff ? (
             <video
               ref={localVideoRef}
@@ -403,42 +408,47 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-slate-800">
-              <VideoOff size={20} className="text-white/40" />
+              <VideoOff size={24} className="text-white/40" />
             </div>
           )}
-        </div>
+        </motion.div>
 
-        {/* Live call timer */}
+        {/* Live call header info */}
         {isActive && (
-          <div className="absolute left-4 top-4 flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <CallTimer startedAt={call.startedAt} />
+          <div className="absolute left-0 right-0 top-0 flex flex-col items-center justify-center pt-8 bg-gradient-to-b from-black/60 to-transparent pb-8 pointer-events-none">
+             <div className="flex items-center gap-2 text-white/90 font-medium">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                <CallTimer startedAt={call.startedAt} />
+             </div>
+             <span className="text-white text-lg font-semibold drop-shadow-md mt-1">{call.peerName}</span>
           </div>
         )}
 
-        {/* Controls bar */}
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-5 bg-gradient-to-t from-black/90 to-transparent px-6 pb-14 pt-10">
-          <CallControl
-            label={call.isMuted ? "Unmute" : "Mute"}
-            icon={call.isMuted ? MicOff : Mic}
-            onClick={toggleMute}
-            active={call.isMuted}
-            variant="neutral"
-          />
-          <button
-            aria-label="End call"
-            onClick={onEnd}
-            className="grid h-16 w-16 place-items-center rounded-full bg-red-500 shadow-2xl transition-all hover:scale-105 hover:bg-red-400 active:scale-95"
-          >
-            <PhoneOff size={26} className="text-white" />
-          </button>
-          <CallControl
-            label={call.isCameraOff ? "Camera on" : "Camera off"}
-            icon={call.isCameraOff ? VideoOff : Video}
-            onClick={toggleCamera}
-            active={call.isCameraOff}
-            variant="neutral"
-          />
+        {/* Controls bar (WhatsApp style floating pill) */}
+        <div className="absolute inset-x-0 bottom-8 flex justify-center pointer-events-none">
+          <div className="flex items-center gap-6 rounded-full bg-slate-900/60 backdrop-blur-xl px-6 py-4 shadow-2xl ring-1 ring-white/10 pointer-events-auto">
+            <CallControl
+              label={call.isCameraOff ? "Camera on" : "Camera off"}
+              icon={call.isCameraOff ? VideoOff : Video}
+              onClick={toggleCamera}
+              active={call.isCameraOff}
+              variant="neutral"
+            />
+            <CallControl
+              label={call.isMuted ? "Unmute" : "Mute"}
+              icon={call.isMuted ? MicOff : Mic}
+              onClick={toggleMute}
+              active={call.isMuted}
+              variant="neutral"
+            />
+            <button
+              aria-label="End call"
+              onClick={onEnd}
+              className="grid h-14 w-14 place-items-center rounded-full bg-red-500 shadow-lg transition-transform hover:scale-105 active:scale-95 ml-2"
+            >
+              <PhoneOff size={24} className="text-white" />
+            </button>
+          </div>
         </div>
       </motion.div>
     </AnimatePresence>
