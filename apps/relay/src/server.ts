@@ -120,12 +120,12 @@ async function handleSocketMessage(
   }
 
   if ("type" in result.data && result.data.type === "message") {
-    routeMessage(result.data, sessions, app);
+    routeMessage(result.data, sessions, queue, app);
     return;
   }
 
   if ("type" in result.data && result.data.type === "group-message") {
-    routeGroupMessage(result.data, sessions, app);
+    routeGroupMessage(result.data, sessions, queue, app);
     return;
   }
 
@@ -185,14 +185,21 @@ function unregisterSocket(
 function routeMessage(
   envelope: MessageEnvelope,
   sessions: SessionRegistry,
+  queue: RelayQueue,
   app: FastifyInstance
 ): void {
   const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
   if (!recipients || recipients.size === 0) {
+    // Recipient is offline — queue the message so it is delivered on reconnect
+    void queue.enqueue(
+      envelope.recipient,
+      JSON.stringify({ type: "message", envelope })
+    );
+    // Send back "queued" (not "failed") so the sender UI can show a clock icon
     const senders = sessions.socketsByPubkeyHash.get(envelope.sender);
     senders?.forEach((socket) => {
       socket.send(
-        JSON.stringify({ type: "delivery", id: envelope.id, status: "failed" })
+        JSON.stringify({ type: "delivery", id: envelope.id, status: "queued" })
       );
     });
     void (app as any).sendPushNotification?.(
@@ -217,6 +224,7 @@ function routeMessage(
 function routeGroupMessage(
   envelope: GroupMessageEnvelope,
   sessions: SessionRegistry,
+  queue: RelayQueue,
   app: FastifyInstance
 ): void {
   let deliveredCount = 0;
@@ -224,6 +232,11 @@ function routeGroupMessage(
   envelope.recipients.forEach((recipient) => {
     const sockets = sessions.socketsByPubkeyHash.get(recipient);
     if (!sockets || sockets.size === 0) {
+      // Queue for each offline group member individually
+      void queue.enqueue(
+        recipient,
+        JSON.stringify({ type: "group-message", envelope })
+      );
       void (app as any).sendPushNotification?.(
         recipient,
         JSON.stringify({ title: "New Group Message", body: "You received a new message." })
@@ -243,7 +256,7 @@ function routeGroupMessage(
       JSON.stringify({
         type: "delivery",
         id: envelope.id,
-        status: deliveredCount > 0 ? "delivered" : "failed"
+        status: deliveredCount > 0 ? "delivered" : "queued"
       })
     );
   });

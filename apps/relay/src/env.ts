@@ -61,7 +61,7 @@ export function readEnv(): RelayEnv {
     nodeEnv,
     port: result.data.PORT,
     redisUrl: result.data.REDIS_URL,
-    relayQueueTtlSeconds: result.data.RELAY_QUEUE_TTL_SECONDS ?? 300,
+    relayQueueTtlSeconds: result.data.RELAY_QUEUE_TTL_SECONDS ?? 604800, // default: 7 days
     stripePriceBusiness: result.data.STRIPE_PRICE_BUSINESS,
     stripePriceEnterprise: result.data.STRIPE_PRICE_ENTERPRISE,
     stripePricePro: result.data.STRIPE_PRICE_PRO,
