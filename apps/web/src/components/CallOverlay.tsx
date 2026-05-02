@@ -8,6 +8,7 @@ import {
   Phone,
   PhoneIncoming,
   PhoneOff,
+  Plus,
   Video,
   VideoOff
 } from "lucide-react";
