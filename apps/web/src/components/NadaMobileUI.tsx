@@ -1,115 +1,74 @@
 "use client";
 
 import React, { useState } from "react";
-import { 
-  Search, 
-  Camera, 
-  MoreVertical, 
-  Archive, 
-  MessageSquare, 
-  CircleDot, 
-  Users, 
-  Phone, 
-  Pin, 
-  VolumeX, 
+import {
+  Search,
+  MessageCircle,
+  Users,
+  Settings,
   Plus,
   Check,
-  CheckCheck
+  CheckCheck,
+  Archive,
+  VolumeX,
+  Pin,
+  ChevronRight
 } from "lucide-react";
 import { cn } from "@nada/ui";
 import { motion } from "framer-motion";
 
-/**
- * Premium Rounded Search Bar
- */
-export const SearchBar = ({ 
-  value, 
-  onChange, 
-  placeholder = "Search chats" 
-}: { 
-  value: string; 
+/* ─────────────────────────────────────────────────────────────
+   SearchBar
+   ───────────────────────────────────────────────────────────── */
+export const SearchBar = ({
+  value,
+  onChange,
+  placeholder = "Search"
+}: {
+  value: string;
   onChange: (val: string) => void;
   placeholder?: string;
 }) => (
-  <div className="px-4 py-2">
-    <div className="relative flex items-center group">
-      <Search className="absolute left-4 w-4 h-4 text-nada-secondary/60 group-focus-within:text-nada-accent transition-colors" />
+  <div className="px-5 pb-3 pt-1">
+    <div className="relative flex items-center">
+      <Search className="pointer-events-none absolute left-4 h-[15px] w-[15px] text-nada-secondary/40" />
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full h-11 pl-11 pr-4 bg-nada-muted/50 border-none rounded-full text-sm text-nada-primary placeholder:text-nada-secondary/50 focus:ring-2 focus:ring-nada-accent/20 transition-all outline-none"
+        className="h-11 w-full rounded-2xl border border-nada-border/10 bg-nada-surface-elevated pl-11 pr-4 text-sm text-nada-primary outline-none placeholder:text-nada-secondary/40 focus:border-nada-accent/20 focus:ring-0 transition-colors"
+        style={{ background: "rgb(17 17 19)" }}
       />
     </div>
   </div>
 );
 
-/**
- * Filter Chips for Chat List
- */
-export const FilterChips = ({ 
-  activeFilter, 
-  onFilterChange,
-  unreadCount = 0
-}: { 
-  activeFilter: string; 
-  onFilterChange: (filter: string) => void;
-  unreadCount?: number;
-}) => {
-  const filters = [
-    { id: "all", label: "All" },
-    { id: "favorites", label: "Favorites" },
-    { id: "unread", label: "Unread", count: unreadCount },
-    { id: "groups", label: "Groups" }
-  ];
-
-  return (
-    <div className="flex items-center gap-2 px-4 py-2 overflow-x-auto no-scrollbar">
-      {filters.map((filter) => (
-        <button
-          key={filter.id}
-          onClick={() => onFilterChange(filter.id)}
-          className={cn(
-            "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all",
-            activeFilter === filter.id 
-              ? "bg-nada-accent/15 text-nada-accent border border-nada-accent/20" 
-              : "bg-nada-muted/50 text-nada-secondary border border-transparent hover:bg-nada-muted"
-          )}
-        >
-          {filter.label}
-          {filter.count !== undefined && filter.count > 0 && (
-            <span className={cn(
-              "flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[10px]",
-              activeFilter === filter.id ? "bg-nada-accent text-white" : "bg-nada-secondary/20 text-nada-secondary"
-            )}>
-              {filter.count > 99 ? "99+" : filter.count}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
-  );
-};
-
-/**
- * Archived Row
- */
+/* ─────────────────────────────────────────────────────────────
+   Archived Row
+   ───────────────────────────────────────────────────────────── */
 export const ArchivedRow = ({ count = 0 }: { count?: number }) => (
-  <button className="flex items-center justify-between w-full px-5 py-3 hover:bg-nada-muted/30 transition-colors">
+  <button className="flex w-full items-center justify-between px-5 py-3.5 hover:bg-nada-surface-elevated/50 transition-colors border-b border-nada-border/5">
     <div className="flex items-center gap-4">
-      <Archive className="w-5 h-5 text-nada-accent" />
-      <span className="text-sm font-semibold text-nada-primary">Archived</span>
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-nada-surface-elevated border border-nada-border/8">
+        <Archive className="h-5 w-5 text-nada-secondary/60" />
+      </div>
+      <span className="text-[15px] font-semibold text-nada-primary">Archived</span>
     </div>
-    {count > 0 && (
-      <span className="text-xs font-bold text-nada-accent">{count}</span>
-    )}
+    <div className="flex items-center gap-2">
+      {count > 0 && (
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-nada-accent px-1.5 text-[10px] font-black text-black">
+          {count}
+        </span>
+      )}
+      <ChevronRight className="h-4 w-4 text-nada-secondary/30" />
+    </div>
   </button>
 );
 
-/**
- * Premium Chat List Item
- */
+/* ─────────────────────────────────────────────────────────────
+   ChatListItem — Premium VANTA style
+   ───────────────────────────────────────────────────────────── */
 export const ChatListItem = ({
   name,
   preview,
@@ -120,7 +79,7 @@ export const ChatListItem = ({
   isPinned,
   isMuted,
   isOnline,
-  status, // 'sent', 'delivered', 'read'
+  status,
   isSelected,
   onClick
 }: {
@@ -137,93 +96,115 @@ export const ChatListItem = ({
   isSelected?: boolean;
   onClick: () => void;
 }) => (
-  <button
+  <motion.button
     onClick={onClick}
+    whileTap={{ scale: 0.99 }}
     className={cn(
-      "flex items-center gap-4 w-full px-4 py-3.5 text-left transition-all border-b border-nada-border/10",
-      isSelected ? "bg-nada-accent/5" : "hover:bg-nada-muted/30 active:scale-[0.99]"
+      "flex w-full items-center gap-4 border-b border-nada-border/5 px-5 py-3.5 text-left transition-all",
+      isSelected
+        ? "bg-nada-accent/5"
+        : "hover:bg-nada-surface-elevated/40 active:bg-nada-surface-elevated/60"
     )}
   >
-    {/* Avatar Section */}
+    {/* Avatar */}
     <div className="relative shrink-0">
-      <div className="w-14 h-14 rounded-2xl overflow-hidden bg-nada-muted flex items-center justify-center ring-2 ring-nada-border/10">
+      <div className={cn(
+        "flex h-[52px] w-[52px] items-center justify-center overflow-hidden rounded-2xl",
+        unreadCount > 0
+          ? "ring-1 ring-nada-accent/30"
+          : "ring-1 ring-nada-border/8"
+      )} style={{ background: "rgb(23 23 23)" }}>
         {avatar ? (
-          <img src={avatar} alt={name} className="w-full h-full object-cover" />
+          <img src={avatar} alt={name} className="h-full w-full object-cover" />
         ) : (
-          <span className="text-lg font-bold text-nada-secondary/60">{initials}</span>
+          <span className="text-base font-bold text-nada-secondary/50">
+            {initials}
+          </span>
         )}
       </div>
       {isOnline && (
-        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-nada-success border-2 border-nada-bg shadow-sm" />
+        <div className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 bg-nada-success"
+          style={{ borderColor: "rgb(5 5 5)" }} />
       )}
     </div>
 
-    {/* Content Section */}
-    <div className="flex-1 min-w-0 py-0.5">
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <h3 className="font-bold text-[15px] text-nada-primary truncate">{name}</h3>
+    {/* Content */}
+    <div className="min-w-0 flex-1">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h3 className={cn(
+          "truncate text-[15px] font-semibold",
+          unreadCount > 0 ? "text-nada-primary" : "text-nada-primary/90"
+        )}>
+          {name}
+        </h3>
         <span className={cn(
-          "text-[11px] whitespace-nowrap",
-          unreadCount > 0 ? "text-nada-accent font-bold" : "text-nada-secondary/60"
+          "shrink-0 text-[11px] tabular-nums",
+          unreadCount > 0 ? "text-nada-accent font-semibold" : "text-nada-secondary/50"
         )}>
           {timestamp}
         </span>
       </div>
-      
+
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
           {status && (
             <span className={cn(
               "shrink-0",
-              status === "read" ? "text-nada-accent" : "text-nada-secondary/40"
+              status === "read" ? "text-nada-accent" : "text-nada-secondary/30"
             )}>
-              {status === "sent" ? <Check size={14} /> : <CheckCheck size={14} />}
+              {status === "sent" ? <Check size={13} /> : <CheckCheck size={13} />}
             </span>
           )}
           <p className={cn(
-            "text-sm truncate leading-tight",
-            unreadCount > 0 ? "text-nada-primary font-medium" : "text-nada-secondary/70"
+            "truncate text-sm leading-snug",
+            unreadCount > 0 ? "font-medium text-nada-primary/80" : "text-nada-secondary/60"
           )}>
             {preview}
           </p>
         </div>
-        
-        <div className="flex items-center gap-2 shrink-0">
-          {isMuted && <VolumeX size={14} className="text-nada-secondary/30" />}
-          {isPinned && <Pin size={14} className="text-nada-secondary/40 -rotate-45" />}
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          {isMuted && <VolumeX size={12} className="text-nada-secondary/25" />}
+          {isPinned && <Pin size={12} className="text-nada-secondary/30 -rotate-45" />}
           {unreadCount > 0 && (
-            <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-nada-accent text-[10px] font-black text-white shadow-sm shadow-nada-accent/20">
+            <motion.span
+              initial={{ scale: 0.6, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-nada-accent px-1 text-[10px] font-black text-black shadow-gold-glow"
+            >
               {unreadCount > 99 ? "99+" : unreadCount}
-            </span>
+            </motion.span>
           )}
         </div>
       </div>
     </div>
-  </button>
+  </motion.button>
 );
 
-/**
- * Mobile Bottom Navigation
- */
-export const BottomNavigation = ({ 
-  activeTab, 
+/* ─────────────────────────────────────────────────────────────
+   Bottom Navigation — VANTA minimal with gold active tab
+   ───────────────────────────────────────────────────────────── */
+export const BottomNavigation = ({
+  activeTab,
   onTabChange,
   unreadCount = 0
-}: { 
-  activeTab: string; 
+}: {
+  activeTab: string;
   onTabChange: (tab: string) => void;
   unreadCount?: number;
 }) => {
   const tabs = [
-    { id: "chats", label: "Chats", icon: MessageSquare, badge: unreadCount },
-    { id: "updates", label: "Updates", icon: CircleDot },
-    { id: "communities", label: "Communities", icon: Users },
-    { id: "calls", label: "Calls", icon: Phone },
+    { id: "chats",       label: "Chats",       icon: MessageCircle, badge: unreadCount },
+    { id: "communities", label: "Groups",       icon: Users },
+    { id: "settings",    label: "Settings",     icon: Settings }
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-[100] bg-nada-surface/80 backdrop-blur-xl border-t border-nada-border/30 pb-safe-area">
-      <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
+    <div
+      className="fixed bottom-0 left-0 right-0 z-[100] border-t border-nada-border/8 pb-safe-area"
+      style={{ background: "rgb(11 11 13 / 0.92)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" }}
+    >
+      <div className="flex h-16 items-center justify-around px-2">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -231,25 +212,33 @@ export const BottomNavigation = ({
             <button
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
-              className="relative flex flex-col items-center justify-center w-full h-full transition-all active:scale-95"
+              className="relative flex flex-col items-center justify-center flex-1 h-full gap-1 transition-all active:scale-90"
             >
-              <div className={cn(
-                "relative flex items-center justify-center px-5 py-1 rounded-2xl transition-all",
-                isActive ? "bg-nada-accent/10" : ""
-              )}>
-                <Icon className={cn(
-                  "w-6 h-6 transition-colors",
-                  isActive ? "text-nada-accent" : "text-nada-secondary/50"
-                )} />
+              {/* Gold underline for active */}
+              {isActive && (
+                <motion.div
+                  layoutId="nav-active"
+                  className="absolute top-0 left-1/2 h-[2px] w-8 -translate-x-1/2 rounded-full bg-nada-accent"
+                />
+              )}
+
+              <div className="relative">
+                <Icon
+                  className={cn(
+                    "h-[22px] w-[22px] transition-colors",
+                    isActive ? "text-nada-accent" : "text-nada-secondary/40"
+                  )}
+                />
                 {tab.badge !== undefined && tab.badge > 0 && (
-                  <span className="absolute -top-1 -right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-nada-accent text-[10px] font-black text-white border-2 border-nada-surface shadow-sm">
+                  <span className="absolute -top-1 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-nada-accent px-0.5 text-[9px] font-black text-black border border-black">
                     {tab.badge > 99 ? "99+" : tab.badge}
                   </span>
                 )}
               </div>
+
               <span className={cn(
-                "text-[10px] font-bold mt-1.5 tracking-tight transition-colors",
-                isActive ? "text-nada-primary" : "text-nada-secondary/50"
+                "text-[10px] font-semibold tracking-tight transition-colors",
+                isActive ? "text-nada-accent" : "text-nada-secondary/40"
               )}>
                 {tab.label}
               </span>
@@ -261,54 +250,64 @@ export const BottomNavigation = ({
   );
 };
 
-/**
- * Floating Action Button
- */
-export const FloatingComposeButton = ({ onClick }: { onClick: () => void }) => (
-  <button
-    onClick={onClick}
-    className="fixed right-6 bottom-24 z-[90] w-14 h-14 rounded-2xl bg-nada-accent text-white shadow-lg shadow-nada-accent/30 flex items-center justify-center active:scale-90 transition-all hover:brightness-110"
+/* ─────────────────────────────────────────────────────────────
+   NADA Logo Mark
+   ───────────────────────────────────────────────────────────── */
+const NadaLogoMark = ({ size = 28 }: { size?: number }) => (
+  <div
+    className="flex items-center justify-center rounded-xl"
+    style={{
+      width: size,
+      height: size,
+      background: "linear-gradient(135deg, #F7B928, #8A6318)",
+      boxShadow: "0 2px 8px rgba(247,185,40,0.3)"
+    }}
   >
-    <Plus size={28} />
-  </button>
+    <span className="text-black font-black" style={{ fontSize: size * 0.45, lineHeight: 1 }}>N</span>
+  </div>
 );
 
-/**
- * Mobile Chats Header
- */
-export const MobileHeader = ({ 
-  displayName, 
-  onCameraClick, 
-  onMoreClick 
-}: { 
+/* ─────────────────────────────────────────────────────────────
+   Mobile Header — VANTA style
+   ───────────────────────────────────────────────────────────── */
+export const MobileHeader = ({
+  onComposeClick
+}: {
   displayName: string;
   onCameraClick: () => void;
   onMoreClick: () => void;
+  onComposeClick?: () => void;
 }) => (
-  <header className="flex items-center justify-between px-5 pt-safe-area pb-2 bg-nada-bg sticky top-0 z-[80]">
-    <div className="pt-4 flex items-center justify-between w-full">
-      <h1 className="text-2xl font-black tracking-tight text-nada-primary">NADA</h1>
-      <div className="flex items-center gap-2">
-        <button 
-          onClick={onCameraClick}
-          className="p-2 text-nada-secondary hover:bg-nada-muted/50 rounded-full transition-colors"
-        >
-          <Camera size={22} />
-        </button>
-        <button 
-          onClick={onMoreClick}
-          className="p-2 text-nada-secondary hover:bg-nada-muted/50 rounded-full transition-colors"
-        >
-          <MoreVertical size={22} />
-        </button>
-      </div>
+  <header
+    className="sticky top-0 z-[80] flex items-end justify-between px-5 pb-3 pt-safe-area"
+    style={{ background: "rgb(5 5 5)" }}
+  >
+    <div className="flex items-center gap-3 pt-4">
+      <NadaLogoMark size={30} />
+    </div>
+
+    <div className="pt-4">
+      <h1 className="text-[28px] font-bold tracking-tight text-nada-primary" style={{ letterSpacing: "-0.5px" }}>
+        Inbox
+      </h1>
+    </div>
+
+    <div className="pt-4">
+      <button
+        onClick={onComposeClick}
+        className="flex h-9 w-9 items-center justify-center rounded-full border border-nada-border/12 transition-all hover:border-nada-accent/30 hover:bg-nada-surface-elevated active:scale-90"
+        style={{ background: "rgb(17 17 19)" }}
+        aria-label="New conversation"
+      >
+        <Plus className="h-4 w-4 text-nada-secondary/70" />
+      </button>
     </div>
   </header>
 );
 
-/**
- * Main Mobile Chats Home Container
- */
+/* ─────────────────────────────────────────────────────────────
+   MobileChatsHome
+   ───────────────────────────────────────────────────────────── */
 export const MobileChatsHome = ({
   children,
   searchQuery,
@@ -336,65 +335,147 @@ export const MobileChatsHome = ({
     onMoreClick: () => void;
   };
 }) => (
-  <div className="flex flex-col h-full bg-nada-bg overflow-hidden">
-    <MobileHeader {...headerProps} />
-    <SearchBar value={searchQuery} onChange={onSearchChange} />
-    <FilterChips 
-      activeFilter={activeFilter} 
-      onFilterChange={onFilterChange} 
-      unreadCount={unreadTotal}
+  <div className="flex h-full flex-col overflow-hidden" style={{ background: "rgb(5 5 5)" }}>
+    <MobileHeader
+      {...headerProps}
+      onComposeClick={onComposeClick}
     />
-    
-    <div className="flex-1 overflow-y-auto">
+    <SearchBar value={searchQuery} onChange={onSearchChange} />
+
+    <div className="flex-1 overflow-y-auto pb-24">
       {children}
     </div>
 
-    <FloatingComposeButton onClick={onComposeClick} />
-    <BottomNavigation 
-      activeTab={activeTab} 
-      onTabChange={onTabChange} 
-      unreadCount={unreadTotal} 
+    <BottomNavigation
+      activeTab={activeTab}
+      onTabChange={onTabChange}
+      unreadCount={unreadTotal}
     />
   </div>
 );
 
-/**
- * Empty Chat List State
- */
+/* ─────────────────────────────────────────────────────────────
+   Empty Chat List State
+   ───────────────────────────────────────────────────────────── */
 export const EmptyChatListState = ({ onAdd }: { onAdd: () => void }) => (
-  <div className="flex flex-col items-center justify-center py-20 px-10 text-center animate-fade-in">
-    <div className="w-20 h-20 rounded-3xl bg-nada-muted flex items-center justify-center text-nada-secondary/30 mb-6">
-      <MessageSquare size={40} />
+  <div className="flex flex-col items-center justify-center py-24 px-10 text-center animate-fade-in">
+    <div
+      className="mb-6 flex h-20 w-20 items-center justify-center rounded-3xl border border-nada-border/8"
+      style={{ background: "rgb(17 17 19)" }}
+    >
+      <MessageCircle className="h-9 w-9 text-nada-secondary/20" />
     </div>
-    <h3 className="text-lg font-bold text-nada-primary mb-2">No conversations yet</h3>
-    <p className="text-sm text-nada-secondary mb-8 leading-relaxed">
-      Start an anonymous chat by adding a contact or creating a group.
+    <h3 className="mb-2 text-base font-bold text-nada-primary">No conversations yet</h3>
+    <p className="mb-8 text-sm leading-relaxed text-nada-secondary/60">
+      Add a contact to start an anonymous,<br />encrypted conversation.
     </p>
     <button
       onClick={onAdd}
-      className="px-6 py-3 rounded-xl bg-nada-accent text-white font-bold text-sm shadow-lg shadow-nada-accent/20 active:scale-95 transition-all"
+      className="nada-btn-gold px-6 py-3 text-sm font-bold"
     >
-      Add your first contact
+      Add first contact
     </button>
   </div>
 );
 
-/**
- * Chat List Item Skeleton
- */
+/* ─────────────────────────────────────────────────────────────
+   Chat List Skeleton
+   ───────────────────────────────────────────────────────────── */
 export const ChatListSkeleton = () => (
-  <div className="space-y-1">
+  <div className="space-y-0">
     {[1, 2, 3, 4, 5, 6].map((i) => (
-      <div key={i} className="flex items-center gap-4 px-4 py-3.5">
-        <div className="w-14 h-14 rounded-2xl bg-nada-muted animate-pulse shrink-0" />
-        <div className="flex-1 min-w-0 space-y-2.5">
-          <div className="flex justify-between items-center">
-            <div className="h-4 w-1/3 bg-nada-muted animate-pulse rounded-md" />
-            <div className="h-3 w-10 bg-nada-muted animate-pulse rounded-md" />
+      <div key={i} className="flex items-center gap-4 border-b border-nada-border/5 px-5 py-4">
+        <div className="h-[52px] w-[52px] shrink-0 rounded-2xl nada-skeleton" />
+        <div className="flex-1 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="h-4 w-1/3 rounded-md nada-skeleton" />
+            <div className="h-3 w-10 rounded-md nada-skeleton" />
           </div>
-          <div className="h-3.5 w-2/3 bg-nada-muted animate-pulse rounded-md" />
+          <div className="h-3 w-2/3 rounded-md nada-skeleton" />
         </div>
       </div>
     ))}
   </div>
+);
+
+/* ─────────────────────────────────────────────────────────────
+   Profile Header — for profile/shared-media view
+   ───────────────────────────────────────────────────────────── */
+export const ProfileHeader = ({
+  name,
+  username,
+  bio,
+  avatar,
+  initials
+}: {
+  name: string;
+  username?: string;
+  bio?: string;
+  avatar?: string;
+  initials?: string;
+}) => (
+  <div className="flex flex-col items-center px-6 py-8 text-center">
+    {/* Avatar */}
+    <div
+      className="relative mb-4 flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl"
+      style={{
+        background: "rgb(23 23 23)",
+        boxShadow: "0 0 0 1px rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,0.5)"
+      }}
+    >
+      {avatar ? (
+        <img src={avatar} alt={name} className="h-full w-full object-cover" />
+      ) : (
+        <span className="text-2xl font-bold text-nada-secondary/50">{initials}</span>
+      )}
+    </div>
+
+    <h2 className="text-xl font-bold text-nada-primary" style={{ letterSpacing: "-0.3px" }}>
+      {name}
+    </h2>
+    {username && (
+      <p className="mt-0.5 text-sm text-nada-secondary/60">{username}</p>
+    )}
+    {bio && (
+      <p className="mt-3 text-sm leading-relaxed text-nada-secondary/80 max-w-[240px]">
+        {bio}
+      </p>
+    )}
+  </div>
+);
+
+/* ─────────────────────────────────────────────────────────────
+   Settings Row — icon + label + chevron
+   ───────────────────────────────────────────────────────────── */
+export const SettingsRowItem = ({
+  icon: Icon,
+  label,
+  value,
+  onClick,
+  danger = false
+}: {
+  icon?: React.ElementType;
+  label: string;
+  value?: string;
+  onClick?: () => void;
+  danger?: boolean;
+}) => (
+  <button
+    onClick={onClick}
+    className="flex w-full items-center gap-4 px-5 py-3.5 border-b border-nada-border/5 hover:bg-nada-surface-elevated/30 transition-colors active:bg-nada-surface-elevated/50"
+  >
+    {Icon && (
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+        style={{ background: danger ? "rgb(255 77 77 / 0.12)" : "rgb(247 185 40 / 0.10)" }}>
+        <Icon className={cn("h-[17px] w-[17px]", danger ? "text-nada-danger" : "text-nada-accent")} />
+      </div>
+    )}
+    <span className={cn("flex-1 text-left text-[15px] font-medium", danger ? "text-nada-danger" : "text-nada-primary")}>
+      {label}
+    </span>
+    {value && (
+      <span className="mr-1 text-sm text-nada-secondary/50">{value}</span>
+    )}
+    <ChevronRight className="h-4 w-4 text-nada-secondary/25" />
+  </button>
 );

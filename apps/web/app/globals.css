@@ -3,48 +3,46 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════
-   NADA Design System — Premium Anonymous Messaging
+   NADA Design System — Obsidian Gold  ·  Premium Messaging
    ═══════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap');
 
-:root {
-  --nada-bg: 248 249 250;
-  --nada-surface: 255 255 255;
-  --nada-surface-elevated: 255 255 255;
-  --nada-primary: 26 26 46;
-  --nada-secondary: 107 114 128;
-  --nada-muted: 241 245 249;
-  --nada-border: 229 231 235;
-  --nada-accent: 14 165 233;
-  --nada-accent-soft: 14 165 233;
-  --nada-sent: 14 165 233;
-  --nada-received: 241 245 249;
-  --nada-danger: 239 68 68;
-  --nada-success: 16 185 129;
-  --nada-overlay: 0 0 0;
-  --nada-shadow-color: 0 0 0;
-  --nada-input-bg: 241 245 249;
-}
+/* ── Design Tokens (always dark — Obsidian Gold) ──────────── */
 
+:root,
 .dark,
 [data-theme="dark"] {
-  --nada-bg: 10 10 15;
-  --nada-surface: 20 20 25;
-  --nada-surface-elevated: 28 28 36;
-  --nada-primary: 240 240 245;
-  --nada-secondary: 139 139 158;
-  --nada-muted: 30 30 42;
-  --nada-border: 42 42 53;
-  --nada-accent: 56 189 248;
-  --nada-accent-soft: 56 189 248;
-  --nada-sent: 12 74 110;
-  --nada-received: 30 30 42;
-  --nada-danger: 248 113 113;
-  --nada-success: 52 211 153;
-  --nada-overlay: 0 0 0;
-  --nada-shadow-color: 0 0 0;
-  --nada-input-bg: 28 28 36;
+  /* Backgrounds */
+  --nada-bg:              5 5 5;
+  --nada-surface:         11 11 13;
+  --nada-surface-elevated: 17 17 19;
+  --nada-surface-3:       23 23 23;
+
+  /* Text */
+  --nada-primary:         245 245 245;
+  --nada-secondary:       142 142 147;
+
+  /* UI chrome */
+  --nada-muted:           24 24 26;
+  --nada-border:          255 255 255;      /* used with /0.08 alpha */
+
+  /* Gold accent */
+  --nada-accent:          247 185 40;       /* #F7B928 */
+  --nada-accent-soft:     247 185 40;
+  --nada-gold-dark:       138 99 24;        /* #8A6318 */
+  --nada-gold-glow:       247 185 40;       /* used with /0.22 alpha */
+
+  /* Bubbles */
+  --nada-sent:            138 99 24;        /* dark amber — overlaid with gradient in CSS */
+  --nada-received:        21 21 21;
+
+  /* Semantic */
+  --nada-danger:          255 77 77;
+  --nada-success:         52 199 89;
+  --nada-overlay:         0 0 0;
+  --nada-shadow-color:    0 0 0;
+  --nada-input-bg:        17 17 19;
 }
 
 /* ── Base Reset ───────────────────────────────────────── */
@@ -88,7 +86,7 @@ select {
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -96,12 +94,12 @@ select {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--nada-border));
+  background: rgb(var(--nada-border) / 0.12);
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--nada-secondary) / 0.5);
+  background: rgb(var(--nada-accent) / 0.3);
 }
 
 /* ── Component Layer ──────────────────────────────────── */
@@ -117,127 +115,135 @@ select {
   /* Surface cards */
   .nada-surface {
     background: rgb(var(--nada-surface));
-    border: 1px solid rgb(var(--nada-border) / 0.6);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
   }
 
   .nada-surface-elevated {
     background: rgb(var(--nada-surface-elevated));
-    border: 1px solid rgb(var(--nada-border) / 0.4);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
     box-shadow:
-      0 1px 3px rgb(var(--nada-shadow-color) / 0.04),
-      0 4px 12px rgb(var(--nada-shadow-color) / 0.06);
+      0 1px 3px rgb(var(--nada-shadow-color) / 0.4),
+      0 4px 16px rgb(var(--nada-shadow-color) / 0.3);
   }
 
   /* Sidebar */
   .nada-sidebar {
     background: rgb(var(--nada-surface));
-    border-right: 1px solid rgb(var(--nada-border) / 0.5);
+    border-right: 1px solid rgb(var(--nada-border) / 0.08);
   }
 
-  /* Chat area background pattern */
+  /* Chat area background */
   .nada-chat-bg {
     background-color: rgb(var(--nada-bg));
     background-image:
-      radial-gradient(circle at 20% 50%, rgb(var(--nada-accent) / 0.03) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, rgb(var(--nada-accent) / 0.02) 0%, transparent 40%);
+      radial-gradient(ellipse at 20% 80%, rgb(var(--nada-gold-glow) / 0.04) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 10%, rgb(var(--nada-gold-glow) / 0.03) 0%, transparent 50%);
   }
 
   /* Message bubbles */
   .nada-bubble-sent {
-    background: rgb(var(--nada-sent));
-    color: #ffffff;
-    border-radius: 20px 20px 6px 20px;
-    box-shadow: 0 1px 2px rgb(var(--nada-shadow-color) / 0.08);
+    background: linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)));
+    color: #111111;
+    border-radius: 18px 18px 4px 18px;
+    box-shadow:
+      0 2px 8px rgb(var(--nada-gold-glow) / 0.25),
+      0 1px 2px rgb(var(--nada-shadow-color) / 0.3);
   }
 
   .nada-bubble-received {
     background: rgb(var(--nada-received));
     color: rgb(var(--nada-primary));
-    border-radius: 20px 20px 20px 6px;
-    box-shadow: 0 1px 2px rgb(var(--nada-shadow-color) / 0.04);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    border-radius: 18px 18px 18px 4px;
+    box-shadow: 0 1px 3px rgb(var(--nada-shadow-color) / 0.2);
   }
 
   /* Input field */
   .nada-input {
     background: rgb(var(--nada-input-bg));
-    border: 1.5px solid rgb(var(--nada-border) / 0.6);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
     border-radius: 14px;
     outline: none;
+    color: rgb(var(--nada-primary));
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
   .nada-input:focus {
-    border-color: rgb(var(--nada-accent) / 0.5);
-    box-shadow: 0 0 0 3px rgb(var(--nada-accent) / 0.1);
+    border-color: rgb(var(--nada-accent) / 0.4);
+    box-shadow: 0 0 0 3px rgb(var(--nada-accent) / 0.08);
+  }
+
+  .nada-input::placeholder {
+    color: rgb(var(--nada-secondary) / 0.5);
   }
 
   /* Divider */
   .nada-divider {
-    border-color: rgb(var(--nada-border) / 0.5);
+    border-color: rgb(var(--nada-border) / 0.08);
   }
 
-  /* Badge */
+  /* Unread badge — gold pill */
   .nada-badge {
-    background: rgb(var(--nada-success));
-    color: #ffffff;
-    font-size: 11px;
-    font-weight: 700;
+    background: rgb(var(--nada-accent));
+    color: #111111;
+    font-size: 10px;
+    font-weight: 800;
     line-height: 1;
     padding: 2px 6px;
     border-radius: 999px;
-    min-width: 19px;
-    height: 19px;
+    min-width: 18px;
+    height: 18px;
     display: flex;
     align-items: center;
     justify-content: center;
     text-align: center;
-    box-shadow: 0 2px 4px rgb(var(--nada-success) / 0.2);
+    box-shadow: 0 2px 8px rgb(var(--nada-gold-glow) / 0.35);
   }
 
   .nada-avatar-unread {
     position: relative;
   }
-  
+
   .nada-avatar-unread::after {
     content: "";
     position: absolute;
     inset: -3px;
-    border: 2px solid rgb(var(--nada-success));
+    border: 2px solid rgb(var(--nada-accent));
     border-radius: 999px;
     pointer-events: none;
     animation: nada-pulse-ring 2s ease-out infinite;
   }
 
-  /* Overlay / backdrop for modals */
+  /* Overlay / backdrop */
   .nada-overlay {
-    background: rgb(var(--nada-overlay) / 0.5);
-    backdrop-filter: blur(8px) saturate(120%);
-    -webkit-backdrop-filter: blur(8px) saturate(120%);
+    background: rgb(var(--nada-overlay) / 0.7);
+    backdrop-filter: blur(12px) saturate(120%);
+    -webkit-backdrop-filter: blur(12px) saturate(120%);
   }
 
   /* Sheet / modal panel */
   .nada-sheet {
     background: rgb(var(--nada-surface));
-    border: 1px solid rgb(var(--nada-border) / 0.4);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
     box-shadow:
-      0 8px 32px rgb(var(--nada-shadow-color) / 0.12),
-      0 2px 8px rgb(var(--nada-shadow-color) / 0.06);
+      0 16px 64px rgb(var(--nada-shadow-color) / 0.6),
+      0 4px 16px rgb(var(--nada-shadow-color) / 0.4);
   }
 
-  /* Status indicators */
+  /* Online dot */
   .nada-status-online {
-    width: 10px;
-    height: 10px;
+    width: 9px;
+    height: 9px;
     border-radius: 999px;
     background: rgb(var(--nada-success));
     box-shadow: 0 0 0 2px rgb(var(--nada-surface));
   }
 
   .nada-status-offline {
-    width: 10px;
-    height: 10px;
+    width: 9px;
+    height: 9px;
     border-radius: 999px;
-    background: rgb(var(--nada-secondary) / 0.4);
+    background: rgb(var(--nada-secondary) / 0.3);
     box-shadow: 0 0 0 2px rgb(var(--nada-surface));
   }
 
@@ -246,39 +252,33 @@ select {
     background: linear-gradient(
       90deg,
       rgb(var(--nada-muted)) 0%,
-      rgb(var(--nada-border) / 0.5) 50%,
+      rgb(var(--nada-border) / 0.06) 50%,
       rgb(var(--nada-muted)) 100%
     );
     background-size: 200% 100%;
-    animation: nada-shimmer 1.5s ease-in-out infinite;
+    animation: nada-shimmer 1.6s ease-in-out infinite;
     border-radius: 8px;
   }
 
-  /* Typing indicator */
+  /* Typing indicator dots */
   .nada-typing-dot {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
     border-radius: 999px;
-    background: rgb(var(--nada-secondary));
+    background: rgb(var(--nada-accent));
     animation: nada-typing 1.4s ease-in-out infinite;
   }
 
-  .nada-typing-dot:nth-child(2) {
-    animation-delay: 0.2s;
-  }
+  .nada-typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .nada-typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
-  .nada-typing-dot:nth-child(3) {
-    animation-delay: 0.4s;
-  }
-
-  /* ── Privacy Blur Shield ──────────────────────────────── */
-
+  /* Privacy Blur Shield */
   .nada-blur-shield {
     position: absolute;
     inset: 0;
     backdrop-filter: blur(24px) saturate(120%);
     -webkit-backdrop-filter: blur(24px) saturate(120%);
-    background: rgb(var(--nada-bg) / 0.5);
+    background: rgb(var(--nada-bg) / 0.6);
     z-index: 5;
     display: flex;
     align-items: center;
@@ -287,25 +287,23 @@ select {
     user-select: none;
   }
 
-  /* ── Vanish Mode ─────────────────────────────────────── */
-
+  /* Vanish Mode Banner */
   .nada-vanish-banner {
-    background: linear-gradient(90deg, rgb(var(--nada-accent) / 0.12), rgb(var(--nada-accent) / 0.06));
-    border-bottom: 1px solid rgb(var(--nada-accent) / 0.15);
+    background: linear-gradient(90deg, rgb(var(--nada-accent) / 0.10), transparent);
+    border-bottom: 1px solid rgb(var(--nada-accent) / 0.12);
     color: rgb(var(--nada-accent));
   }
 
   .nada-vanish-dot {
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     border-radius: 999px;
     background: rgb(var(--nada-accent));
     animation: nada-pulse-ring 2s ease-out infinite;
     flex-shrink: 0;
   }
 
-  /* ── Mood Pill ────────────────────────────────────────── */
-
+  /* Mood Pill */
   .nada-mood-pill {
     display: inline-flex;
     align-items: center;
@@ -314,14 +312,12 @@ select {
     border-radius: 999px;
     font-size: 10px;
     font-weight: 500;
-    letter-spacing: 0.01em;
     background: rgb(var(--nada-muted));
     color: rgb(var(--nada-secondary));
-    border: 1px solid rgb(var(--nada-border) / 0.5);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
   }
 
-  /* ── Reaction Chips ──────────────────────────────────── */
-
+  /* Reaction Chips */
   .nada-reaction-chip {
     display: inline-flex;
     align-items: center;
@@ -330,7 +326,7 @@ select {
     border-radius: 999px;
     font-size: 12px;
     background: rgb(var(--nada-surface));
-    border: 1.5px solid rgb(var(--nada-border) / 0.6);
+    border: 1px solid rgb(var(--nada-border) / 0.12);
     cursor: pointer;
     transition: all 0.15s ease;
     user-select: none;
@@ -339,21 +335,20 @@ select {
 
   .nada-reaction-chip:hover {
     background: rgb(var(--nada-muted));
-    border-color: rgb(var(--nada-accent) / 0.4);
+    border-color: rgb(var(--nada-accent) / 0.35);
     transform: scale(1.06);
   }
 
   .nada-reaction-chip.nada-reaction-mine {
     background: rgb(var(--nada-accent) / 0.12);
-    border-color: rgb(var(--nada-accent) / 0.5);
+    border-color: rgb(var(--nada-accent) / 0.4);
     color: rgb(var(--nada-accent));
   }
 
-  /* ── Pinned Message Banner ────────────────────────────── */
-
+  /* Pinned Message Banner */
   .nada-pinned-banner {
     background: rgb(var(--nada-surface));
-    border-bottom: 1px solid rgb(var(--nada-border) / 0.5);
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.08);
     cursor: pointer;
     transition: background 0.15s ease;
   }
@@ -362,8 +357,7 @@ select {
     background: rgb(var(--nada-muted));
   }
 
-  /* ── Ghost Mode badge ─────────────────────────────────── */
-
+  /* Ghost Mode badge */
   .nada-ghost-badge {
     display: inline-flex;
     align-items: center;
@@ -374,11 +368,10 @@ select {
     font-weight: 500;
     background: rgb(var(--nada-muted));
     color: rgb(var(--nada-secondary));
-    border: 1px solid rgb(var(--nada-border) / 0.5);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
   }
 
-  /* ── Quick Reply Chips ────────────────────────────────── */
-
+  /* Quick Reply Chips */
   .nada-quick-reply {
     display: inline-flex;
     align-items: center;
@@ -386,8 +379,8 @@ select {
     border-radius: 999px;
     font-size: 13px;
     font-weight: 500;
-    background: rgb(var(--nada-surface));
-    border: 1.5px solid rgb(var(--nada-border) / 0.6);
+    background: rgb(var(--nada-surface-elevated));
+    border: 1px solid rgb(var(--nada-border) / 0.12);
     color: rgb(var(--nada-primary));
     cursor: pointer;
     transition: all 0.15s ease;
@@ -398,7 +391,7 @@ select {
 
   .nada-quick-reply:hover {
     background: rgb(var(--nada-accent) / 0.08);
-    border-color: rgb(var(--nada-accent) / 0.5);
+    border-color: rgb(var(--nada-accent) / 0.4);
     color: rgb(var(--nada-accent));
     transform: translateY(-1px);
   }
@@ -406,81 +399,113 @@ select {
   .nada-quick-reply:active {
     transform: scale(0.97);
   }
+
+  /* Gold glow button */
+  .nada-btn-gold {
+    background: rgb(var(--nada-accent));
+    color: #111111;
+    font-weight: 700;
+    border-radius: 999px;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 16px rgb(var(--nada-gold-glow) / 0.3);
+  }
+
+  .nada-btn-gold:hover {
+    box-shadow: 0 6px 24px rgb(var(--nada-gold-glow) / 0.45);
+    transform: translateY(-1px);
+  }
+
+  .nada-btn-gold:active {
+    transform: scale(0.96);
+    box-shadow: 0 2px 8px rgb(var(--nada-gold-glow) / 0.2);
+  }
+
+  /* Gold border input */
+  .nada-input-dark {
+    background: rgb(var(--nada-surface-elevated));
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    border-radius: 14px;
+    outline: none;
+    color: rgb(var(--nada-primary));
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .nada-input-dark:focus {
+    border-color: rgb(var(--nada-accent) / 0.35);
+    box-shadow: 0 0 0 3px rgb(var(--nada-accent) / 0.06);
+  }
+
+  .nada-input-dark::placeholder {
+    color: rgb(var(--nada-secondary) / 0.4);
+  }
+
+  /* No scrollbar utility */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-/* ── Keyframes ────────────────────────────────────────── */
+/* ── Keyframes ──────────────────────────────────────────── */
 
 @keyframes nada-shimmer {
-  0% { background-position: 200% 0; }
+  0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
 @keyframes nada-typing {
   0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
-  30% { opacity: 1; transform: translateY(-4px); }
+  30%            { opacity: 1;   transform: translateY(-4px); }
 }
 
 @keyframes nada-fade-in {
   from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes nada-scale-in {
   from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 @keyframes nada-slide-up {
   from { opacity: 0; transform: translateY(100%); }
-  to { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes nada-pulse-ring {
-  0% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.4); }
-  70% { box-shadow: 0 0 0 8px rgb(var(--nada-accent) / 0); }
+  0%   { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.4); }
+  70%  { box-shadow: 0 0 0 8px rgb(var(--nada-accent) / 0); }
   100% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0); }
+}
+
+@keyframes nada-gold-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--nada-gold-glow) / 0.4); }
+  50%       { box-shadow: 0 0 0 12px rgb(var(--nada-gold-glow) / 0); }
+}
+
+@keyframes nada-waveform {
+  0%, 100% { transform: scaleY(0.4); }
+  50%       { transform: scaleY(1); }
 }
 
 /* ── Utility Layer ────────────────────────────────────── */
 
 @layer utilities {
-  .animate-fade-in {
-    animation: nada-fade-in 0.3s ease-out both;
-  }
+  .animate-fade-in   { animation: nada-fade-in  0.3s ease-out both; }
+  .animate-scale-in  { animation: nada-scale-in 0.2s ease-out both; }
+  .animate-slide-up  { animation: nada-slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-pulse-ring{ animation: nada-pulse-ring 2s ease-out infinite; }
+  .animate-gold-pulse{ animation: nada-gold-pulse 2s ease-in-out infinite; }
 
-  .animate-scale-in {
-    animation: nada-scale-in 0.2s ease-out both;
-  }
+  .text-accent  { color: rgb(var(--nada-accent)); }
+  .bg-accent    { background-color: rgb(var(--nada-accent)); }
+  .bg-accent-soft { background-color: rgb(var(--nada-accent) / 0.08); }
+  .border-accent { border-color: rgb(var(--nada-accent)); }
 
-  .animate-slide-up {
-    animation: nada-slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
-
-  .animate-pulse-ring {
-    animation: nada-pulse-ring 2s ease-out infinite;
-  }
-
-  .text-accent {
-    color: rgb(var(--nada-accent));
-  }
-
-  .bg-accent {
-    background-color: rgb(var(--nada-accent));
-  }
-
-  .bg-accent-soft {
-    background-color: rgb(var(--nada-accent-soft) / 0.1);
-  }
-
-  .border-accent {
-    border-color: rgb(var(--nada-accent));
-  }
-
-  .pt-safe-area {
-    padding-top: env(safe-area-inset-top);
-  }
-
-  .pb-safe-area {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
+  .pt-safe-area { padding-top: env(safe-area-inset-top); }
+  .pb-safe-area { padding-bottom: env(safe-area-inset-bottom); }
 }

@@ -26,14 +26,14 @@
    Collecting build traces ...
 
 Route (app)                              Size     First Load JS
-┌ ○ /                                    147 B           713 kB
+┌ ○ /                                    147 B           715 kB
 ├ ○ /_not-found                          873 B            88 kB
 ├ ƒ /api/livekit                         0 B                0 B
-├ ○ /invite                              148 B           713 kB
+├ ○ /invite                              148 B           715 kB
 └ ○ /launch                              8.87 kB          96 kB
 + First Load JS shared by all            87.2 kB
-  ├ chunks/1dd3208c-cb2329c52594868a.js  53.6 kB
-  ├ chunks/528-5d1160b742b675ef.js       31.6 kB
+  ├ chunks/1dd3208c-3c8f9c12936f34d5.js  53.6 kB
+  ├ chunks/528-9e652a628e48bcac.js       31.6 kB
   └ other shared chunks (total)          1.97 kB
 
 

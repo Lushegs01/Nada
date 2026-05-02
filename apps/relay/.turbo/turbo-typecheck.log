@@ -30,13 +30,5 @@ src/server.ts(80,9): error TS2345: Argument of type 'FastifyInstance<Http2Secure
 src/server.ts(89,3): error TS2322: Type 'FastifyInstance<Http2SecureServer<typeof IncomingMessage, typeof ServerResponse, typeof Http2ServerRequest, typeof Http2ServerResponse>, Http2ServerRequest, Http2ServerResponse<...>, FastifyBaseLogger, FastifyTypeProviderDefault>' is not assignable to type 'FastifyInstance<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, FastifyBaseLogger, FastifyTypeProviderDefault>'.
   Types of property 'server' are incompatible.
     Type 'Http2SecureServer<typeof IncomingMessage, typeof ServerResponse, typeof Http2ServerRequest, typeof Http2ServerResponse>' is missing the following properties from type 'Server<typeof IncomingMessage, typeof ServerResponse>': maxHeadersCount, maxRequestsPerSocket, timeout, headersTimeout, and 4 more.
-src/upload-routes.ts(125,62): error TS4111: Property 'senderPubkeyHash' comes from an index signature, so it must be accessed with ['senderPubkeyHash'].
-src/upload-routes.ts(126,65): error TS4111: Property 'recipientPubkeyHash' comes from an index signature, so it must be accessed with ['recipientPubkeyHash'].
-src/upload-routes.ts(134,29): error TS4111: Property 'chatId' comes from an index signature, so it must be accessed with ['chatId'].
-src/upload-routes.ts(135,52): error TS4111: Property 'originalName' comes from an index signature, so it must be accessed with ['originalName'].
-src/upload-routes.ts(136,45): error TS4111: Property 'mimeType' comes from an index signature, so it must be accessed with ['mimeType'].
-src/upload-routes.ts(137,43): error TS4111: Property 'size' comes from an index signature, so it must be accessed with ['size'].
-src/upload-routes.ts(152,18): error TS4111: Property 'contentHash' comes from an index signature, so it must be accessed with ['contentHash'].
-src/upload-routes.ts(152,40): error TS4111: Property 'contentHash' comes from an index signature, so it must be accessed with ['contentHash'].
  ELIFECYCLE  Command failed with exit code 2.
  WARN   Local package.json exists, but node_modules missing, did you mean to install?
