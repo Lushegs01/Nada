@@ -1,0 +1,42 @@
+
+> web@0.1.0 build C:\Users\USER\Documents\New project 3\apps\web
+> next build
+
+  ▲ Next.js 14.2.32
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+> [PWA] Compile server
+> [PWA] Compile server
+> [PWA] Compile client (static)
+> [PWA] Auto register service worker with: C:\Users\USER\Documents\New project 3\node_modules\next-pwa\register.js
+> [PWA] Service worker: C:\Users\USER\Documents\New project 3\apps\web\public\sw.js
+> [PWA]   url: /sw.js
+> [PWA]   scope: /
+ ✓ Compiled successfully
+   Skipping validation of types
+   Skipping linting
+   Collecting page data ...
+   Generating static pages (0/7) ...
+   Generating static pages (1/7) 
+   Generating static pages (3/7) 
+   Generating static pages (5/7) 
+ ✓ Generating static pages (7/7)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    147 B           713 kB
+├ ○ /_not-found                          873 B            88 kB
+├ ƒ /api/livekit                         0 B                0 B
+├ ○ /invite                              148 B           713 kB
+└ ○ /launch                              8.87 kB          96 kB
++ First Load JS shared by all            87.2 kB
+  ├ chunks/1dd3208c-cb2329c52594868a.js  53.6 kB
+  ├ chunks/528-5d1160b742b675ef.js       31.6 kB
+  └ other shared chunks (total)          1.97 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

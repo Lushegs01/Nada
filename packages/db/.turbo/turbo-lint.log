@@ -1,0 +1,4 @@
+
+> @nada/db@0.1.0 lint C:\Users\USER\Documents\New project 3\packages\db
+> eslint src --ext .ts
+
