@@ -150,6 +150,11 @@ async function handleSocketMessage(
     return;
   }
 
+  if ("type" in result.data && result.data.type === "delivery") {
+    routeDelivery(result.data as any, sessions);
+    return;
+  }
+
   if ("version" in result.data) {
     await routeProductionEnvelope(result.data, socket, sessions, queue, app);
     return;
@@ -316,6 +321,18 @@ function routeReaction(
   const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
   if (!recipients || recipients.size === 0) return;
   const serialized = JSON.stringify({ type: "reaction", envelope });
+  recipients.forEach((socket) => {
+    socket.send(serialized);
+  });
+}
+
+function routeDelivery(
+  envelope: { type: "delivery"; id: string; recipient: string; status: "delivered" | "read" | "queued" | "sent" | "failed" },
+  sessions: SessionRegistry
+): void {
+  const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
+  if (!recipients || recipients.size === 0) return;
+  const serialized = JSON.stringify({ type: "delivery", id: envelope.id, status: envelope.status });
   recipients.forEach((socket) => {
     socket.send(serialized);
   });

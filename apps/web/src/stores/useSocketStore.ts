@@ -5,6 +5,7 @@ import { create } from "zustand";
 import {
   ServerSocketEnvelopeSchema,
   type CallSignalEnvelope,
+  type DeliveryEnvelope,
   type DeliveryStatus,
   type GroupMessageEnvelope,
   type MessageEnvelope,
@@ -59,6 +60,7 @@ interface SocketState {
   sendTyping: (envelope: TypingEnvelope) => boolean;
   sendReaction: (envelope: ReactionEnvelope) => boolean;
   sendDeletion: (envelope: DeletionEnvelope) => boolean;
+  sendDelivery: (envelope: DeliveryEnvelope) => boolean;
   setGhostMode: (enabled: boolean) => void;
 }
 
@@ -321,6 +323,15 @@ export const useSocketStore = create<SocketState>((set, get) => {
       return true;
     },
     sendDeletion: (envelope) => {
+      const socket = get().socket;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return false;
+      }
+
+      socket.send(JSON.stringify(envelope));
+      return true;
+    },
+    sendDelivery: (envelope) => {
       const socket = get().socket;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         return false;

@@ -413,6 +413,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const incoming = useSocketStore((state) => state.incoming);
   const relayStatus = useSocketStore((state) => state.status);
   const sendCallSignal = useSocketStore((state) => state.sendCallSignal);
+  const sendDelivery = useSocketStore((state) => state.sendDelivery);
   const sendEnvelope = useSocketStore((state) => state.sendEnvelope);
   const sendGroupEnvelope = useSocketStore((state) => state.sendGroupEnvelope);
   const sendTyping = useSocketStore((state) => state.sendTyping);
@@ -912,7 +913,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
     let active = true;
     void persistIncomingMessages(identity, newEnvelopes).then(async () => {
-      newEnvelopes.forEach((envelope) => processedIncoming.current.add(envelope.id));
+      newEnvelopes.forEach((envelope) => {
+        processedIncoming.current.add(envelope.id);
+        sendDelivery({
+          type: "delivery",
+          id: envelope.id,
+          recipient: envelope.sender,
+          status: "delivered"
+        });
+      });
       const contactRecords = await nadaDb.contacts.orderBy("addedAt").reverse().toArray();
       const messageRecords = selectedChatId
         ? await loadMessagesForChat(selectedChatId)
@@ -944,9 +953,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
     let active = true;
     void persistIncomingGroupMessages(identity, newGroupEnvelopes).then(async () => {
-      newGroupEnvelopes.forEach((envelope) =>
-        processedGroupIncoming.current.add(envelope.id)
-      );
+      newGroupEnvelopes.forEach((envelope) => {
+        processedGroupIncoming.current.add(envelope.id);
+        sendDelivery({
+          type: "delivery",
+          id: envelope.id,
+          recipient: envelope.sender,
+          status: "delivered"
+        });
+      });
       const chatRecords = await nadaDb.chats.orderBy("updatedAt").reverse().toArray();
       const messageRecords = selectedChatId
         ? await loadMessagesForChat(selectedChatId)
@@ -1060,6 +1075,98 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         break;
     }
   }, [callSignals, identity.pubkeyHash, contacts, callStore, insertCallLogMessage]);
+
+  // ── Offline Message Queue Flush ──────────────────────────────────────────────
+  useEffect(() => {
+    if (socketStatus !== "connected" || !identity) return;
+
+    let isSubscribed = true;
+
+    async function flushQueue() {
+      // Find all direct messages that are queued
+      const queuedMessages = await nadaDb.messages
+        .where("status")
+        .equals("queued")
+        .toArray();
+
+      if (!isSubscribed) return;
+
+      for (const msg of queuedMessages) {
+        if (!isSubscribed || socketStatus !== "connected") break;
+
+        const envelope: MessageEnvelope = {
+          type: "message",
+          id: msg.id,
+          recipient: msg.recipientPubkeyHash,
+          sender: msg.senderPubkeyHash,
+          timestamp: msg.createdAt,
+          ciphertext: msg.encryptedPayload,
+          messageKind: msg.kind,
+          ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
+          ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: msg.body } : {})
+        };
+
+        const sent = sendEnvelope(envelope);
+        if (sent) {
+          await nadaDb.messages.update(msg.id, { status: "sent" });
+          setMessages((current) =>
+            current.map((m) =>
+              m.id === msg.id ? { ...m, status: "sent" } : m
+            )
+          );
+        }
+      }
+
+      // Flush "local" group messages that failed to send over network previously
+      const localMessages = await nadaDb.messages
+        .where("status")
+        .equals("local")
+        .toArray();
+      
+      const outboundGroupMessages = localMessages.filter(m => m.direction === "outbound");
+      
+      for (const msg of outboundGroupMessages) {
+        if (!isSubscribed || socketStatus !== "connected") break;
+        
+        const group = chats.find(c => c.id === msg.chatId && c.type === "group");
+        if (!group) continue;
+        
+        const recipients = group.memberPubkeyHashes.filter(m => m !== identity.pubkeyHash);
+        
+        const groupEnvelope: GroupMessageEnvelope = {
+          type: "group-message",
+          id: msg.id,
+          groupId: group.id,
+          recipients,
+          sender: msg.senderPubkeyHash,
+          timestamp: msg.createdAt,
+          ciphertext: msg.encryptedPayload,
+          messageKind: msg.kind,
+          ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
+          ...(msg.replyToId ? { replyToId: msg.replyToId } : {}),
+          ...(msg.mentions && msg.mentions.length > 0 ? { mentions: msg.mentions } : {}),
+          ...(msg.expiresAt ? { expiresAt: msg.expiresAt } : {}),
+          ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: msg.body } : {})
+        };
+        
+        const sent = sendGroupEnvelope(groupEnvelope);
+        if (sent) {
+          await nadaDb.messages.update(msg.id, { status: "sent" });
+          setMessages((current) =>
+            current.map((m) =>
+              m.id === msg.id ? { ...m, status: "sent" } : m
+            )
+          );
+        }
+      }
+    }
+
+    void flushQueue();
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [socketStatus, identity, chats, sendEnvelope, sendGroupEnvelope]);
 
   // Helper exposed for ChatPanel's onTyping prop
   const handleTypingStop = useCallback(() => {

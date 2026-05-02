@@ -142,7 +142,13 @@ export const ClientSocketEnvelopeSchema = z.union([
   TypingEnvelopeSchema,
   ReactionEnvelopeSchema,
   DeletionEnvelopeSchema,
-  ProductionEnvelopeSchema
+  ProductionEnvelopeSchema,
+  z.object({
+    type: z.literal("delivery"),
+    id: UuidSchema,
+    recipient: PubkeyHashSchema, // the sender of the original message
+    status: DeliveryStatusSchema
+  })
 ]);
 
 export const DeliveryStatusSchema = z.enum([
@@ -351,6 +357,12 @@ export type ProductionEnvelope = z.infer<typeof ProductionEnvelopeSchema>;
 export type RegisterEnvelope = z.infer<typeof RegisterEnvelopeSchema>;
 export type TypingEnvelope = z.infer<typeof TypingEnvelopeSchema>;
 export type ReactionEnvelope = z.infer<typeof ReactionEnvelopeSchema>;
+export type DeliveryEnvelope = {
+  type: "delivery";
+  id: string;
+  recipient: string;
+  status: "queued" | "sent" | "delivered" | "failed";
+};
 export type ClientSocketEnvelope = z.infer<typeof ClientSocketEnvelopeSchema>;
 export type DeliveryStatus = z.infer<typeof DeliveryStatusSchema>;
 export type ServerSocketEnvelope = z.infer<typeof ServerSocketEnvelopeSchema>;
