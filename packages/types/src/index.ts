@@ -124,6 +124,16 @@ export const ReactionEnvelopeSchema = z.object({
   timestamp: z.number().int().positive()
 });
 
+export const DeletionEnvelopeSchema = z.object({
+  type: z.literal("deletion"),
+  id: UuidSchema,
+  chatId: z.string().min(1).max(256),
+  messageId: UuidSchema,
+  recipient: PubkeyHashSchema,
+  sender: PubkeyHashSchema,
+  timestamp: z.number().int().positive()
+});
+
 export const ClientSocketEnvelopeSchema = z.union([
   RegisterEnvelopeSchema,
   MessageEnvelopeSchema,
@@ -131,6 +141,7 @@ export const ClientSocketEnvelopeSchema = z.union([
   CallSignalEnvelopeSchema,
   TypingEnvelopeSchema,
   ReactionEnvelopeSchema,
+  DeletionEnvelopeSchema,
   ProductionEnvelopeSchema
 ]);
 
@@ -165,6 +176,10 @@ export const ServerSocketEnvelopeSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("reaction"),
     envelope: ReactionEnvelopeSchema
+  }),
+  z.object({
+    type: z.literal("deletion"),
+    envelope: DeletionEnvelopeSchema
   }),
   z.object({
     type: z.literal("sealed-message"),

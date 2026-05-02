@@ -8,6 +8,7 @@ import type { WebSocket } from "ws";
 import {
   ClientSocketEnvelopeSchema,
   type CallSignalEnvelope,
+  type DeletionEnvelope,
   type GroupMessageEnvelope,
   type MessageEnvelope,
   type ProductionEnvelope,
@@ -34,7 +35,7 @@ interface SessionRegistry {
 export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance> {
   const queue = await createRelayQueue(env);
   const app = fastify({
-    logger: createLoggerOption(env),
+    logger: createLoggerOption(env) as any,
     trustProxy: true
   });
   const sessions: SessionRegistry = {
@@ -42,19 +43,19 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     pubkeyHashBySocket: new Map()
   };
 
-  await app.register(cors, {
-    origin: (origin, callback) => {
+  await (app as any).register(cors, {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       callback(null, isOriginAllowed(origin, env.allowedOrigin));
     }
   });
-  await app.register(rateLimit, {
+  await (app as any).register(rateLimit, {
     max: 120,
     timeWindow: "1 minute"
   });
-  await app.register(websocket);
-  await registerMonetizationRoutes(app, env);
-  await registerPushRoutes(app, env);
-  await registerUploadRoutes(app, env);
+  await (app as any).register(websocket);
+  await registerMonetizationRoutes(app as any, env);
+  await registerPushRoutes(app as any, env);
+  await registerUploadRoutes(app as any, env);
 
   app.addHook("onClose", async () => {
     await queue.close();
@@ -77,7 +78,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
         raw.toString(),
         sessions,
         queue,
-        app
+        app as any
       );
     });
 
@@ -86,7 +87,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     });
   });
 
-  return app;
+  return app as any;
 }
 
 async function handleSocketMessage(
@@ -94,7 +95,7 @@ async function handleSocketMessage(
   raw: string,
   sessions: SessionRegistry,
   queue: RelayQueue,
-  app: FastifyInstance
+  app: any
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -141,6 +142,11 @@ async function handleSocketMessage(
 
   if ("type" in result.data && result.data.type === "reaction") {
     routeReaction(result.data, sessions);
+    return;
+  }
+
+  if ("type" in result.data && result.data.type === "deletion") {
+    routeDeletion(result.data, sessions, queue);
     return;
   }
 
@@ -312,6 +318,36 @@ function routeReaction(
   const serialized = JSON.stringify({ type: "reaction", envelope });
   recipients.forEach((socket) => {
     socket.send(serialized);
+  });
+}
+
+async function routeDeletion(
+  envelope: DeletionEnvelope,
+  sessions: SessionRegistry,
+  queue: RelayQueue
+): Promise<void> {
+  const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
+  const serialized = JSON.stringify({ type: "deletion", envelope });
+
+  let deliveredCount = 0;
+  recipients?.forEach((socket) => {
+    socket.send(serialized);
+    deliveredCount += 1;
+  });
+
+  if (deliveredCount === 0) {
+    await queue.enqueue(envelope.recipient, serialized);
+  }
+
+  const senders = sessions.socketsByPubkeyHash.get(envelope.sender);
+  senders?.forEach((socket) => {
+    socket.send(
+      JSON.stringify({
+        type: "delivery",
+        id: envelope.id,
+        status: deliveredCount > 0 ? "delivered" : "queued"
+      })
+    );
   });
 }
 

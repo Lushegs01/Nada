@@ -88,6 +88,7 @@ import type {
 } from "@nada/db";
 import type {
   CallSignalEnvelope,
+  DeletionEnvelope,
   GroupMessageEnvelope,
   GroupInvitePayload,
   InvitePayload,
@@ -407,6 +408,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const sendEnvelope = useSocketStore((state) => state.sendEnvelope);
   const sendGroupEnvelope = useSocketStore((state) => state.sendGroupEnvelope);
   const sendTyping = useSocketStore((state) => state.sendTyping);
+  const sendDeletion = useSocketStore((state) => state.sendDeletion);
   const typingIndicators = useSocketStore((state) => state.typingIndicators);
   
   const callStore = useCallStore();
@@ -414,10 +416,12 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
   // ── new feature state ────────────────────────────────────────────────────────
   const incomingReactions = useSocketStore((state) => state.incomingReactions);
+  const incomingDeletions = useSocketStore((state) => state.incomingDeletions);
   const sendReaction = useSocketStore((state) => state.sendReaction);
   const socketGhostMode = useSocketStore((state) => state.ghostMode);
   const setSocketGhostMode = useSocketStore((state) => state.setGhostMode);
   const processedReactions = useRef<Set<string>>(new Set());
+  const processedDeletions = useRef<Set<string>>(new Set());
 
   const [ghostMode, setGhostMode] = useState(false);
   const [mood, setMood] = useState("Available");
@@ -595,6 +599,31 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       window.removeEventListener("blur", handleHidden);
     };
   }, [blurShieldActive]);
+
+  // Process incoming deletions from socket
+  useEffect(() => {
+    const newDeletions = incomingDeletions.filter(
+      (d) => !processedDeletions.current.has(d.id)
+    );
+    if (newDeletions.length === 0) return;
+
+    let active = true;
+    void (async () => {
+      for (const d of newDeletions) {
+        processedDeletions.current.add(d.id);
+        const deletedAt = d.timestamp;
+        await nadaDb.messages.update(d.messageId, {
+          deletedAt,
+          body: ""
+        });
+      }
+      if (!active) return;
+      const messageRecords = selectedChatId ? await loadMessagesForChat(selectedChatId) : [];
+      setMessages(messageRecords);
+    })();
+
+    return () => { active = false; };
+  }, [incomingDeletions, selectedChatId]);
 
   // Process incoming reactions from socket
   useEffect(() => {
@@ -900,6 +929,42 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     };
   }, [groupIncoming, identity, selectedChatId]);
 
+  /** Insert a system call-log message bubble into the current chat */
+  const insertCallLogMessage = useCallback(async (callId: string, mode: CallMode, status: "started" | "ended" | "missed", duration?: number): Promise<void> => {
+    if (!selectedChatId) return;
+    const recipientHash = selectedContact?.pubkeyHash ?? selectedGroup?.id ?? identity.pubkeyHash;
+    const body = JSON.stringify({ callId, mode, status, duration });
+    const id = crypto.randomUUID();
+    const timestamp = Date.now();
+    const record: MessageRecord = {
+      id,
+      chatId: selectedChatId,
+      senderPubkeyHash: identity.pubkeyHash,
+      recipientPubkeyHash: recipientHash,
+      direction: "outbound",
+      kind: "call",
+      body,
+      encryptedPayload: body,
+      status: "local",
+      createdAt: timestamp
+    };
+    await nadaDb.messages.put(record);
+    setMessages((current) => [...current, record]);
+
+    // Broadcast call log to peer if it's a direct chat
+    if (selectedContact) {
+      sendEnvelope({
+        type: "message",
+        id,
+        recipient: selectedContact.pubkeyHash,
+        sender: identity.pubkeyHash,
+        timestamp,
+        ciphertext: body,
+        messageKind: "call"
+      });
+    }
+  }, [selectedChatId, selectedContact, selectedGroup, identity.pubkeyHash, sendEnvelope]);
+
   useEffect(() => {
     const latestSignal = callSignals.find(
       (signal) =>
@@ -921,6 +986,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           peerName: contact?.localDisplayName ?? latestSignal.sender.slice(0, 8),
           offerSdp: latestSignal.payload
         });
+        // Log incoming call attempt
+        void insertCallLogMessage(latestSignal.callId, latestSignal.mode, "started");
         break;
       }
       case "answer": {
@@ -956,7 +1023,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         callStore.endCall();
         break;
     }
-  }, [callSignals, identity.pubkeyHash, contacts, callStore]);
+  }, [callSignals, identity.pubkeyHash, contacts, callStore, insertCallLogMessage]);
 
   // Helper exposed for ChatPanel's onTyping prop
   const handleTypingStop = useCallback(() => {
@@ -1357,27 +1424,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   };
 
   /** Insert a system call-log message bubble into the current chat */
-  const insertCallLogMessage = async (callId: string, mode: CallMode, status: "started" | "ended" | "missed", duration?: number): Promise<void> => {
-    if (!selectedChatId) return;
-    const recipientHash = selectedContact?.pubkeyHash ?? selectedGroup?.id ?? identity.pubkeyHash;
-    const body = JSON.stringify({ callId, mode, status, duration });
-    const id = crypto.randomUUID();
-    const timestamp = Date.now();
-    const record: MessageRecord = {
-      id,
-      chatId: selectedChatId,
-      senderPubkeyHash: identity.pubkeyHash,
-      recipientPubkeyHash: recipientHash,
-      direction: "outbound",
-      kind: "call",
-      body,
-      encryptedPayload: body,
-      status: "local",
-      createdAt: timestamp
-    };
-    await nadaDb.messages.put(record);
-    setMessages((current) => [...current, record]);
-  };
 
   const startCall = async (mode: CallMode): Promise<void> => {
     if (mode === "group") {
@@ -1533,15 +1579,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     );
     // Notify peer via socket so their client can also delete
     const peer = selectedContact?.pubkeyHash ?? selectedGroup?.memberPubkeyHashes.find((h) => h !== identity.pubkeyHash);
-    if (peer) {
-      sendEnvelope({
-        type: "message",
+    if (peer && selectedChatId) {
+      sendDeletion({
+        type: "deletion",
         id: crypto.randomUUID(),
+        chatId: selectedChatId,
+        messageId: messageId,
         recipient: peer,
         sender: identity.pubkeyHash,
-        timestamp: Date.now(),
-        ciphertext: JSON.stringify({ __unsend: messageId }),
-        messageKind: "system"
+        timestamp: Date.now()
       });
     }
   };

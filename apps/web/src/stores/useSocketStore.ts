@@ -38,6 +38,8 @@ interface SocketState {
   typingIndicators: Record<string, string>;
   /** Incoming reactions from the relay [chatId:messageId:emoji:sender, ...] deduplicated via a set in useEffect */
   incomingReactions: ReactionEnvelope[];
+  /** Incoming deletions from the relay */
+  incomingDeletions: DeletionEnvelope[];
   lastError: string | null;
   reconnectAttempt: number;
   registeredIdentity: RelayIdentity | null;
@@ -56,6 +58,7 @@ interface SocketState {
    */
   sendTyping: (envelope: TypingEnvelope) => boolean;
   sendReaction: (envelope: ReactionEnvelope) => boolean;
+  sendDeletion: (envelope: DeletionEnvelope) => boolean;
   setGhostMode: (enabled: boolean) => void;
 }
 
@@ -92,6 +95,7 @@ export const useSocketStore = create<SocketState>((set, get) => {
     groupIncoming: [],
     incoming: [],
     incomingReactions: [],
+    incomingDeletions: [],
     lastError: null,
     reconnectAttempt: 0,
     registeredIdentity: null,
@@ -215,6 +219,13 @@ export const useSocketStore = create<SocketState>((set, get) => {
             }));
             break;
           }
+          case "deletion": {
+            const envelope = result.data.envelope;
+            set((state) => ({
+              incomingDeletions: [...state.incomingDeletions, envelope]
+            }));
+            break;
+          }
           case "sealed-message": {
             const envelope = result.data.envelope;
             set((state) => ({
@@ -301,6 +312,15 @@ export const useSocketStore = create<SocketState>((set, get) => {
       return true;
     },
     sendReaction: (envelope) => {
+      const socket = get().socket;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return false;
+      }
+
+      socket.send(JSON.stringify(envelope));
+      return true;
+    },
+    sendDeletion: (envelope) => {
       const socket = get().socket;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         return false;

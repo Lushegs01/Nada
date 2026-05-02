@@ -149,7 +149,11 @@ export async function registerMonetizationRoutes(
       });
     }
 
-    const payload = createCapabilityPayload(result.data);
+    const payload = createCapabilityPayload({
+      plan: result.data.plan,
+      pubkeyHash: result.data.pubkeyHash,
+      ...(result.data.expiresAt ? { expiresAt: result.data.expiresAt } : {})
+    });
     const token = issueCapabilityToken(payload, env.capabilityTokenSecret);
     await repository.storeCapabilityToken(
       payload.pubkeyHash,
@@ -283,7 +287,7 @@ async function handleStripeEvent(
     event.type === "customer.subscription.updated" ||
     event.type === "customer.subscription.deleted"
   ) {
-    const subscription = event.data.object;
+    const subscription = event.data.object as Stripe.Subscription;
     const pubkeyHash = subscription.metadata[STRIPE_METADATA_KEYS.pubkeyHash];
     const plan = subscription.metadata[STRIPE_METADATA_KEYS.plan] as
       | BillingPlan
@@ -293,10 +297,11 @@ async function handleStripeEvent(
         ? subscription.customer
         : subscription.customer.id;
     if (pubkeyHash && plan) {
+      const currentPeriodEnd = (subscription as any).current_period_end
+        ? (subscription as any).current_period_end * 1000
+        : null;
       await repository.upsertSubscription({
-        currentPeriodEnd: subscription.current_period_end
-          ? subscription.current_period_end * 1000
-          : null,
+        currentPeriodEnd,
         plan,
         pubkeyHash,
         status: normalizeStripeStatus(subscription.status),
