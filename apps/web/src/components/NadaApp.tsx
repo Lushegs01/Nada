@@ -1356,6 +1356,29 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     setReplyToId(null);
   };
 
+  /** Insert a system call-log message bubble into the current chat */
+  const insertCallLogMessage = async (callId: string, mode: CallMode, status: "started" | "ended" | "missed", duration?: number): Promise<void> => {
+    if (!selectedChatId) return;
+    const recipientHash = selectedContact?.pubkeyHash ?? selectedGroup?.id ?? identity.pubkeyHash;
+    const body = JSON.stringify({ callId, mode, status, duration });
+    const id = crypto.randomUUID();
+    const timestamp = Date.now();
+    const record: MessageRecord = {
+      id,
+      chatId: selectedChatId,
+      senderPubkeyHash: identity.pubkeyHash,
+      recipientPubkeyHash: recipientHash,
+      direction: "outbound",
+      kind: "call",
+      body,
+      encryptedPayload: body,
+      status: "local",
+      createdAt: timestamp
+    };
+    await nadaDb.messages.put(record);
+    setMessages((current) => [...current, record]);
+  };
+
   const startCall = async (mode: CallMode): Promise<void> => {
     if (mode === "group") {
       if (!selectedGroup) return;
@@ -1366,6 +1389,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         peerName: selectedGroup.title,
         localSession: null as any
       });
+      void insertCallLogMessage(selectedGroup.id, mode, "started");
       return;
     }
 
@@ -1434,6 +1458,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         startedAt: Date.now()
       });
 
+      void insertCallLogMessage(callId, mode, "started");
+
       sendCallSignal({
         type: "call-signal",
         id: crypto.randomUUID(),
@@ -1454,15 +1480,18 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const callId = activeCall?.callId;
     const peerPubkeyHash = activeCall?.peerPubkeyHash;
     const mode = activeCall?.mode;
+    const startedAt = activeCall?.startedAt;
 
     callStore.endCall();
 
-    if (callId) {
+    if (callId && mode) {
+      const duration = startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
       void nadaDb.calls.update(callId, {
         endedAt: Date.now(),
         status: "ended"
       });
-      if (peerPubkeyHash && mode) {
+      void insertCallLogMessage(callId, mode, "ended", duration);
+      if (peerPubkeyHash) {
         sendCallSignal({
           type: "call-signal",
           id: crypto.randomUUID(),
@@ -1478,21 +1507,47 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     }
   };
 
-  const unsendMessage = async (messageId: string): Promise<void> => {
+  /** Delete for me only — soft-delete locally, message stays on remote device */
+  const deleteMessageForMe = async (messageId: string): Promise<void> => {
     const deletedAt = Date.now();
-    await nadaDb.messages.update(messageId, {
-      body: "Message unsent",
-      deletedAt,
-      status: "local"
-    });
+    await nadaDb.messages.update(messageId, { deletedAt, status: "local" });
     setMessages((current) =>
-      current.map((message) =>
-        message.id === messageId
-          ? { ...message, body: "Message unsent", deletedAt, status: "local" }
-          : message
+      current.map((msg) =>
+        msg.id === messageId ? { ...msg, deletedAt, status: "local" } : msg
       )
     );
   };
+
+  /** Delete for everyone — marks deleted locally and notifies the peer to delete too */
+  const deleteMessageForEveryone = async (messageId: string): Promise<void> => {
+    const deletedAt = Date.now();
+    await nadaDb.messages.update(messageId, {
+      deletedAt,
+      body: "",
+      status: "local"
+    });
+    setMessages((current) =>
+      current.map((msg) =>
+        msg.id === messageId ? { ...msg, deletedAt, body: "", status: "local" } : msg
+      )
+    );
+    // Notify peer via socket so their client can also delete
+    const peer = selectedContact?.pubkeyHash ?? selectedGroup?.memberPubkeyHashes.find((h) => h !== identity.pubkeyHash);
+    if (peer) {
+      sendEnvelope({
+        type: "message",
+        id: crypto.randomUUID(),
+        recipient: peer,
+        sender: identity.pubkeyHash,
+        timestamp: Date.now(),
+        ciphertext: JSON.stringify({ __unsend: messageId }),
+        messageKind: "system"
+      });
+    }
+  };
+
+  /** Legacy alias kept so no prop types break */
+  const unsendMessage = deleteMessageForEveryone;
 
   const sendReactionToMessage = async (
     message: MessageRecord,
@@ -1890,6 +1945,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         }}
         onUnsend={(messageId) => {
           void unsendMessage(messageId);
+        }}
+        onDeleteForMe={(messageId) => {
+          void deleteMessageForMe(messageId);
         }}
         replyMessage={replyMessage}
         subtitle={selectedSubtitle}
@@ -2338,6 +2396,7 @@ function ChatPanel({
   onSendVoiceNote,
   onStartCall,
   onUnsend,
+  onDeleteForMe,
   replyMessage,
   subtitle,
   title,
@@ -2386,6 +2445,7 @@ function ChatPanel({
   onSendVoiceNote: (body: string) => void;
   onStartCall: (mode: CallMode) => void;
   onUnsend: (messageId: string) => void;
+  onDeleteForMe: (messageId: string) => void;
   replyMessage: MessageRecord | null;
   subtitle: string;
   title: string;
@@ -2423,6 +2483,7 @@ function ChatPanel({
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [deleteSheetMessageId, setDeleteSheetMessageId] = useState<string | null>(null);
   const [chatSearchActive, setChatSearchActive] = useState(false);
   const [chatSearchIdx, setChatSearchIdx] = useState(0);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
@@ -3113,6 +3174,61 @@ function ChatPanel({
         )}
       </AnimatePresence>
 
+      {/* WhatsApp-style Delete Bottom Sheet */}
+      <AnimatePresence>
+        {deleteSheetMessageId && (() => {
+          const targetMsg = messages.find((m) => m.id === deleteSheetMessageId);
+          const isOwn = targetMsg?.direction === "outbound";
+          return (
+            <motion.div
+              className="fixed inset-0 z-[870] flex items-end justify-center"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            >
+              <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setDeleteSheetMessageId(null)} />
+              <motion.div
+                className="relative z-10 w-full max-w-lg rounded-t-2xl bg-nada-surface border-t border-nada-border/50 p-2 pb-safe shadow-2xl"
+                initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+                transition={{ type: "spring", damping: 30, stiffness: 350 }}
+              >
+                <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-nada-border/60" />
+                <p className="px-4 pb-2 text-xs font-semibold uppercase tracking-wider text-nada-secondary">Delete message</p>
+                {isOwn && (
+                  <button
+                    className="flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left text-sm font-medium text-nada-danger hover:bg-nada-muted transition-colors"
+                    onClick={() => {
+                      onUnsend(deleteSheetMessageId);
+                      setDeleteSheetMessageId(null);
+                      showToast("Message deleted for everyone.");
+                    }}
+                  >
+                    <Trash2 size={18} className="text-nada-danger/80" />
+                    Delete for everyone
+                  </button>
+                )}
+                <button
+                  className="flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left text-sm text-nada-primary hover:bg-nada-muted transition-colors"
+                  onClick={() => {
+                    onDeleteForMe(deleteSheetMessageId);
+                    setDeleteSheetMessageId(null);
+                    showToast("Message deleted for you.");
+                  }}
+                >
+                  <Trash2 size={18} className="text-nada-secondary" />
+                  Delete for me
+                </button>
+                <button
+                  className="flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left text-sm text-nada-secondary hover:bg-nada-muted transition-colors"
+                  onClick={() => setDeleteSheetMessageId(null)}
+                >
+                  <X size={18} />
+                  Cancel
+                </button>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
       {/* Profile panel */}
       <AnimatePresence>
         {showProfilePanel && contact && (
@@ -3243,6 +3359,52 @@ function ChatPanel({
           const hasReactions = Object.keys(reactions).length > 0;
           const isPinned = pinnedMessageId === message.id;
           const isVanishing = Boolean(message.expiresAt && disappearingTimer > 0);
+
+          // ── Call log bubble (centred system event, like WhatsApp) ─────────────
+          if (message.kind === "call") {
+            let callLog: { mode?: string; status?: string; duration?: number } = {};
+            try { callLog = JSON.parse(message.body); } catch { /* ignore */ }
+            const isVideo = callLog.mode === "video" || callLog.mode === "group";
+            const dur = callLog.duration ?? 0;
+            const durLabel = dur > 0
+              ? dur >= 3600
+                ? `${Math.floor(dur / 3600)}h ${Math.floor((dur % 3600) / 60)}m`
+                : dur >= 60
+                  ? `${Math.floor(dur / 60)}m ${dur % 60}s`
+                  : `${dur}s`
+              : "";
+            const label = callLog.status === "ended"
+              ? `${isVideo ? "Video" : "Voice"} call${durLabel ? ` · ${durLabel}` : ""}`
+              : callLog.status === "missed"
+                ? `Missed ${isVideo ? "video" : "voice"} call`
+                : `${isVideo ? "Video" : "Voice"} call started`;
+            const isMissed = callLog.status === "missed";
+            return (
+              <div key={message.id} ref={(el) => { messageRefs.current[message.id] = el; }}>
+                {showDateSep && (
+                  <div className="flex justify-center py-3">
+                    <span className="rounded-full bg-nada-muted px-3 py-1 text-[11px] font-medium text-nada-secondary">
+                      {new Date(message.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-center py-2">
+                  <div className={cn(
+                    "flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium",
+                    isMissed
+                      ? "bg-red-500/10 text-red-400"
+                      : "bg-nada-muted text-nada-secondary"
+                  )}>
+                    {isVideo
+                      ? <Video size={13} />
+                      : <Phone size={13} />}
+                    {label}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          // ─────────────────────────────────────────────────────────────────────
 
           return (
             <div key={message.id} ref={(el) => { messageRefs.current[message.id] = el; }}>
@@ -3438,7 +3600,7 @@ function ChatPanel({
                       <Pin size={14} />
                     </button>
                     {message.direction === "outbound" && !message.deletedAt ? (
-                      <>
+                       <>
                         <button
                           aria-label="Edit"
                           className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
@@ -3450,12 +3612,21 @@ function ChatPanel({
                         <button
                           aria-label="Delete"
                           className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-danger"
-                          onClick={() => { onUnsend(message.id); setActiveMessageMenu(null); }}
+                          onClick={() => { setDeleteSheetMessageId(message.id); setActiveMessageMenu(null); }}
                           type="button"
                         >
                           <Trash2 size={14} />
                         </button>
                       </>
+                    ) : !message.deletedAt ? (
+                      <button
+                        aria-label="Delete for me"
+                        className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-danger"
+                        onClick={() => { setDeleteSheetMessageId(message.id); setActiveMessageMenu(null); }}
+                        type="button"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     ) : null}
                   </div>
                 </div>
