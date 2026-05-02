@@ -41,6 +41,8 @@ export interface ChatPrefRecord {
   pinnedMessageId: string | null;
   /** Truncated body of the pinned message (shown in banner) */
   pinnedMessageBody: string | null;
+  /** Per-chat custom wallpaper image URL */
+  wallpaperUrl?: string;
   updatedAt: number;
 }
 
@@ -125,6 +127,7 @@ export async function getChatPref(chatId: string): Promise<ChatPrefRecord> {
     blockedPubkeyHashes: [],
     pinnedMessageId: null,
     pinnedMessageBody: null,
+    wallpaperUrl: undefined,
     updatedAt: 0
   };
 }

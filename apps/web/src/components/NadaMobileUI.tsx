@@ -12,7 +12,8 @@ import {
   Archive,
   VolumeX,
   Pin,
-  ChevronRight
+  ChevronRight,
+  CircleDashed
 } from "lucide-react";
 import { cn } from "@nada/ui";
 import { motion } from "framer-motion";
@@ -195,6 +196,7 @@ export const BottomNavigation = ({
 }) => {
   const tabs = [
     { id: "chats",       label: "Chats",       icon: MessageCircle, badge: unreadCount },
+    { id: "status",      label: "Status",      icon: CircleDashed },
     { id: "communities", label: "Groups",       icon: Users },
     { id: "settings",    label: "Settings",     icon: Settings }
   ];

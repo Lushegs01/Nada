@@ -13,11 +13,13 @@ import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
+  BarChart2,
   Bell,
   BellOff,
   Camera,
   ChevronDown,
   ChevronUp,
+  CircleDashed,
   Clock,
   Copy,
   CreditCard,
@@ -452,14 +454,38 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [chatPref, setChatPrefState] = useState<ChatPrefRecord>({
     chatId: "", mutedUntil: 0, clearedAt: 0, blockedPubkeyHashes: [],
-    pinnedMessageId: null, pinnedMessageBody: null, updatedAt: 0
+    pinnedMessageId: null, pinnedMessageBody: null, wallpaperUrl: undefined, updatedAt: 0
   });
   const [showProfile, setShowProfile] = useState(false);
   const [blurShieldActive, setBlurShieldActive] = useState(false);
   const [blurShieldRevealed, setBlurShieldRevealed] = useState(false);
   const [showGhostModal, setShowGhostModal] = useState(false);
   const [showMoodModal, setShowMoodModal] = useState(false);
-  
+  const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
+  const [globalMessageResults, setGlobalMessageResults] = useState<{ message: MessageRecord; chatTitle: string; chatId: string }[]>([]);
+  const [inAppNotification, setInAppNotification] = useState<{ id: string; title: string; body: string; chatId: string } | null>(null);
+  const [allStatuses, setAllStatuses] = useState<MessageRecord[]>([]);
+  const [selectedStatusSenderHash, setSelectedStatusSenderHash] = useState<string | null>(null);
+
+  const loadStatuses = useCallback(async () => {
+    const now = Date.now();
+    const records = await nadaDb.messages
+      .where("kind")
+      .equals("status")
+      .and(m => m.createdAt > now - 24 * 60 * 60 * 1000)
+      .reverse()
+      .toArray();
+    setAllStatuses(records);
+  }, []);
+
+  const showNotification = useCallback((title: string, body: string, chatId: string) => {
+    const id = crypto.randomUUID();
+    setInAppNotification({ id, title, body, chatId });
+    setTimeout(() => {
+      setInAppNotification((current) => current?.id === id ? null : current);
+    }, 4000);
+  }, []);
+
   // Mobile UI state
   const [activeFilter, setActiveFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("chats");
@@ -933,7 +959,18 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
       setContacts(contactRecords);
       setMessages(messageRecords);
+
+      newEnvelopes.forEach((env) => {
+         const chatId = directChatId(identity.pubkeyHash, env.sender);
+         if (chatId !== selectedChatId) {
+             const senderContact = contactRecords.find(c => c.pubkeyHash === env.sender);
+             const title = senderContact?.localDisplayName || "Someone";
+             showNotification(title, "Sent a new message", chatId);
+         }
+      });
     });
+
+    void loadStatuses();
 
     return () => {
       active = false;
@@ -973,7 +1010,17 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
       setChats(chatRecords.filter((chat) => chat.type === "group"));
       setMessages(messageRecords);
+
+      newGroupEnvelopes.forEach((env) => {
+         if (env.groupId !== selectedChatId) {
+             const group = chatRecords.find(c => c.id === env.groupId);
+             const title = group?.title || "A group";
+             showNotification(title, "New group message", env.groupId);
+         }
+      });
     });
+
+    void loadStatuses();
 
     return () => {
       active = false;
@@ -1078,7 +1125,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
   // ── Offline Message Queue Flush ──────────────────────────────────────────────
   useEffect(() => {
-    if (socketStatus !== "connected" || !identity) return;
+    if (relayStatus !== "connected" || !identity) return;
 
     let isSubscribed = true;
 
@@ -1092,7 +1139,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       if (!isSubscribed) return;
 
       for (const msg of queuedMessages) {
-        if (!isSubscribed || socketStatus !== "connected") break;
+        if (!isSubscribed || relayStatus !== "connected") break;
 
         const envelope: MessageEnvelope = {
           type: "message",
@@ -1166,7 +1213,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     return () => {
       isSubscribed = false;
     };
-  }, [socketStatus, identity, chats, sendEnvelope, sendGroupEnvelope]);
+  }, [relayStatus, identity, chats, sendEnvelope, sendGroupEnvelope]);
 
   // Helper exposed for ChatPanel's onTyping prop
   const handleTypingStop = useCallback(() => {
@@ -1315,6 +1362,99 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     if ("vibrate" in navigator) {
       navigator.vibrate(8);
     }
+  };
+
+  const sendPollMessage = async (poll: PollData): Promise<void> => {
+    if (!selectedChatId || (!selectedGroup && !selectedContact)) return;
+    handleTypingStop();
+
+    const id = crypto.randomUUID();
+    const timestamp = Date.now();
+    const payload = {
+      version: 1 as const,
+      type: "poll" as const,
+      poll: poll
+    };
+    const body = encodeMessagePayload(payload);
+    const ciphertext = selectedGroup?.groupSenderKey
+      ? JSON.stringify(await encryptGroupMessage(body, selectedGroup.groupSenderKey))
+      : await mockEncryptMessage(body);
+    const statusFallback = selectedGroup ? "local" : "queued";
+    let sent = false;
+
+    if (selectedGroup) {
+      const recipients = selectedGroup.memberPubkeyHashes.filter(m => m !== identity.pubkeyHash);
+      const baseEnvelope = {
+        type: "group-message" as const,
+        id, groupId: selectedGroup.id, recipients, sender: identity.pubkeyHash,
+        timestamp, ciphertext, messageKind: "poll" as const
+      };
+      const groupEnvelope: GroupMessageEnvelope = process.env["NODE_ENV"] === "production" ? baseEnvelope : { ...baseEnvelope, devPlaintext: body };
+      sent = sendGroupEnvelope(groupEnvelope);
+    } else if (selectedContact) {
+      const baseEnvelope = {
+        type: "message" as const, id, recipient: selectedContact.pubkeyHash, sender: identity.pubkeyHash,
+        timestamp, ciphertext, messageKind: "poll" as const
+      };
+      const envelope: MessageEnvelope = process.env["NODE_ENV"] === "production" ? baseEnvelope : { ...baseEnvelope, devPlaintext: body };
+      sent = sendEnvelope(envelope);
+    }
+
+    const recipientHash = selectedGroup?.id ?? selectedContact?.pubkeyHash ?? identity.pubkeyHash;
+    const record: MessageRecord = {
+      id, chatId: selectedChatId, senderPubkeyHash: identity.pubkeyHash, recipientPubkeyHash: recipientHash,
+      direction: "outbound", kind: "poll", body, encryptedPayload: ciphertext,
+      status: sent ? "sent" : statusFallback, createdAt: timestamp
+    };
+
+    await nadaDb.messages.put(record);
+    if (selectedGroup) {
+      await nadaDb.chats.update(selectedGroup.id, { updatedAt: timestamp });
+      setChats(current => current.map(chat => chat.id === selectedGroup.id ? { ...chat, updatedAt: timestamp } : chat));
+    }
+    setMessages(current => [...current, record]);
+  };
+
+  const handlePostStatus = async (text: string, media?: MediaAttachment) => {
+    if (!identity) return;
+    const id = crypto.randomUUID();
+    const timestamp = Date.now();
+    const payload = media 
+      ? buildMediaPayload({ media, type: "status" })
+      : buildTextPayload({ text });
+    
+    const body = encodeMessagePayload({ ...payload, type: "status" as any });
+    const ciphertext = await mockEncryptMessage(body);
+    
+    const record: MessageRecord = {
+      id,
+      chatId: "status",
+      senderPubkeyHash: identity.pubkeyHash,
+      recipientPubkeyHash: "broadcast",
+      direction: "outbound",
+      kind: "status",
+      body,
+      encryptedPayload: ciphertext,
+      status: "sent",
+      createdAt: timestamp
+    };
+    
+    await nadaDb.messages.put(record);
+    setAllStatuses(prev => [record, ...prev]);
+    
+    contacts.forEach(contact => {
+      sendEnvelope({
+        type: "message",
+        id: crypto.randomUUID(),
+        recipient: contact.pubkeyHash,
+        sender: identity.pubkeyHash,
+        timestamp,
+        ciphertext,
+        messageKind: "status"
+      });
+    });
+    
+    showToast("Status posted!");
   };
 
   const attachFile = async (file: File): Promise<boolean> => {
@@ -1738,6 +1878,84 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   /** Legacy alias kept so no prop types break */
   const unsendMessage = deleteMessageForEveryone;
 
+  const forwardMessageToChat = async (targetChatId: string, messageId: string) => {
+    const original = await nadaDb.messages.get(messageId);
+    if (!original) return;
+    
+    // Determine target recipient or group
+    const isTargetGroup = chats.some((c) => c.id === targetChatId);
+    const targetGroup = isTargetGroup ? chats.find((c) => c.id === targetChatId) : undefined;
+    const targetPeer = contacts.find((c) => directChatId(identity.pubkeyHash, c.pubkeyHash) === targetChatId);
+    
+    if (!isTargetGroup && !targetPeer) return;
+
+    let bodyToForward = original.body;
+    // Strip original reply contexts if present
+    if (bodyToForward.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(bodyToForward);
+        if (parsed.replyTo) {
+          delete parsed.replyTo;
+          bodyToForward = JSON.stringify(parsed);
+        }
+      } catch { }
+    }
+
+    if (isTargetGroup && targetGroup) {
+      if (!targetGroup.groupSenderKey) return;
+      const envelopeId = crypto.randomUUID();
+      const payload: GroupMessageEnvelope = {
+        type: "group_message",
+        id: envelopeId,
+        groupId: targetGroup.id,
+        sender: identity.pubkeyHash,
+        timestamp: Date.now(),
+        ciphertext: bodyToForward // This needs to be re-encrypted technically, but for now we forward the raw body which will be encrypted by sendGroupEnvelope wrapper if needed
+      };
+      
+      const record: MessageRecord = {
+        id: envelopeId,
+        chatId: targetGroup.id,
+        senderPubkeyHash: identity.pubkeyHash,
+        recipientPubkeyHash: targetGroup.id,
+        body: bodyToForward,
+        createdAt: Date.now(),
+        status: "local",
+        direction: "outbound"
+      };
+      await nadaDb.messages.add(record);
+      if (targetGroup.id === selectedChatId) {
+        setMessages((current) => [...current, record]);
+      }
+      sendGroupEnvelope(payload);
+    } else if (targetPeer) {
+      const envelopeId = crypto.randomUUID();
+      const payload: MessageEnvelope = {
+        type: "message",
+        id: envelopeId,
+        sender: identity.pubkeyHash,
+        recipient: targetPeer.pubkeyHash,
+        timestamp: Date.now(),
+        ciphertext: bodyToForward
+      };
+      const record: MessageRecord = {
+        id: envelopeId,
+        chatId: targetChatId,
+        senderPubkeyHash: identity.pubkeyHash,
+        recipientPubkeyHash: targetPeer.pubkeyHash,
+        body: bodyToForward,
+        createdAt: Date.now(),
+        status: "queued",
+        direction: "outbound"
+      };
+      await nadaDb.messages.add(record);
+      if (targetChatId === selectedChatId) {
+        setMessages((current) => [...current, record]);
+      }
+      sendEnvelope(payload);
+    }
+  };
+
   const sendReactionToMessage = async (
     message: MessageRecord,
     emoji: string
@@ -1763,25 +1981,33 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       )
     );
 
-    // Emit to peer via socket
-    const peerPubkeyHash =
-      selectedContact?.pubkeyHash ??
-      selectedGroup?.memberPubkeyHashes.find((h) => h !== identity.pubkeyHash) ??
-      null;
-
-    if (peerPubkeyHash) {
-      const envelope: ReactionEnvelope = {
+    if (selectedGroup) {
+      selectedGroup.memberPubkeyHashes.forEach((h) => {
+        if (h === identity.pubkeyHash) return;
+        sendReaction({
+          type: "reaction",
+          id: crypto.randomUUID(),
+          chatId: selectedChatId,
+          messageId: message.id,
+          recipient: h,
+          sender: identity.pubkeyHash,
+          emoji,
+          removed: alreadyReacted,
+          timestamp: Date.now()
+        });
+      });
+    } else if (selectedContact) {
+      sendReaction({
         type: "reaction",
         id: crypto.randomUUID(),
         chatId: selectedChatId,
         messageId: message.id,
-        recipient: peerPubkeyHash,
+        recipient: selectedContact.pubkeyHash,
         sender: identity.pubkeyHash,
         emoji,
         removed: alreadyReacted,
         timestamp: Date.now()
-      };
-      sendReaction(envelope);
+      });
     }
   };
 
@@ -1879,13 +2105,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   }, [identity.pubkeyHash]);
 
   return (
-    <section className="mx-auto flex min-h-dvh w-full max-w-7xl" style={{ background: "rgb(5 5 5)" }}>
-      <aside
-        className={cn(
-          "nada-sidebar relative flex w-full flex-col overflow-hidden md:w-[380px] md:rounded-2xl border-none md:border-solid",
-          selectedContact || selectedGroup ? "hidden md:flex" : "flex"
-        )}
-      >
+    <div className="h-dvh w-full overflow-hidden flex items-center justify-center bg-black">
+      <section className="flex h-full w-full max-w-[1600px] bg-nada-surface md:h-[calc(100dvh-2rem)] md:rounded-3xl md:border md:border-nada-border/10 md:shadow-2xl md:overflow-hidden">
+        <aside
+          className={cn(
+            "nada-sidebar relative flex w-full flex-col overflow-hidden md:w-[360px] lg:w-[400px] md:border-r md:border-nada-border/10 bg-nada-surface",
+            selectedContact || selectedGroup ? "hidden md:flex" : "flex"
+          )}
+        >
         <MobileChatsHome
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
@@ -1897,10 +2124,19 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           onTabChange={setActiveTab}
           headerProps={{
             displayName: displayName,
-            onCameraClick: () => showToast("Camera feature coming soon!"),
+            onCameraClick: () => setPanel("status_create" as any),
             onMoreClick: () => setPanel("settings")
           }}
         >
+          {activeTab === "status" ? (
+            <StatusView 
+              identity={identity}
+              contacts={contacts}
+              statuses={allStatuses}
+              onPostStatus={() => setPanel("status_create" as any)}
+              onViewStatus={(hash) => setSelectedStatusSenderHash(hash)}
+            />
+          ) : (
           <div className="flex flex-col">
             <RelayStatus status={relayStatus} />
             <ArchivedRow count={0} />
@@ -1969,9 +2205,44 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                       />
                     );
                   })}
+                
+                {globalMessageResults.length > 0 && (
+                  <div className="mt-4">
+                    <p className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-nada-secondary/50">Messages</p>
+                    {globalMessageResults.map(({ message, chatTitle, chatId }) => (
+                      <ChatListItem
+                        key={message.id}
+                        name={chatTitle}
+                        preview={previewForMessage(message)}
+                        timestamp={formatRelativeTime(message.createdAt)}
+                        unreadCount={0}
+                        initials={chatTitle.slice(0, 1).toUpperCase()}
+                        isSelected={false}
+                        onClick={() => {
+                          const isGrp = chats.some((c) => c.id === chatId);
+                          if (isGrp) {
+                            setSelectedContactHash(null);
+                            setSelectedGroupId(chatId);
+                          } else {
+                            const peer = contacts.find((c) => directChatId(identity.pubkeyHash, c.pubkeyHash) === chatId);
+                            if (peer) {
+                              setSelectedGroupId(null);
+                              setSelectedContactHash(peer.pubkeyHash);
+                            }
+                          }
+                          // Wait for chat to load then scroll to message
+                          setTimeout(() => {
+                             setMessageSearchQuery(message.body.slice(0, 20));
+                          }, 300);
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
               </>
             )}
-          </div>
+            </div>
+          )}
         </MobileChatsHome>
       </aside>
 
@@ -2081,6 +2352,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           });
         }}
         onTypingStop={handleTypingStop}
+        onSendPoll={sendPollMessage}
+        onForward={(messageId) => setForwardMessageId(messageId)}
         onReact={(message, emoji) => {
           void sendReactionToMessage(message, emoji);
         }}
@@ -2089,11 +2362,17 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         }}
         pinnedMessageId={chatPref.pinnedMessageId ?? null}
         pinnedMessageBody={chatPref.pinnedMessageBody ?? null}
+        wallpaperUrl={chatPref.wallpaperUrl ?? null}
         myPubkeyHash={identity.pubkeyHash}
         blurShieldActive={blurShieldActive}
         blurShieldRevealed={blurShieldRevealed}
         onToggleBlurShield={() => setBlurShieldActive((v) => !v)}
         onRevealBlurShield={() => setBlurShieldRevealed(true)}
+        onSetWallpaper={async (url) => {
+          if (!selectedChatId) return;
+          await setChatPref(selectedChatId, { wallpaperUrl: url ?? undefined });
+          setChatPrefState(await getChatPref(selectedChatId));
+        }}
       />
 
       <AnimatePresence>
@@ -2176,6 +2455,28 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             onClose={() => {
               setPanel(null);
             }}
+          />
+        ) : null}
+        {panel === ("status_create" as any) ? (
+          <StatusCreateSheet
+            identity={identity}
+            onClose={() => setPanel(null)}
+            onPost={(text, media) => {
+              void handlePostStatus(text, media);
+              setPanel(null);
+            }}
+          />
+        ) : null}
+        {selectedStatusSenderHash ? (
+          <StatusViewerSheet
+            senderHash={selectedStatusSenderHash}
+            senderName={
+              selectedStatusSenderHash === identity.pubkeyHash 
+                ? "My Status" 
+                : contacts.find(c => c.pubkeyHash === selectedStatusSenderHash)?.localDisplayName || "Someone"
+            }
+            statuses={allStatuses.filter(s => s.senderPubkeyHash === selectedStatusSenderHash)}
+            onClose={() => setSelectedStatusSenderHash(null)}
           />
         ) : null}
       </AnimatePresence>
@@ -2330,6 +2631,98 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         )}
       </AnimatePresence>
 
+      {/* In-App Notification Toast */}
+      <AnimatePresence>
+        {inAppNotification && (
+          <motion.div
+            className="fixed top-4 left-1/2 z-[1000] -translate-x-1/2 cursor-pointer rounded-2xl bg-nada-surface border border-nada-border/50 p-4 shadow-2xl flex items-center gap-4 w-[90%] max-w-sm"
+            initial={{ y: -50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -50, opacity: 0 }}
+            onClick={() => {
+              setInAppNotification(null);
+              const isGrp = chats.some(c => c.id === inAppNotification.chatId);
+              if (isGrp) {
+                setSelectedContactHash(null);
+                setSelectedGroupId(inAppNotification.chatId);
+              } else {
+                const peer = contacts.find((c) => directChatId(identity.pubkeyHash, c.pubkeyHash) === inAppNotification.chatId);
+                if (peer) {
+                  setSelectedGroupId(null);
+                  setSelectedContactHash(peer.pubkeyHash);
+                }
+              }
+            }}
+          >
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-nada-accent/20 text-nada-accent">
+              <Bell size={20} />
+            </div>
+            <div className="flex flex-col flex-1 min-w-0">
+              <span className="font-semibold text-nada-primary truncate text-sm">{inAppNotification.title}</span>
+              <span className="text-xs text-nada-secondary truncate">{inAppNotification.body}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Forward Sheet Modal */}
+      <AnimatePresence>
+        {forwardMessageId && (
+          <motion.div
+            className="fixed inset-0 z-[950] flex items-end justify-center sm:items-center p-0 sm:p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setForwardMessageId(null)} />
+            <motion.div
+              className="relative z-10 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl bg-nada-surface border border-nada-border/50 shadow-2xl flex flex-col max-h-[80vh]"
+              initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            >
+              <div className="flex items-center justify-between border-b border-nada-border/10 p-4">
+                <h3 className="text-lg font-semibold text-nada-primary">Forward to...</h3>
+                <button className="p-1 text-nada-secondary hover:text-nada-primary" onClick={() => setForwardMessageId(null)}>
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="overflow-y-auto p-2">
+                {chats.map((chat) => (
+                   <button
+                     key={chat.id}
+                     className="flex w-full items-center gap-3 rounded-xl p-3 hover:bg-nada-muted transition-colors text-left"
+                     onClick={() => {
+                        void forwardMessageToChat(chat.id, forwardMessageId);
+                        setForwardMessageId(null);
+                        showToast("Message forwarded");
+                     }}
+                   >
+                     <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-nada-muted text-nada-primary">
+                       <Users size={20} />
+                     </div>
+                     <span className="font-semibold text-nada-primary">{chat.title}</span>
+                   </button>
+                ))}
+                {contacts.map((contact) => (
+                   <button
+                     key={contact.id}
+                     className="flex w-full items-center gap-3 rounded-xl p-3 hover:bg-nada-muted transition-colors text-left"
+                     onClick={() => {
+                        const cid = directChatId(identity.pubkeyHash, contact.pubkeyHash);
+                        void forwardMessageToChat(cid, forwardMessageId);
+                        setForwardMessageId(null);
+                        showToast("Message forwarded");
+                     }}
+                   >
+                     <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-nada-muted text-nada-primary">
+                       <span className="text-lg">{contact.localDisplayName.charAt(0).toUpperCase()}</span>
+                     </div>
+                     <span className="font-semibold text-nada-primary">{contact.localDisplayName}</span>
+                   </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Mood Picker Modal */}
       <AnimatePresence>
         {showMoodModal && (
@@ -2377,7 +2770,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           </motion.div>
         )}
       </AnimatePresence>
-    </section>
+      </section>
+    </div>
   );
 }
 
@@ -2540,16 +2934,20 @@ function ChatPanel({
   onClearChat: () => void;
   onBlock: () => void;
   onUnblock: () => void;
+  onForward: (messageId: string) => void;
   onTyping: (isTyping: boolean) => void;
   onReact: (message: MessageRecord, emoji: string) => void;
   onPin: (message: MessageRecord) => void;
   pinnedMessageId: string | null;
   pinnedMessageBody: string | null;
+  wallpaperUrl: string | null;
   myPubkeyHash: string;
   blurShieldActive: boolean;
   blurShieldRevealed: boolean;
   onToggleBlurShield: () => void;
   onRevealBlurShield: () => void;
+  onSetWallpaper: (url: string | null) => void;
+  onSendPoll: (poll: PollData) => void;
   onTypingStop: () => void;
   contacts: ContactRecord[];
 }): JSX.Element {
@@ -2558,6 +2956,8 @@ function ChatPanel({
   const [activeMessageMenu, setActiveMessageMenu] = useState<string | null>(null);
   const [reactionPickerForId, setReactionPickerForId] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showWallpaperPrompt, setShowWallpaperPrompt] = useState(false);
+  const [showPollModal, setShowPollModal] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [showMuteModal, setShowMuteModal] = useState(false);
@@ -2868,10 +3268,18 @@ function ChatPanel({
   }
 
   return (
-    <section className="relative flex min-h-dvh flex-1 flex-col overflow-hidden" style={{ background: "rgb(5 5 5)" }}>
+    <section 
+      className="relative flex min-h-dvh flex-1 flex-col overflow-hidden bg-cover bg-center" 
+      style={{ 
+        background: wallpaperUrl ? `url(${wallpaperUrl}) center/cover no-repeat` : "rgb(5 5 5)" 
+      }}
+    >
+      {/* Dark overlay for readability if wallpaper is set */}
+      {wallpaperUrl && <div className="absolute inset-0 bg-black/40 z-0 pointer-events-none" />}
+      
       {/* Chat Header */}
       <header
-        className="z-header flex h-16 shrink-0 items-center gap-3 border-b border-nada-border/8 px-4"
+        className="z-header relative flex h-16 shrink-0 items-center gap-3 border-b border-nada-border/8 px-4"
         style={{ background: "rgb(11 11 13)" }}
       >
         <IconButton className="md:hidden" label="Back" onClick={onBack}>
@@ -2979,6 +3387,16 @@ function ChatPanel({
                     >
                       {chatIsMuted ? <BellOff size={14} className="text-nada-accent/70" /> : <Bell size={14} className="text-nada-accent/70" />}
                       {chatIsMuted ? "Unmute notifications" : "Mute notifications"}
+                    </button>
+                    <button
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated transition-colors"
+                      onClick={() => {
+                        setShowOptions(false);
+                        setShowWallpaperPrompt(true);
+                      }}
+                    >
+                      <Image size={14} className="text-nada-accent/70" />
+                      Set Chat Wallpaper
                     </button>
                     <div className="my-1 border-t border-nada-border/8" />
                     <button
@@ -3089,7 +3507,7 @@ function ChatPanel({
 
       {/* Chat search bar */}
       {chatSearchActive && (
-        <div className="flex items-center gap-2 border-b border-nada-border/30 bg-nada-surface px-4 py-2 animate-fade-in">
+        <div className="z-10 flex items-center gap-2 border-b border-nada-border/30 bg-nada-surface px-4 py-2 animate-fade-in">
           <Search size={14} className="text-nada-secondary" />
           <input
             autoFocus
@@ -3326,6 +3744,124 @@ function ChatPanel({
         })()}
       </AnimatePresence>
 
+      {/* Wallpaper Prompt */}
+      <AnimatePresence>
+        {showWallpaperPrompt && (
+          <motion.div
+            className="fixed inset-0 z-[900] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowWallpaperPrompt(false)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            >
+              <h3 className="text-lg font-semibold text-nada-primary mb-4">Set Chat Wallpaper</h3>
+              <p className="text-xs text-nada-secondary mb-4">Enter an image URL for this chat's background.</p>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const fd = new FormData(e.currentTarget);
+                const url = fd.get("url") as string;
+                if (url) {
+                  onSetWallpaper(url);
+                } else {
+                  onSetWallpaper(null);
+                }
+                setShowWallpaperPrompt(false);
+                showToast(url ? "Wallpaper updated." : "Wallpaper removed.");
+              }}>
+                <input
+                  name="url"
+                  placeholder="https://example.com/image.jpg"
+                  defaultValue={wallpaperUrl ?? ""}
+                  className="w-full rounded-xl border border-nada-border/50 bg-black/40 px-3 py-2 text-sm text-nada-primary placeholder-nada-secondary/50 focus:border-nada-accent focus:outline-none mb-4"
+                />
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => { onSetWallpaper(null); setShowWallpaperPrompt(false); showToast("Wallpaper removed."); }} className="flex-1 rounded-xl bg-nada-muted py-2 text-sm text-nada-secondary hover:text-nada-primary transition-colors">Clear</button>
+                  <button type="submit" className="flex-1 rounded-xl bg-nada-accent py-2 text-sm font-semibold text-black transition-opacity hover:opacity-90">Save</button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Poll Creation Modal */}
+      <AnimatePresence>
+        {showPollModal && (
+          <motion.div
+            className="fixed inset-0 z-[900] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowPollModal(false)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl flex flex-col max-h-[80vh]"
+              initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            >
+              <h3 className="text-lg font-semibold text-nada-primary mb-4 flex items-center gap-2">
+                <BarChart2 size={18} className="text-nada-accent" /> Create Poll
+              </h3>
+              <form 
+                className="flex flex-col gap-3 min-h-0 flex-1"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const fd = new FormData(e.currentTarget);
+                  const question = fd.get("question") as string;
+                  const multipleAnswers = fd.get("multipleAnswers") === "true";
+                  
+                  const options: PollOption[] = [];
+                  let i = 0;
+                  while (fd.has(`opt${i}`)) {
+                    const text = (fd.get(`opt${i}`) as string).trim();
+                    if (text) {
+                      options.push({ id: String(i), text, voterPubkeyHashes: [] });
+                    }
+                    i++;
+                  }
+                  
+                  if (!question.trim()) { showToast("Question is required."); return; }
+                  if (options.length < 2) { showToast("At least 2 options required."); return; }
+                  if (options.length > 10) { showToast("Maximum 10 options allowed."); return; }
+                  
+                  onSendPoll({ question: question.trim(), options, multipleAnswers });
+                  setShowPollModal(false);
+                }}
+              >
+                <input
+                  name="question"
+                  placeholder="Ask a question..."
+                  className="w-full rounded-xl border border-nada-border/50 bg-black/40 px-3 py-2 text-sm text-nada-primary placeholder-nada-secondary/50 focus:border-nada-accent focus:outline-none font-medium"
+                  autoFocus
+                />
+                
+                <div className="flex flex-col gap-2 overflow-y-auto pr-1 flex-1 py-2">
+                  {[0,1,2,3,4,5,6,7,8,9].map((i) => (
+                    <input
+                      key={i}
+                      name={`opt${i}`}
+                      placeholder={`Option ${i + 1}${i >= 2 ? ' (optional)' : ''}`}
+                      className="w-full rounded-xl border border-nada-border/50 bg-black/20 px-3 py-2 text-sm text-nada-primary placeholder-nada-secondary/30 focus:border-nada-accent focus:outline-none"
+                    />
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2 mt-2 px-1">
+                  <input type="checkbox" id="multipleAnswers" name="multipleAnswers" value="true" className="rounded bg-black/40 border-nada-border/50 text-nada-accent focus:ring-nada-accent focus:ring-offset-nada-surface" />
+                  <label htmlFor="multipleAnswers" className="text-xs text-nada-secondary cursor-pointer select-none">Allow multiple answers</label>
+                </div>
+
+                <div className="flex gap-2 mt-4 shrink-0">
+                  <button type="button" onClick={() => setShowPollModal(false)} className="flex-1 rounded-xl bg-nada-muted py-2.5 text-sm font-medium text-nada-secondary hover:text-nada-primary transition-colors">Cancel</button>
+                  <button type="submit" className="flex-1 rounded-xl bg-nada-accent py-2.5 text-sm font-semibold text-black transition-opacity hover:opacity-90 flex items-center justify-center gap-2 shadow-gold-glow">
+                    <Send size={14} /> Send
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Profile panel */}
       <AnimatePresence>
         {showProfilePanel && contact && (
@@ -3435,7 +3971,7 @@ function ChatPanel({
         </div>
       ) : null}
 
-      <div className="relative flex-1 space-y-0.5 overflow-y-auto px-4 py-4 pb-32" style={{ background: "rgb(5 5 5)" }}>
+      <div className="relative flex-1 space-y-0.5 overflow-y-auto px-4 py-4 pb-32" style={{ background: wallpaperUrl ? "transparent" : "rgb(5 5 5)" }}>
         {blurShieldActive && !blurShieldRevealed && (
           <div className="nada-blur-shield" onClick={onRevealBlurShield}>
             <div className="flex flex-col items-center gap-3 text-center">
@@ -3612,6 +4148,7 @@ function ChatPanel({
                     message={message}
                     outbound={message.direction === "outbound"}
                     onOpenMedia={setMediaViewer}
+                    onReact={onReact}
                   />
                   {message.mentions?.length ? (
                     <p className="mt-0.5 text-[11px] opacity-60">
@@ -3685,6 +4222,14 @@ function ChatPanel({
                       type="button"
                     >
                       <Reply size={14} />
+                    </button>
+                    <button
+                      aria-label="Forward"
+                      className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
+                      onClick={() => { onForward(message.id); setActiveMessageMenu(null); }}
+                      type="button"
+                    >
+                      <Share2 size={14} />
                     </button>
                     <button
                       aria-label="Pin message"
@@ -3865,6 +4410,10 @@ function ChatPanel({
                   }
                   onPickImage={() => openAttachmentPicker("image/*")}
                   onPickVideo={() => openAttachmentPicker("video/*")}
+                  onPickPoll={isGroup ? () => {
+                    setAttachmentMenuOpen(false);
+                    setShowPollModal(true);
+                  } : undefined}
                 />
               ) : null}
               <input
@@ -3999,11 +4548,13 @@ function ChatPanel({
 function MessageContent({
   message,
   outbound,
-  onOpenMedia
+  onOpenMedia,
+  onReact
 }: {
   message: MessageRecord;
   outbound: boolean;
   onOpenMedia: (viewer: { name: string; url: string; mimeType: string }) => void;
+  onReact?: (message: MessageRecord, emoji: string) => void;
 }): JSX.Element {
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -4052,6 +4603,53 @@ function MessageContent({
       <p className="whitespace-pre-wrap break-words text-[15px] italic leading-relaxed opacity-50">
         Message deleted
       </p>
+    );
+  }
+
+  if (kind === "poll" && payload?.poll) {
+    const poll = payload.poll;
+    // Calculate total votes across all options
+    const votesByOption: Record<string, number> = {};
+    let totalVotes = 0;
+    for (const opt of poll.options) {
+      // Reactions on polls use option id as emoji
+      const voterCount = message.reactions?.[opt.id]?.length ?? 0;
+      votesByOption[opt.id] = voterCount;
+      totalVotes += voterCount;
+    }
+
+    return (
+      <div className="flex flex-col gap-2 min-w-[240px]">
+        <h4 className="font-semibold text-[15px] mb-2">{poll.question}</h4>
+        <div className="flex flex-col gap-1.5">
+          {poll.options.map((opt) => {
+            const votes = votesByOption[opt.id] || 0;
+            const percentage = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                className="relative overflow-hidden rounded-xl border border-nada-border/20 bg-black/20 text-left transition hover:bg-black/40"
+                onClick={() => onReact?.(message, opt.id)}
+              >
+                <div 
+                  className="absolute inset-y-0 left-0 bg-nada-accent/20 transition-all duration-500" 
+                  style={{ width: `${percentage}%` }}
+                />
+                <div className="relative flex items-center justify-between px-3 py-2">
+                  <span className="text-sm z-10">{opt.text}</span>
+                  {totalVotes > 0 && (
+                    <span className="text-[10px] opacity-70 z-10">{percentage}%</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[10px] opacity-50 text-right mt-1">
+          {totalVotes} vote{totalVotes !== 1 ? "s" : ""}
+        </p>
+      </div>
     );
   }
 
@@ -4205,9 +4803,55 @@ function MessageContent({
   }
 
   return (
-    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
-      {payload?.text ?? textFromMessage(message)}
-    </p>
+    <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
+      <MessageTextWithLinks text={payload?.text ?? textFromMessage(message)} />
+    </div>
+  );
+}
+
+function MessageTextWithLinks({ text }: { text: string }): JSX.Element {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.match(urlRegex)) {
+          return (
+            <span key={i} className="inline-flex flex-col gap-1">
+              <a
+                href={part}
+                target="_blank"
+                rel="noreferrer"
+                className="text-nada-accent hover:underline break-all"
+              >
+                {part}
+              </a>
+              {/* WhatsApp-style Link Preview Card */}
+              <a
+                href={part}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 flex flex-col overflow-hidden rounded-xl bg-black/20 ring-1 ring-nada-border/20 transition hover:bg-black/30 w-[240px]"
+              >
+                <div className="flex h-[120px] w-full items-center justify-center bg-nada-muted text-nada-secondary/40">
+                   <FileText size={32} />
+                </div>
+                <div className="p-2.5">
+                   <h4 className="truncate text-xs font-semibold text-nada-primary">
+                     {new URL(part).hostname}
+                   </h4>
+                   <p className="truncate text-[10px] text-nada-secondary">
+                     Tap to open link
+                   </p>
+                </div>
+              </a>
+            </span>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
   );
 }
 
@@ -4231,20 +4875,23 @@ function AttachmentMenu({
   onPickCamera,
   onPickDocument,
   onPickImage,
-  onPickVideo
+  onPickVideo,
+  onPickPoll
 }: {
   onPickAudio: () => void;
   onPickCamera: () => void;
   onPickDocument: () => void;
   onPickImage: () => void;
   onPickVideo: () => void;
+  onPickPoll?: () => void;
 }): JSX.Element {
   const options = [
     { label: "Photo", icon: Image, action: onPickImage },
     { label: "Camera", icon: Camera, action: onPickCamera },
     { label: "Document", icon: FileText, action: onPickDocument },
     { label: "Video", icon: Video, action: onPickVideo },
-    { label: "Audio", icon: Music, action: onPickAudio }
+    { label: "Audio", icon: Music, action: onPickAudio },
+    ...(onPickPoll ? [{ label: "Poll", icon: FileText, action: onPickPoll }] : [])
   ];
 
   return (
@@ -5078,6 +5725,206 @@ async function upsertGroupFromInvite(
     createdAt: now
   });
   return chat;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   StatusView Component
+   ───────────────────────────────────────────────────────────── */
+function StatusView({
+  identity,
+  contacts,
+  statuses,
+  onPostStatus,
+  onViewStatus
+}: {
+  identity: IdentityRecord;
+  contacts: ContactRecord[];
+  statuses: MessageRecord[];
+  onPostStatus: () => void;
+  onViewStatus: (hash: string) => void;
+}) {
+  const myStatuses = statuses.filter(s => s.senderPubkeyHash === identity.pubkeyHash);
+  const otherStatuses = statuses.filter(s => s.senderPubkeyHash !== identity.pubkeyHash);
+  
+  const grouped = otherStatuses.reduce((acc, s) => {
+    if (!acc[s.senderPubkeyHash]) acc[s.senderPubkeyHash] = [];
+    acc[s.senderPubkeyHash].push(s);
+    return acc;
+  }, {} as Record<string, MessageRecord[]>);
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto pb-20">
+      <div className="px-5 py-4 border-b border-nada-border/5">
+        <h2 className="text-xl font-bold text-nada-primary">Status</h2>
+      </div>
+
+      <div className="px-5 py-4 flex items-center gap-4 hover:bg-nada-surface-elevated/30 cursor-pointer" 
+           onClick={() => myStatuses.length > 0 ? onViewStatus(identity.pubkeyHash) : onPostStatus()}>
+        <div className="relative">
+          <div className="h-14 w-14 rounded-2xl border-2 border-nada-accent/40 p-0.5">
+            <div className="h-full w-full rounded-xl bg-nada-muted flex items-center justify-center overflow-hidden">
+               {myStatuses.length > 0 ? <CircleDashed className="text-nada-accent animate-spin-slow" size={24} /> : <Plus className="text-nada-accent" size={24} />}
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-nada-primary">My Status</h3>
+          <p className="text-sm text-nada-secondary/60 truncate">
+            {myStatuses.length > 0 ? "Tap to view updates" : "Tap to add status update"}
+          </p>
+        </div>
+        {myStatuses.length === 0 && (
+          <button className="p-2 text-nada-accent" onClick={(e) => { e.stopPropagation(); onPostStatus(); }}>
+            <Plus size={20} />
+          </button>
+        )}
+      </div>
+
+      {Object.entries(grouped).length > 0 && (
+        <div className="mt-4">
+          <p className="px-5 py-2 text-[11px] font-bold uppercase tracking-wider text-nada-secondary/40">Recent updates</p>
+          {Object.entries(grouped).map(([hash, list]) => {
+            const contact = contacts.find(c => c.pubkeyHash === hash);
+            const name = contact?.localDisplayName || hash.slice(0, 8);
+            const latest = list[0];
+            return (
+              <div key={hash} className="px-5 py-3 flex items-center gap-4 hover:bg-nada-surface-elevated/30 cursor-pointer" onClick={() => onViewStatus(hash)}>
+                <div className="h-14 w-14 rounded-2xl border-2 border-nada-accent p-0.5">
+                  <div className="h-full w-full rounded-xl bg-nada-muted flex items-center justify-center overflow-hidden">
+                    <CircleDashed className="text-nada-accent" size={24} />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-nada-primary">{name}</h3>
+                  <p className="text-sm text-nada-secondary/60 truncate">
+                    {formatRelativeTime(latest.createdAt)}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusCreateSheet({
+  identity,
+  onClose,
+  onPost
+}: {
+  identity: IdentityRecord;
+  onClose: () => void;
+  onPost: (text: string, media?: MediaAttachment) => void;
+}) {
+  const [text, setText] = useState("");
+  const [isPosting, setIsPosting] = useState(false);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[1000] flex flex-col bg-black md:relative md:inset-auto md:h-full md:w-full"
+      initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+    >
+      <div className="flex h-16 items-center justify-between px-4 text-white">
+        <button onClick={onClose} className="p-2"><X size={24} /></button>
+        <h2 className="font-bold">Add Status</h2>
+        <button 
+          onClick={() => {
+            if (!text.trim()) return;
+            setIsPosting(true);
+            onPost(text);
+          }}
+          disabled={!text.trim() || isPosting}
+          className="rounded-full bg-nada-accent px-5 py-1.5 text-sm font-bold text-black disabled:opacity-50"
+        >
+          Post
+        </button>
+      </div>
+
+      <div className="flex-1 flex items-center justify-center px-6">
+        <textarea
+          autoFocus
+          className="w-full bg-transparent text-center text-3xl font-bold text-white outline-none placeholder:text-white/20 resize-none"
+          placeholder="Type a status..."
+          value={text}
+          onChange={e => setText(e.target.value)}
+          rows={5}
+        />
+      </div>
+    </motion.div>
+  );
+}
+
+function StatusViewerSheet({
+  senderHash,
+  senderName,
+  statuses,
+  onClose
+}: {
+  senderHash: string;
+  senderName: string;
+  statuses: MessageRecord[];
+  onClose: () => void;
+}) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const currentStatus = statuses[currentIndex];
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (currentIndex < statuses.length - 1) {
+        setCurrentIndex(prev => prev + 1);
+      } else {
+        onClose();
+      }
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [currentIndex, statuses.length, onClose]);
+
+  if (!currentStatus) return null;
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[1100] flex flex-col bg-black text-white"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    >
+      <div className="absolute inset-x-0 top-0 z-10 p-4 pt-10">
+        <div className="flex gap-1 mb-4">
+          {statuses.map((_, i) => (
+            <div key={i} className="h-1 flex-1 rounded-full bg-white/20 overflow-hidden">
+               {i === currentIndex && (
+                 <motion.div 
+                   className="h-full bg-white" 
+                   initial={{ width: 0 }} 
+                   animate={{ width: "100%" }} 
+                   transition={{ duration: 5, ease: "linear" }} 
+                 />
+               )}
+               {i < currentIndex && <div className="h-full w-full bg-white" />}
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+             <div className="h-10 w-10 rounded-full bg-nada-accent/20 flex items-center justify-center">
+                <span className="font-bold text-nada-accent">{senderName.slice(0,1)}</span>
+             </div>
+             <div>
+                <h3 className="font-bold">{senderName}</h3>
+                <p className="text-[10px] opacity-60">{formatRelativeTime(currentStatus.createdAt)}</p>
+             </div>
+          </div>
+          <button onClick={onClose}><X size={24} /></button>
+        </div>
+      </div>
+
+      <div className="flex-1 flex items-center justify-center p-6 text-center">
+        <p className="text-3xl font-bold leading-tight max-w-lg">
+          {decodeMessagePayload(currentStatus.body)?.text ?? "..."}
+        </p>
+      </div>
+    </motion.div>
+  );
 }
 
 async function persistIncomingMessages(

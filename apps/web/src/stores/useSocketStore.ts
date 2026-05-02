@@ -5,6 +5,7 @@ import { create } from "zustand";
 import {
   ServerSocketEnvelopeSchema,
   type CallSignalEnvelope,
+  type DeletionEnvelope,
   type DeliveryEnvelope,
   type DeliveryStatus,
   type GroupMessageEnvelope,

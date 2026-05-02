@@ -12,7 +12,9 @@ export const MessageKindSchema = z.enum([
   "audio",
   "voice_note",
   "call",
-  "system"
+  "system",
+  "poll",
+  "status"
 ]);
 
 export const ReplyToMessageSchema = z.object({
@@ -43,11 +45,24 @@ export const MediaAttachmentSchema = z.object({
   thumbnailDataUrl: z.string().min(1).optional()
 });
 
+export const PollOptionSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1).max(255),
+  voterPubkeyHashes: z.array(z.string()).default([])
+});
+
+export const PollDataSchema = z.object({
+  question: z.string().min(1).max(512),
+  options: z.array(PollOptionSchema).min(2).max(10),
+  multipleAnswers: z.boolean().default(false)
+});
+
 export const MessagePayloadSchema = z.object({
   version: z.literal(1),
   type: MessageKindSchema,
   text: z.string().max(20000).optional(),
   media: MediaAttachmentSchema.optional(),
+  poll: PollDataSchema.optional(),
   replyTo: ReplyToMessageSchema.optional()
 });
 
@@ -131,8 +146,16 @@ export const DeletionEnvelopeSchema = z.object({
   messageId: UuidSchema,
   recipient: PubkeyHashSchema,
   sender: PubkeyHashSchema,
-  timestamp: z.number().int().positive()
 });
+
+export type DeletionEnvelope = z.infer<typeof DeletionEnvelopeSchema>;
+
+export const DeliveryStatusSchema = z.enum([
+  "queued",
+  "sent",
+  "delivered",
+  "failed"
+]);
 
 export const ClientSocketEnvelopeSchema = z.union([
   RegisterEnvelopeSchema,
@@ -149,13 +172,6 @@ export const ClientSocketEnvelopeSchema = z.union([
     recipient: PubkeyHashSchema, // the sender of the original message
     status: DeliveryStatusSchema
   })
-]);
-
-export const DeliveryStatusSchema = z.enum([
-  "queued",
-  "sent",
-  "delivered",
-  "failed"
 ]);
 
 export const ServerSocketEnvelopeSchema = z.discriminatedUnion("type", [
@@ -349,6 +365,8 @@ export type PublicKey = z.infer<typeof PublicKeySchema>;
 export type MessageKind = z.infer<typeof MessageKindSchema>;
 export type ReplyToMessage = z.infer<typeof ReplyToMessageSchema>;
 export type MediaAttachment = z.infer<typeof MediaAttachmentSchema>;
+export type PollData = z.infer<typeof PollDataSchema>;
+export type PollOption = z.infer<typeof PollOptionSchema>;
 export type MessagePayload = z.infer<typeof MessagePayloadSchema>;
 export type MessageEnvelope = z.infer<typeof MessageEnvelopeSchema>;
 export type GroupMessageEnvelope = z.infer<typeof GroupMessageEnvelopeSchema>;
