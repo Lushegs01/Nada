@@ -189,7 +189,7 @@ export const ChatListItem = ({
         </div>
         
         <div className="flex items-center gap-2 shrink-0">
-          {isMuted && <VolumeX size={14} text-nada-secondary/30 />}
+          {isMuted && <VolumeX size={14} className="text-nada-secondary/30" />}
           {isPinned && <Pin size={14} className="text-nada-secondary/40 -rotate-45" />}
           {unreadCount > 0 && (
             <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-nada-accent text-[10px] font-black text-white shadow-sm shadow-nada-accent/20">
