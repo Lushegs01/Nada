@@ -58,6 +58,7 @@ import {
   VoiceRecorderBar,
   isVoiceNoteMessage,
   parseVoiceNoteBody,
+  isInlineImageMessage,
   isInlineFileMessage,
   parseInlineFileMessage,
   formatFileSize
