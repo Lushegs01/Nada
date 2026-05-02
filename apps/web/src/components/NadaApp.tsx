@@ -1652,6 +1652,17 @@ function ChatPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
+  useEffect(() => {
+    return () => {
+      // Cleanup any active recordings when the chat panel unmounts
+      if (recordingTimer.current) window.clearInterval(recordingTimer.current);
+      if (mediaRecorder.current && mediaRecorder.current.state !== "inactive") {
+        mediaRecorder.current.stream?.getTracks().forEach((t) => t.stop());
+        mediaRecorder.current.stop();
+      }
+    };
+  }, []);
+
   const startRecording = async () => {
     if (isRecording) return; // prevent double-start
     try {
@@ -1694,6 +1705,11 @@ function ChatPanel({
 
         // Use the ref value — NOT the stale state variable
         const duration = recordingSecondsRef.current;
+
+        if (duration < 1) {
+          // Silently discard ultra-short recordings (usually accidental clicks)
+          return;
+        }
 
         const reader = new FileReader();
         reader.onloadend = () => {
