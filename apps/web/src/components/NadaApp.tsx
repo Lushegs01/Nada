@@ -13,6 +13,10 @@ import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
+  Bell,
+  BellOff,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Copy,
   CreditCard,
@@ -32,8 +36,10 @@ import {
   Settings,
   Share2,
   ShieldAlert,
+  ShieldOff,
   Trash2,
   Upload,
+  User,
   Users,
   Smile,
   Video,
@@ -75,7 +81,12 @@ import {
   directChatId,
   loadMessagesForChat,
   nadaDb,
-  primaryIdentityId
+  primaryIdentityId,
+  getChatPref,
+  setChatPref,
+  isMuted,
+  isBlocked,
+  type ChatPrefRecord
 } from "@/lib/db";
 import {
   fetchSubscriptionStatus,
@@ -352,6 +363,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const sendCallSignal = useSocketStore((state) => state.sendCallSignal);
   const sendEnvelope = useSocketStore((state) => state.sendEnvelope);
   const sendGroupEnvelope = useSocketStore((state) => state.sendGroupEnvelope);
+  const sendTyping = useSocketStore((state) => state.sendTyping);
+  const typingIndicators = useSocketStore((state) => state.typingIndicators);
   
   const callStore = useCallStore();
   const activeCall = callStore.call;
@@ -370,6 +383,10 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [selectedContactHash, setSelectedContactHash] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [chatPref, setChatPrefState] = useState<ChatPrefRecord>({
+    chatId: "", mutedUntil: 0, clearedAt: 0, blockedPubkeyHashes: [], updatedAt: 0
+  });
+  const [showProfile, setShowProfile] = useState(false);
   const processedGroupIncoming = useRef<Set<string>>(new Set());
   const processedGroupInvite = useRef("");
   const processedIncoming = useRef<Set<string>>(new Set());
@@ -413,13 +430,34 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const visibleMessages = useMemo(
     () =>
       messages.filter((message) =>
+        message.createdAt > chatPref.clearedAt &&
         matchesSearch(
           `${message.body} ${message.status} ${message.mentions?.join(" ") ?? ""}`,
           messageSearchQuery
         )
       ),
-    [messageSearchQuery, messages]
+    [messageSearchQuery, messages, chatPref.clearedAt]
   );
+
+  const peerIsBlocked = useMemo(
+    () => selectedContact ? isBlocked(chatPref, selectedContact.pubkeyHash) : false,
+    [chatPref, selectedContact]
+  );
+
+  const chatIsMuted = useMemo(() => isMuted(chatPref), [chatPref]);
+
+  // Load chat prefs when selected chat changes
+  useEffect(() => {
+    if (!selectedChatId) return;
+    let active = true;
+    void getChatPref(selectedChatId).then((pref) => {
+      if (active) setChatPrefState(pref);
+    });
+    return () => { active = false; };
+  }, [selectedChatId]);
+
+  // Typing indicator — compute current chat's typing state
+  const peerIsTyping = selectedChatId ? Boolean(typingIndicators[selectedChatId]) : false;
 
   useEffect(() => {
     let active = true;
@@ -1129,6 +1167,66 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     );
   }, [identity.pubkeyHash, selectedGroup]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      return;
+    }
+
+    const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidKey) return;
+
+    void navigator.serviceWorker.ready.then(async (registration) => {
+      try {
+        const existingSub = await registration.pushManager.getSubscription();
+        if (existingSub) {
+          // Send it to the server anyway to ensure pubkeyHash is updated if it changed
+          const relayUrl = process.env.NEXT_PUBLIC_RELAY_URL?.replace("ws://", "http://").replace("wss://", "https://") || "";
+          if (relayUrl) {
+            await fetch(`${relayUrl}/api/v1/push/subscribe`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                pubkeyHash: identity.pubkeyHash,
+                subscription: existingSub.toJSON()
+              })
+            }).catch(() => {});
+          }
+          return;
+        }
+
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") return;
+
+        const padding = "=".repeat((4 - (vapidKey.length % 4)) % 4);
+        const base64 = (vapidKey + padding).replace(/-/g, "+").replace(/_/g, "/");
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+          outputArray[i] = rawData.charCodeAt(i);
+        }
+
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: outputArray
+        });
+
+        const relayUrl = process.env.NEXT_PUBLIC_RELAY_URL?.replace("ws://", "http://").replace("wss://", "https://") || "";
+        if (!relayUrl) return;
+
+        await fetch(`${relayUrl}/api/v1/push/subscribe`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pubkeyHash: identity.pubkeyHash,
+            subscription: subscription.toJSON()
+          })
+        });
+      } catch (err) {
+        console.error("Failed to subscribe to push notifications", err);
+      }
+    });
+  }, [identity.pubkeyHash]);
+
   return (
     <section className="mx-auto flex min-h-dvh w-full max-w-7xl bg-nada-bg md:p-3 md:gap-3">
       <aside
@@ -1340,6 +1438,50 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         subtitle={selectedSubtitle}
         title={selectedTitle}
         uploadStatus={uploadStatus}
+        chatIsMuted={chatIsMuted}
+        peerIsBlocked={peerIsBlocked}
+        peerIsTyping={peerIsTyping}
+        onViewProfile={() => { setShowProfile(true); }}
+        onMute={async (duration) => {
+          if (!selectedChatId) return;
+          const mutedUntil = duration === 0 ? 0 : duration === -1 ? null : Date.now() + duration;
+          await setChatPref(selectedChatId, { mutedUntil });
+          setChatPrefState(await getChatPref(selectedChatId));
+        }}
+        onClearChat={async () => {
+          if (!selectedChatId) return;
+          await setChatPref(selectedChatId, { clearedAt: Date.now() });
+          setChatPrefState(await getChatPref(selectedChatId));
+        }}
+        onBlock={async () => {
+          if (!selectedChatId || !selectedContact) return;
+          const existing = chatPref.blockedPubkeyHashes;
+          if (!existing.includes(selectedContact.pubkeyHash)) {
+            await setChatPref(selectedChatId, {
+              blockedPubkeyHashes: [...existing, selectedContact.pubkeyHash]
+            });
+            setChatPrefState(await getChatPref(selectedChatId));
+          }
+        }}
+        onUnblock={async () => {
+          if (!selectedChatId || !selectedContact) return;
+          await setChatPref(selectedChatId, {
+            blockedPubkeyHashes: chatPref.blockedPubkeyHashes.filter(
+              (h) => h !== selectedContact.pubkeyHash
+            )
+          });
+          setChatPrefState(await getChatPref(selectedChatId));
+        }}
+        onTyping={(isTyping: boolean) => {
+          if (!selectedContact || !selectedChatId) return;
+          sendTyping({
+            type: "typing",
+            chatId: selectedChatId,
+            sender: identity.pubkeyHash,
+            recipient: selectedContact.pubkeyHash,
+            isTyping
+          });
+        }}
       />
 
       <AnimatePresence>
@@ -1599,7 +1741,16 @@ function ChatPanel({
   replyMessage,
   subtitle,
   title,
-  uploadStatus
+  uploadStatus,
+  chatIsMuted,
+  peerIsBlocked,
+  peerIsTyping,
+  onViewProfile,
+  onMute,
+  onClearChat,
+  onBlock,
+  onUnblock,
+  onTyping
 }: {
   canAttachFile: boolean;
   canCopyGroupInvite: boolean;
@@ -1628,6 +1779,15 @@ function ChatPanel({
   subtitle: string;
   title: string;
   uploadStatus: string | null;
+  chatIsMuted: boolean;
+  peerIsBlocked: boolean;
+  peerIsTyping: boolean;
+  onViewProfile: () => void;
+  onMute: (duration: number) => void;
+  onClearChat: () => void;
+  onBlock: () => void;
+  onUnblock: () => void;
+  onTyping: (isTyping: boolean) => void;
 }): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [showOptions, setShowOptions] = useState(false);
@@ -1635,6 +1795,13 @@ function ChatPanel({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [showMuteModal, setShowMuteModal] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [chatSearchActive, setChatSearchActive] = useState(false);
+  const [chatSearchIdx, setChatSearchIdx] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
@@ -1642,6 +1809,22 @@ function ChatPanel({
   const recordingTimer = useRef<number | null>(null);
   // Use a ref for duration so onstop captures the live value, not a stale closure
   const recordingSecondsRef = useRef(0);
+  const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasTyping = useRef(false);
+
+  // Show toast helper
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  // Search match indices
+  const searchMatchIds = useMemo(() => {
+    if (!messageSearchQuery.trim()) return [];
+    return messages
+      .filter((m) => !m.deletedAt && m.body.toLowerCase().includes(messageSearchQuery.toLowerCase()))
+      .map((m) => m.id);
+  }, [messages, messageSearchQuery]);
 
   const formatTime = (ts: number): string => {
     const d = new Date(ts);
@@ -1829,47 +2012,68 @@ function ChatPanel({
                       setShowOptions(false);
                     }}
                   />
-                  <div className="absolute right-0 top-full z-50 mt-2 w-48 origin-top-right rounded-xl border border-nada-border/50 bg-nada-surface py-1 shadow-lg animate-scale-in">
+                  <div className="absolute right-0 top-full z-50 mt-2 w-52 origin-top-right rounded-xl border border-nada-border/50 bg-nada-surface py-1 shadow-lg animate-scale-in">
                     <button
-                      className="w-full px-4 py-2.5 text-left text-sm text-nada-primary hover:bg-nada-muted transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-nada-primary hover:bg-nada-muted transition-colors"
                       onClick={() => {
                         setShowOptions(false);
+                        setShowProfilePanel(true);
+                        onViewProfile();
                       }}
                     >
+                      <User size={15} className="text-nada-secondary" />
                       View profile
                     </button>
                     <button
-                      className="w-full px-4 py-2.5 text-left text-sm text-nada-primary hover:bg-nada-muted transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-nada-primary hover:bg-nada-muted transition-colors"
                       onClick={() => {
                         setShowOptions(false);
+                        setChatSearchActive(true);
                       }}
                     >
+                      <Search size={15} className="text-nada-secondary" />
                       Search in chat
                     </button>
                     <button
-                      className="w-full px-4 py-2.5 text-left text-sm text-nada-primary hover:bg-nada-muted transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-nada-primary hover:bg-nada-muted transition-colors"
                       onClick={() => {
                         setShowOptions(false);
+                        if (chatIsMuted) {
+                          onMute(0);
+                          showToast("Notifications unmuted.");
+                        } else {
+                          setShowMuteModal(true);
+                        }
                       }}
                     >
-                      Mute notifications
+                      {chatIsMuted ? <BellOff size={15} className="text-nada-secondary" /> : <Bell size={15} className="text-nada-secondary" />}
+                      {chatIsMuted ? "Unmute notifications" : "Mute notifications"}
                     </button>
                     <div className="my-1 border-t border-nada-border/30" />
                     <button
-                      className="w-full px-4 py-2.5 text-left text-sm text-nada-danger hover:bg-nada-muted transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-nada-danger hover:bg-nada-muted transition-colors"
                       onClick={() => {
                         setShowOptions(false);
+                        setShowClearModal(true);
                       }}
                     >
+                      <Trash2 size={15} className="text-nada-danger/70" />
                       Clear chat
                     </button>
                     <button
-                      className="w-full px-4 py-2.5 text-left text-sm text-nada-danger hover:bg-nada-muted transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-nada-danger hover:bg-nada-muted transition-colors"
                       onClick={() => {
                         setShowOptions(false);
+                        if (peerIsBlocked) {
+                          onUnblock();
+                          showToast("User unblocked.");
+                        } else {
+                          setShowBlockModal(true);
+                        }
                       }}
                     >
-                      Block user
+                      <ShieldOff size={15} className="text-nada-danger/70" />
+                      {peerIsBlocked ? "Unblock user" : "Block user"}
                     </button>
                   </div>
                 </>
@@ -1878,6 +2082,294 @@ function ChatPanel({
           </>
         )}
       </header>
+
+      {/* Typing indicator */}
+      {peerIsTyping && !peerIsBlocked && (
+        <div className="flex items-center gap-2 border-b border-nada-border/20 bg-nada-accent/5 px-4 py-1.5 text-xs text-nada-accent animate-fade-in">
+          <span className="flex gap-0.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-nada-accent animate-bounce [animation-delay:0ms]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-nada-accent animate-bounce [animation-delay:150ms]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-nada-accent animate-bounce [animation-delay:300ms]" />
+          </span>
+          {title} is typing…
+        </div>
+      )}
+
+      {/* Blocked banner */}
+      {peerIsBlocked && (
+        <div className="flex items-center justify-between border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-xs text-red-400">
+          <span className="flex items-center gap-2">
+            <ShieldOff size={14} />
+            You have blocked this user.
+          </span>
+          <button
+            className="rounded-lg bg-red-500/20 px-3 py-1 text-xs font-medium text-red-300 hover:bg-red-500/30 transition-colors"
+            onClick={() => { onUnblock(); showToast("User unblocked."); }}
+            type="button"
+          >
+            Unblock
+          </button>
+        </div>
+      )}
+
+      {/* Chat search bar */}
+      {chatSearchActive && (
+        <div className="flex items-center gap-2 border-b border-nada-border/30 bg-nada-surface px-4 py-2 animate-fade-in">
+          <Search size={14} className="text-nada-secondary" />
+          <input
+            autoFocus
+            className="flex-1 bg-transparent text-sm text-nada-primary outline-none placeholder:text-nada-secondary/60"
+            onChange={(e) => {
+              onMessageSearchChange(e.target.value);
+              setChatSearchIdx(0);
+            }}
+            placeholder="Search messages…"
+            value={messageSearchQuery}
+          />
+          {searchMatchIds.length > 0 && (
+            <span className="text-xs text-nada-secondary tabular-nums">
+              {chatSearchIdx + 1}/{searchMatchIds.length}
+            </span>
+          )}
+          <button
+            className="rounded-md p-1 text-nada-secondary hover:bg-nada-muted"
+            onClick={() => setChatSearchIdx((i) => Math.max(0, i - 1))}
+            type="button"
+            disabled={chatSearchIdx <= 0}
+          >
+            <ChevronUp size={16} />
+          </button>
+          <button
+            className="rounded-md p-1 text-nada-secondary hover:bg-nada-muted"
+            onClick={() => setChatSearchIdx((i) => Math.min(searchMatchIds.length - 1, i + 1))}
+            type="button"
+            disabled={chatSearchIdx >= searchMatchIds.length - 1}
+          >
+            <ChevronDown size={16} />
+          </button>
+          <button
+            className="rounded-md p-1.5 text-nada-secondary hover:bg-nada-muted"
+            onClick={() => {
+              setChatSearchActive(false);
+              onMessageSearchChange("");
+              setChatSearchIdx(0);
+            }}
+            type="button"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            className="absolute left-1/2 top-20 z-[100] -translate-x-1/2 rounded-xl bg-nada-surface border border-nada-border/50 px-4 py-2.5 text-sm text-nada-primary shadow-lg"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Mute modal */}
+      <AnimatePresence>
+        {showMuteModal && (
+          <motion.div
+            className="fixed inset-0 z-[900] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMuteModal(false)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            >
+              <h3 className="text-lg font-semibold text-nada-primary mb-4">Mute notifications</h3>
+              <div className="space-y-2">
+                {[
+                  { label: "8 hours", value: 8 * 60 * 60 * 1000 },
+                  { label: "1 week", value: 7 * 24 * 60 * 60 * 1000 },
+                  { label: "Always", value: -1 }
+                ].map((opt) => (
+                  <button
+                    key={opt.label}
+                    className="w-full rounded-xl px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-muted transition-colors"
+                    onClick={() => {
+                      onMute(opt.value);
+                      setShowMuteModal(false);
+                      showToast("Notifications muted.");
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="mt-3 w-full rounded-xl px-4 py-2.5 text-sm text-nada-secondary hover:bg-nada-muted transition-colors"
+                onClick={() => setShowMuteModal(false)}
+              >
+                Cancel
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Clear chat confirmation modal */}
+      <AnimatePresence>
+        {showClearModal && (
+          <motion.div
+            className="fixed inset-0 z-[900] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowClearModal(false)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            >
+              <h3 className="text-lg font-semibold text-nada-primary mb-2">Clear chat</h3>
+              <p className="text-sm text-nada-secondary mb-5">
+                This will clear all messages from your view. The other user will still see the messages. This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  className="flex-1 rounded-xl px-4 py-2.5 text-sm text-nada-secondary bg-nada-muted hover:bg-nada-border/40 transition-colors"
+                  onClick={() => setShowClearModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-white bg-red-500 hover:bg-red-400 transition-colors"
+                  onClick={() => {
+                    onClearChat();
+                    setShowClearModal(false);
+                    showToast("Chat cleared.");
+                  }}
+                >
+                  Clear chat
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Block user confirmation modal */}
+      <AnimatePresence>
+        {showBlockModal && (
+          <motion.div
+            className="fixed inset-0 z-[900] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowBlockModal(false)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            >
+              <h3 className="text-lg font-semibold text-nada-primary mb-2">Block user</h3>
+              <p className="text-sm text-nada-secondary mb-5">
+                Blocked users cannot send you messages, call you, or send voice notes. You can unblock them at any time.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  className="flex-1 rounded-xl px-4 py-2.5 text-sm text-nada-secondary bg-nada-muted hover:bg-nada-border/40 transition-colors"
+                  onClick={() => setShowBlockModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-white bg-red-500 hover:bg-red-400 transition-colors"
+                  onClick={() => {
+                    onBlock();
+                    setShowBlockModal(false);
+                    showToast("User blocked.");
+                  }}
+                >
+                  Block
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Profile panel */}
+      <AnimatePresence>
+        {showProfilePanel && contact && (
+          <motion.div
+            className="fixed inset-0 z-[850] flex justify-end"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowProfilePanel(false)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm h-full bg-nada-surface border-l border-nada-border/50 overflow-y-auto"
+              initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-semibold text-nada-primary">Profile</h3>
+                  <button
+                    className="rounded-full p-2 text-nada-secondary hover:bg-nada-muted transition-colors"
+                    onClick={() => setShowProfilePanel(false)}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="flex flex-col items-center gap-4 mb-8">
+                  <div className="grid h-24 w-24 place-items-center rounded-full bg-nada-accent shadow-lg">
+                    <Avatar label={contact.localDisplayName} size="lg" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xl font-semibold text-nada-primary">{contact.localDisplayName}</p>
+                    <p className="mt-1 text-xs text-nada-secondary font-mono">{contact.pubkeyHash.slice(0, 24)}…</p>
+                    <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-nada-muted px-3 py-1 text-xs text-nada-secondary">
+                      {contact.trustStatus === "trusted" ? "✓ Verified" : contact.trustStatus === "blocked" ? "⚠ Blocked" : "Unverified"}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <button
+                    className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-nada-primary hover:bg-nada-muted transition-colors"
+                    onClick={() => setShowProfilePanel(false)}
+                  >
+                    <MessageCircle size={16} className="text-nada-secondary" /> Message
+                  </button>
+                  <button
+                    className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-nada-primary hover:bg-nada-muted transition-colors"
+                    onClick={() => {
+                      if (chatIsMuted) { onMute(0); showToast("Notifications unmuted."); }
+                      else { setShowProfilePanel(false); setShowMuteModal(true); }
+                    }}
+                  >
+                    {chatIsMuted ? <BellOff size={16} className="text-nada-secondary" /> : <Bell size={16} className="text-nada-secondary" />}
+                    {chatIsMuted ? "Unmute" : "Mute"}
+                  </button>
+                  <div className="my-2 border-t border-nada-border/30" />
+                  <button
+                    className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-nada-danger hover:bg-nada-muted transition-colors"
+                    onClick={() => { setShowProfilePanel(false); setShowClearModal(true); }}
+                  >
+                    <Trash2 size={16} /> Clear chat
+                  </button>
+                  <button
+                    className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-nada-danger hover:bg-nada-muted transition-colors"
+                    onClick={() => {
+                      if (peerIsBlocked) { onUnblock(); showToast("User unblocked."); }
+                      else { setShowProfilePanel(false); setShowBlockModal(true); }
+                    }}
+                  >
+                    <ShieldOff size={16} /> {peerIsBlocked ? "Unblock" : "Block"}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="flex items-center gap-2 border-b border-nada-border/30 bg-nada-muted/50 px-4 py-1.5 text-2xs text-nada-secondary">
         <Clock size={12} />
@@ -2050,7 +2542,10 @@ function ChatPanel({
       )}
 
       <form
-        className="sticky bottom-0 z-header border-t border-nada-border/40 bg-nada-surface px-3 py-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))]"
+        className={cn(
+          "sticky bottom-0 z-header border-t border-nada-border/40 bg-nada-surface px-3 py-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))]",
+          peerIsBlocked && "pointer-events-none opacity-50"
+        )}
         onSubmit={onSend}
       >
         {replyMessage ? (
@@ -2105,7 +2600,7 @@ function ChatPanel({
               <button
                 aria-label="Attach file"
                 className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary disabled:opacity-30"
-                disabled={!canAttachFile}
+                disabled={!canAttachFile || peerIsBlocked}
                 onClick={() => {
                   fileInputRef.current?.click();
                 }}
@@ -2114,9 +2609,19 @@ function ChatPanel({
                 <Paperclip size={20} />
               </button>
               <input
-                className="nada-input h-10 min-w-0 flex-1 px-4 text-sm"
+                className="nada-input h-10 min-w-0 flex-1 px-4 text-sm disabled:opacity-50"
+                disabled={peerIsBlocked}
                 onChange={(event) => {
                   onMessageTextChange(event.target.value);
+                  if (!wasTyping.current) {
+                    wasTyping.current = true;
+                    onTyping(true);
+                  }
+                  if (typingTimeout.current) clearTimeout(typingTimeout.current);
+                  typingTimeout.current = setTimeout(() => {
+                    wasTyping.current = false;
+                    onTyping(false);
+                  }, 2000);
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {

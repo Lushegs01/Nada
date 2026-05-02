@@ -171,4 +171,17 @@ create index if not exists capability_tokens_pubkey_expires_idx
   on capability_tokens(pubkey_hash, expires_at);
 create index if not exists referral_redemptions_pubkey_idx
   on referral_redemptions(pubkey_hash);
+
+create table if not exists push_subscriptions (
+  id uuid primary key,
+  pubkey_hash text not null,
+  endpoint text not null,
+  auth text not null,
+  p256dh text not null,
+  created_at timestamptz not null,
+  updated_at timestamptz not null
+);
+
+create unique index if not exists push_subscriptions_endpoint_idx on push_subscriptions(endpoint);
+create index if not exists push_subscriptions_pubkey_idx on push_subscriptions(pubkey_hash);
 `;

@@ -11,7 +11,8 @@ import {
   type GroupMessageEnvelope,
   type MessageEnvelope,
   type ProductionEnvelope,
-  type PubkeyHash
+  type PubkeyHash,
+  type TypingEnvelope
 } from "@nada/types";
 
 import type { RelayEnv } from "./env";
@@ -19,6 +20,7 @@ import { createLoggerOption } from "./logger";
 import { registerMonetizationRoutes } from "./monetization-routes";
 import { isOriginAllowed } from "./origin";
 import { createRelayQueue, type RelayQueue } from "./queue";
+import { registerPushRoutes } from "./push-routes";
 import { registerUploadRoutes } from "./upload-routes";
 
 type ClientSocket = WebSocket;
@@ -50,6 +52,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
   });
   await app.register(websocket);
   await registerMonetizationRoutes(app, env);
+  await registerPushRoutes(app, env);
   await registerUploadRoutes(app);
 
   app.addHook("onClose", async () => {
@@ -72,7 +75,8 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
         connection.socket,
         raw.toString(),
         sessions,
-        queue
+        queue,
+        app
       );
     });
 
@@ -88,7 +92,8 @@ async function handleSocketMessage(
   socket: ClientSocket,
   raw: string,
   sessions: SessionRegistry,
-  queue: RelayQueue
+  queue: RelayQueue,
+  app: FastifyInstance
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -114,22 +119,27 @@ async function handleSocketMessage(
   }
 
   if ("type" in result.data && result.data.type === "message") {
-    routeMessage(result.data, sessions);
+    routeMessage(result.data, sessions, app);
     return;
   }
 
   if ("type" in result.data && result.data.type === "group-message") {
-    routeGroupMessage(result.data, sessions);
+    routeGroupMessage(result.data, sessions, app);
     return;
   }
 
   if ("type" in result.data && result.data.type === "call-signal") {
-    routeCallSignal(result.data, sessions);
+    routeCallSignal(result.data, sessions, app);
+    return;
+  }
+
+  if ("type" in result.data && result.data.type === "typing") {
+    routeTyping(result.data, sessions);
     return;
   }
 
   if ("version" in result.data) {
-    await routeProductionEnvelope(result.data, socket, sessions, queue);
+    await routeProductionEnvelope(result.data, socket, sessions, queue, app);
     return;
   }
 
@@ -168,7 +178,8 @@ function unregisterSocket(
 
 function routeMessage(
   envelope: MessageEnvelope,
-  sessions: SessionRegistry
+  sessions: SessionRegistry,
+  app: FastifyInstance
 ): void {
   const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
   if (!recipients || recipients.size === 0) {
@@ -178,6 +189,10 @@ function routeMessage(
         JSON.stringify({ type: "delivery", id: envelope.id, status: "failed" })
       );
     });
+    void (app as any).sendPushNotification?.(
+      envelope.recipient,
+      JSON.stringify({ title: "New Message", body: "You received a new message." })
+    );
     return;
   }
 
@@ -195,13 +210,18 @@ function routeMessage(
 
 function routeGroupMessage(
   envelope: GroupMessageEnvelope,
-  sessions: SessionRegistry
+  sessions: SessionRegistry,
+  app: FastifyInstance
 ): void {
   let deliveredCount = 0;
 
   envelope.recipients.forEach((recipient) => {
     const sockets = sessions.socketsByPubkeyHash.get(recipient);
     if (!sockets || sockets.size === 0) {
+      void (app as any).sendPushNotification?.(
+        recipient,
+        JSON.stringify({ title: "New Group Message", body: "You received a new message." })
+      );
       return;
     }
 
@@ -225,7 +245,8 @@ function routeGroupMessage(
 
 function routeCallSignal(
   envelope: CallSignalEnvelope,
-  sessions: SessionRegistry
+  sessions: SessionRegistry,
+  app: FastifyInstance
 ): void {
   const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
   if (!recipients || recipients.size === 0) {
@@ -235,6 +256,12 @@ function routeCallSignal(
         JSON.stringify({ type: "delivery", id: envelope.id, status: "failed" })
       );
     });
+    if (envelope.callType === "offer") {
+      void (app as any).sendPushNotification?.(
+        envelope.recipient,
+        JSON.stringify({ title: "Incoming Call", body: "You have an incoming call." })
+      );
+    }
     return;
   }
 
@@ -243,11 +270,25 @@ function routeCallSignal(
   });
 }
 
+// Typing events are ephemeral — forward to recipient, never queue or persist.
+function routeTyping(
+  envelope: TypingEnvelope,
+  sessions: SessionRegistry
+): void {
+  const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
+  if (!recipients || recipients.size === 0) return;
+  const serialized = JSON.stringify({ type: "typing", envelope });
+  recipients.forEach((socket) => {
+    socket.send(serialized);
+  });
+}
+
 async function routeProductionEnvelope(
   envelope: ProductionEnvelope,
   senderSocket: ClientSocket,
   sessions: SessionRegistry,
-  queue: RelayQueue
+  queue: RelayQueue,
+  app: FastifyInstance
 ): Promise<void> {
   const serialized = JSON.stringify({ type: "sealed-message", envelope });
   const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
@@ -259,6 +300,10 @@ async function routeProductionEnvelope(
         id: randomUUID(),
         status: "queued"
       })
+    );
+    void (app as any).sendPushNotification?.(
+      envelope.recipient,
+      JSON.stringify({ title: "New Encrypted Message", body: "You received a new encrypted message." })
     );
     return;
   }

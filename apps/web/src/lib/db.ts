@@ -25,11 +25,27 @@ export interface SessionRecord {
   updatedAt: number;
 }
 
+// ── Chat Preferences (mute / clear / block) ──────────────────────────────────
+// Stored per-chat per-user in IndexedDB. Zero-knowledge: no server-side storage.
+
+export interface ChatPrefRecord {
+  /** chatId (direct or group) */
+  chatId: string;
+  /** Mute notifications until this timestamp, null = forever, 0 = unmuted */
+  mutedUntil: number | null;
+  /** Messages created before this timestamp are hidden for the current user */
+  clearedAt: number;
+  /** Pubkey hashes this user has blocked (only relevant for direct chats) */
+  blockedPubkeyHashes: string[];
+  updatedAt: number;
+}
+
 class NadaDexie extends Dexie {
   calls!: Table<CallRecord, string>;
   identity!: Table<IdentityRecord, string>;
   contacts!: Table<ContactRecord, string>;
   chats!: Table<ChatRecord, string>;
+  chatPrefs!: Table<ChatPrefRecord, string>;
   encryptedFiles!: Table<EncryptedFileRecord, string>;
   groupKeys!: Table<GroupKeyRecord, string>;
   messages!: Table<MessageRecord, string>;
@@ -53,6 +69,9 @@ class NadaDexie extends Dexie {
       calls: "id, chatId, status, startedAt",
       groupKeys: "groupId, createdByPubkeyHash, createdAt"
     });
+    this.version(4).stores({
+      chatPrefs: "chatId, updatedAt"
+    });
   }
 }
 
@@ -70,4 +89,40 @@ export async function loadMessagesForChat(
     .where("[chatId+createdAt]")
     .between([chatId, Dexie.minKey], [chatId, Dexie.maxKey])
     .toArray();
+}
+
+// ── Chat preference helpers ───────────────────────────────────────────────────
+
+export async function getChatPref(chatId: string): Promise<ChatPrefRecord> {
+  const existing = await nadaDb.chatPrefs.get(chatId);
+  return existing ?? {
+    chatId,
+    mutedUntil: 0,
+    clearedAt: 0,
+    blockedPubkeyHashes: [],
+    updatedAt: 0
+  };
+}
+
+export async function setChatPref(
+  chatId: string,
+  patch: Partial<Omit<ChatPrefRecord, "chatId">>
+): Promise<void> {
+  const existing = await getChatPref(chatId);
+  await nadaDb.chatPrefs.put({
+    ...existing,
+    ...patch,
+    chatId,
+    updatedAt: Date.now()
+  });
+}
+
+export function isMuted(pref: ChatPrefRecord): boolean {
+  if (pref.mutedUntil === null) return true; // muted forever
+  if (pref.mutedUntil === 0) return false;   // unmuted
+  return pref.mutedUntil > Date.now();        // muted until specific time
+}
+
+export function isBlocked(pref: ChatPrefRecord, peerPubkeyHash: string): boolean {
+  return pref.blockedPubkeyHashes.includes(peerPubkeyHash);
 }

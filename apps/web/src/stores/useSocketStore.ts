@@ -9,7 +9,8 @@ import {
   type GroupMessageEnvelope,
   type MessageEnvelope,
   type ProductionEnvelope,
-  type PubkeyHash
+  type PubkeyHash,
+  type TypingEnvelope
 } from "@nada/types";
 
 import { getRelaySocketUrl } from "@/lib/relay-url";
@@ -32,6 +33,8 @@ interface SocketState {
   groupIncoming: GroupMessageEnvelope[];
   incoming: MessageEnvelope[];
   sealedIncoming: ProductionEnvelope[];
+  /** Map of chatId -> sender pubkeyHash for active typing indicators */
+  typingIndicators: Record<string, string>;
   lastError: string | null;
   reconnectAttempt: number;
   registeredIdentity: RelayIdentity | null;
@@ -43,6 +46,7 @@ interface SocketState {
   sendEnvelope: (envelope: MessageEnvelope) => boolean;
   sendGroupEnvelope: (envelope: GroupMessageEnvelope) => boolean;
   sendCallSignal: (envelope: CallSignalEnvelope) => boolean;
+  sendTyping: (envelope: TypingEnvelope) => boolean;
 }
 
 let reconnectTimer: number | null = null;
@@ -84,6 +88,7 @@ export const useSocketStore = create<SocketState>((set, get) => {
     shouldReconnect: false,
     socket: null,
     status: "idle",
+    typingIndicators: {},
     connect: (identity) => {
       const current = get();
       if (
@@ -162,6 +167,35 @@ export const useSocketStore = create<SocketState>((set, get) => {
             }));
             break;
           }
+          case "typing": {
+            const envelope = result.data.envelope;
+            if (envelope.isTyping) {
+              set((state) => ({
+                typingIndicators: {
+                  ...state.typingIndicators,
+                  [envelope.chatId]: envelope.sender
+                }
+              }));
+              // Auto-clear after 5 seconds if no update
+              setTimeout(() => {
+                const current = get().typingIndicators[envelope.chatId];
+                if (current === envelope.sender) {
+                  set((state) => {
+                    const next = { ...state.typingIndicators };
+                    delete next[envelope.chatId];
+                    return { typingIndicators: next };
+                  });
+                }
+              }, 5000);
+            } else {
+              set((state) => {
+                const next = { ...state.typingIndicators };
+                delete next[envelope.chatId];
+                return { typingIndicators: next };
+              });
+            }
+            break;
+          }
           case "sealed-message": {
             const envelope = result.data.envelope;
             set((state) => ({
@@ -227,6 +261,15 @@ export const useSocketStore = create<SocketState>((set, get) => {
       return true;
     },
     sendCallSignal: (envelope) => {
+      const socket = get().socket;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return false;
+      }
+
+      socket.send(JSON.stringify(envelope));
+      return true;
+    },
+    sendTyping: (envelope) => {
       const socket = get().socket;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         return false;

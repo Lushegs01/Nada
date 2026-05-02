@@ -14,6 +14,9 @@ const EnvSchema = z.object({
   STRIPE_PRICE_PRO: z.string().min(1).optional(),
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  VAPID_PRIVATE_KEY: z.string().min(1).optional(),
+  VAPID_PUBLIC_KEY: z.string().min(1).optional(),
+  VAPID_SUBJECT: z.string().min(1).optional(),
   ZERO_LOG_MODE: z.string().optional()
 });
 
@@ -31,6 +34,9 @@ export interface RelayEnv {
   stripePricePro: string | undefined;
   stripeSecretKey: string | undefined;
   stripeWebhookSecret: string | undefined;
+  vapidPrivateKey: string | undefined;
+  vapidPublicKey: string | undefined;
+  vapidSubject: string | undefined;
   zeroLogMode: boolean;
 }
 
@@ -55,6 +61,9 @@ export function readEnv(): RelayEnv {
     stripePricePro: result.data.STRIPE_PRICE_PRO,
     stripeSecretKey: result.data.STRIPE_SECRET_KEY,
     stripeWebhookSecret: result.data.STRIPE_WEBHOOK_SECRET,
+    vapidPrivateKey: result.data.VAPID_PRIVATE_KEY,
+    vapidPublicKey: result.data.VAPID_PUBLIC_KEY,
+    vapidSubject: result.data.VAPID_SUBJECT ?? "mailto:admin@nada.local",
     zeroLogMode:
       result.data.ZERO_LOG_MODE === "true" || nodeEnv === "production"
   };

@@ -52,11 +52,20 @@ export const RegisterEnvelopeSchema = z.object({
   pubkeyHash: PubkeyHashSchema
 });
 
+export const TypingEnvelopeSchema = z.object({
+  type: z.literal("typing"),
+  chatId: z.string().min(1).max(256),
+  sender: PubkeyHashSchema,
+  recipient: PubkeyHashSchema,
+  isTyping: z.boolean()
+});
+
 export const ClientSocketEnvelopeSchema = z.union([
   RegisterEnvelopeSchema,
   MessageEnvelopeSchema,
   GroupMessageEnvelopeSchema,
   CallSignalEnvelopeSchema,
+  TypingEnvelopeSchema,
   ProductionEnvelopeSchema
 ]);
 
@@ -83,6 +92,10 @@ export const ServerSocketEnvelopeSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("call-signal"),
     envelope: CallSignalEnvelopeSchema
+  }),
+  z.object({
+    type: z.literal("typing"),
+    envelope: TypingEnvelopeSchema
   }),
   z.object({
     type: z.literal("sealed-message"),
@@ -235,6 +248,7 @@ export type GroupMessageEnvelope = z.infer<typeof GroupMessageEnvelopeSchema>;
 export type CallSignalEnvelope = z.infer<typeof CallSignalEnvelopeSchema>;
 export type ProductionEnvelope = z.infer<typeof ProductionEnvelopeSchema>;
 export type RegisterEnvelope = z.infer<typeof RegisterEnvelopeSchema>;
+export type TypingEnvelope = z.infer<typeof TypingEnvelopeSchema>;
 export type ClientSocketEnvelope = z.infer<typeof ClientSocketEnvelopeSchema>;
 export type DeliveryStatus = z.infer<typeof DeliveryStatusSchema>;
 export type ServerSocketEnvelope = z.infer<typeof ServerSocketEnvelopeSchema>;
