@@ -160,7 +160,7 @@ import {
   validateMediaFile,
   type PreparedMediaFile
 } from "@/lib/media-upload";
-import { createLocalCallSession } from "@/lib/webrtc";
+import { createLocalCallSession, type LocalCallSession } from "@/lib/webrtc";
 import type { CallMode } from "@/lib/webrtc";
 import { useSocketStore } from "@/stores/useSocketStore";
 
@@ -1778,7 +1778,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         signalType: "offer",
         payload: JSON.stringify(offer)
       });
-    } catch { /* ignore capture error */ }
+    } catch {
       callStore.failCall("Could not start media capture.");
     }
   };
@@ -2099,8 +2099,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         <MobileChatsHome
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          activeFilter={activeFilter}
-          onFilterChange={setActiveFilter}
           unreadTotal={totalUnreadCount}
           onComposeClick={() => setPanel("contacts")}
           activeTab={activeTab}
@@ -2202,39 +2200,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                     );
                   })}
                 
-                {globalMessageResults.length > 0 && (
-                  <div className="mt-4">
-                    <p className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-nada-secondary/[.50]">Messages</p>
-                    {globalMessageResults.map(({ message, chatTitle, chatId }) => (
-                      <ChatListItem
-                        key={message.id}
-                        name={chatTitle}
-                        preview={previewForMessage(message)}
-                        timestamp={formatRelativeTime(message.createdAt)}
-                        unreadCount={0}
-                        initials={chatTitle.slice(0, 1).toUpperCase()}
-                        isSelected={false}
-                        onClick={() => {
-                          const isGrp = chats.some((c) => c.id === chatId);
-                          if (isGrp) {
-                            setSelectedContactHash(null);
-                            setSelectedGroupId(chatId);
-                          } else {
-                            const peer = contacts.find((c) => directChatId(identity.pubkeyHash, c.pubkeyHash) === chatId);
-                            if (peer) {
-                              setSelectedGroupId(null);
-                              setSelectedContactHash(peer.pubkeyHash);
-                            }
-                          }
-                          // Wait for chat to load then scroll to message
-                          setTimeout(() => {
-                             setMessageSearchQuery(message.body.slice(0, 20));
-                          }, 300);
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
+                
               </>
             )}
             </div>
@@ -2305,7 +2271,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         chatIsMuted={chatIsMuted}
         peerIsBlocked={peerIsBlocked}
         peerIsTyping={peerIsTyping}
-        onViewProfile={() => { setShowProfile(true); }}
+        onViewProfile={() => { /* Handled internally by ChatPanel */ }}
         onMute={async (duration) => {
           if (!selectedChatId) return;
           const mutedUntil = duration === 0 ? 0 : duration === -1 ? null : Date.now() + duration;
@@ -2460,7 +2426,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ) : null}
         {panel === ("status_create" as Panel) ? (
           <StatusCreateSheet
-            identity={identity}
             onClose={() => setPanel(null)}
             onPost={(text, media) => {
               void handlePostStatus(text, media);
@@ -2470,7 +2435,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ) : null}
         {selectedStatusSenderHash ? (
           <StatusViewerSheet
-            senderHash={selectedStatusSenderHash}
             senderName={
               selectedStatusSenderHash === identity.pubkeyHash 
                 ? "My Status" 
@@ -2554,7 +2518,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
               signalType: "answer",
               payload: JSON.stringify(answer)
             });
-          } catch { /* ignore error */ }
+          } catch {
             callStore.failCall("Could not access camera/microphone.");
           }
         }}
@@ -2775,7 +2739,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     </div>
   );
 }
-
 
 function RelayStatus({ status }: { status: string }): JSX.Element {
   const isConnected = status === "connected";
