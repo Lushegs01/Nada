@@ -475,9 +475,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const loadStatuses = useCallback(async () => {
     const now = Date.now();
     const records = await nadaDb.messages
-      .where("kind")
-      .equals("status")
-      .and(m => m.createdAt > now - 24 * 60 * 60 * 1000)
+      .where("[kind+createdAt]")
+      .between(["status", now - 24 * 60 * 60 * 1000], ["status", Dexie.maxKey])
       .reverse()
       .toArray();
     setAllStatuses(records);
@@ -797,6 +796,10 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    void loadStatuses();
+  }, [loadStatuses]);
 
   useEffect(() => {
     if (!inviteToken || inviteToken === processedInvite.current) {

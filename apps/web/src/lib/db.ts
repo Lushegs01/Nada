@@ -78,10 +78,10 @@ class NadaDexie extends Dexie {
     this.version(4).stores({
       chatPrefs: "chatId, updatedAt"
     });
-    // Version 5: no store schema changes required — pinnedMessageId / pinnedMessageBody
-    // are JSON fields on the existing chatPrefs store.  Existing records default to null
-    // via getChatPref(). Bump is a no-op but keeps the version sequence intact.
     this.version(5).stores({});
+    this.version(6).stores({
+      messages: "id, chatId, [chatId+createdAt], kind, [kind+createdAt], status, expiresAt"
+    });
   }
 }
 
