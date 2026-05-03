@@ -72,18 +72,18 @@ export async function decryptEncryptedFileBytes({
 }): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey(
     "raw",
-    base64ToBytes(keyBase64) as any,
+    base64ToBytes(keyBase64) as BufferSource,
     { name: "AES-GCM" },
     false,
     ["decrypt"]
   );
   const plaintext = await crypto.subtle.decrypt(
     {
-      iv: base64ToBytes(nonceBase64) as any,
+      iv: base64ToBytes(nonceBase64) as BufferSource,
       name: "AES-GCM"
     },
     key,
-    base64ToBytes(encryptedBlobBase64) as any as any
+    base64ToBytes(encryptedBlobBase64) as BufferSource
   );
   return new Uint8Array(plaintext);
 }
