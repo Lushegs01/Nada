@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import {
   Search,
   MessageCircle,
@@ -315,8 +315,6 @@ export const MobileChatsHome = ({
   children,
   searchQuery,
   onSearchChange,
-  activeFilter,
-  onFilterChange,
   unreadTotal,
   onComposeClick,
   activeTab,
@@ -326,8 +324,6 @@ export const MobileChatsHome = ({
   children: React.ReactNode;
   searchQuery: string;
   onSearchChange: (val: string) => void;
-  activeFilter: string;
-  onFilterChange: (filter: string) => void;
   unreadTotal: number;
   onComposeClick: () => void;
   activeTab: string;

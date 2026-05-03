@@ -56,8 +56,7 @@ import {
   Users,
   Video,
   WifiOff,
-  X,
-  Zap
+  X
 } from "lucide-react";
 import { IncomingCallModal, VoiceCallOverlay, VideoCallOverlay } from "@/components/CallOverlay";
 import { GroupCallOverlay } from "@/components/GroupCallOverlay";
@@ -70,7 +69,6 @@ import {
   isInlineFileMessage,
   parseInlineFileMessage
 } from "@/components/VoiceNote";
-import { EmojiPicker } from "@/components/EmojiPicker";
 import { useCallStore } from "@/stores/useCallStore";
 import { QRCodeSVG } from "qrcode.react";
 import { 
@@ -95,8 +93,6 @@ import type {
   MessageRecord
 } from "@nada/db";
 import type {
-  CallSignalEnvelope,
-  DeletionEnvelope,
   GroupMessageEnvelope,
   GroupInvitePayload,
   InvitePayload,
@@ -104,9 +100,7 @@ import type {
   PaidBillingPlan,
   PollData,
   PollOption,
-  ReactionEnvelope,
   MediaAttachment,
-  MessageKind,
   ReplyToMessage,
   SubscriptionStatusResponse
 } from "@nada/types";
@@ -431,7 +425,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const incomingReactions = useSocketStore((state) => state.incomingReactions);
   const incomingDeletions = useSocketStore((state) => state.incomingDeletions);
   const sendReaction = useSocketStore((state) => state.sendReaction);
-  const socketGhostMode = useSocketStore((state) => state.ghostMode);
+  const sendReaction = useSocketStore((state) => state.sendReaction);
   const setSocketGhostMode = useSocketStore((state) => state.setGhostMode);
   const processedReactions = useRef<Set<string>>(new Set());
   const processedDeletions = useRef<Set<string>>(new Set());
@@ -458,13 +452,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     chatId: "", mutedUntil: 0, clearedAt: 0, blockedPubkeyHashes: [],
     pinnedMessageId: null, pinnedMessageBody: null, updatedAt: 0
   });
-  const [showProfile, setShowProfile] = useState(false);
   const [blurShieldActive, setBlurShieldActive] = useState(false);
   const [blurShieldRevealed, setBlurShieldRevealed] = useState(false);
   const [showGhostModal, setShowGhostModal] = useState(false);
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
-  const [globalMessageResults, setGlobalMessageResults] = useState<{ message: MessageRecord; chatTitle: string; chatId: string }[]>([]);
   const [inAppNotification, setInAppNotification] = useState<{ id: string; title: string; body: string; chatId: string } | null>(null);
   const [allStatuses, setAllStatuses] = useState<MessageRecord[]>([]);
   const [selectedStatusSenderHash, setSelectedStatusSenderHash] = useState<string | null>(null);
@@ -964,11 +956,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     });
 
     void loadStatuses();
-
-    return () => {
-      active = false;
-    };
-  }, [identity, incoming, selectedChatId]);
+  }, [identity, incoming, loadStatuses, selectedChatId, sendDelivery, showNotification]);
 
   useEffect(() => {
     const newGroupEnvelopes = groupIncoming.filter(
@@ -1014,11 +1002,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     });
 
     void loadStatuses();
-
-    return () => {
-      active = false;
-    };
-  }, [groupIncoming, identity, selectedChatId]);
+  }, [groupIncoming, identity, loadStatuses, selectedChatId, sendDelivery, showNotification]);
 
   /** Insert a system call-log message bubble into the current chat */
   const insertCallLogMessage = useCallback(async (callId: string, mode: CallMode, status: "started" | "ended" | "missed", duration?: number): Promise<void> => {
@@ -1416,7 +1400,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       ? buildMediaPayload({ media, type: "status" })
       : buildTextPayload({ text });
     
-    const body = encodeMessagePayload({ ...payload, type: "status" as any });
+    const body = encodeMessagePayload({ ...payload, type: "status" as "status" });
     const ciphertext = await mockEncryptMessage(body);
     
     const record: MessageRecord = {
@@ -1709,7 +1693,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         mode: "group",
         peerPubkeyHash: selectedGroup.id,
         peerName: selectedGroup.title,
-        localSession: null as any
+        localSession: null as unknown as LocalCallSession
       });
       void insertCallLogMessage(selectedGroup.id, mode, "started");
       return;
@@ -2122,7 +2106,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           onTabChange={setActiveTab}
           headerProps={{
             displayName: displayName,
-            onCameraClick: () => setPanel("status_create" as any),
+            onCameraClick: () => setPanel("status_create" as Panel),
             onMoreClick: () => setPanel("settings")
           }}
         >
@@ -2616,7 +2600,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                 </div>
               </div>
               <p className="text-sm text-nada-secondary mb-5 leading-relaxed">
-                While Ghost Mode is active, your contacts won't see when you're typing and your activity won't be broadcast. Your messages still arrive normally.
+                While Ghost Mode is active, your contacts won&apos;t see when you&apos;re typing and your activity won&apos;t be broadcast. Your messages still arrive normally.
               </p>
               <div className="flex gap-3">
                 <button
@@ -5906,11 +5890,9 @@ function StatusView({
 }
 
 function StatusCreateSheet({
-  identity,
   onClose,
   onPost
 }: {
-  identity: IdentityRecord;
   onClose: () => void;
   onPost: (text: string, media?: MediaAttachment) => void;
 }) {
@@ -5961,12 +5943,10 @@ function StatusCreateSheet({
 }
 
 function StatusViewerSheet({
-  senderHash,
   senderName,
   statuses,
   onClose
 }: {
-  senderHash: string;
   senderName: string;
   statuses: MessageRecord[];
   onClose: () => void;
