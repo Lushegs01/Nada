@@ -480,7 +480,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   }, []);
 
   // Mobile UI state
-  const [activeFilter, setActiveFilter] = useState("all");
+  const [activeFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("chats");
   // last-message preview cache: chatId -> { body, ts }
   const [lastMessages, setLastMessages] = useState<Record<string, { body: string; ts: number }>>({});
@@ -3691,7 +3691,7 @@ function ChatPanel({
               initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
             >
               <h3 className="text-lg font-semibold text-nada-primary mb-4">Set Chat Wallpaper</h3>
-              <p className="text-xs text-nada-secondary mb-4">Enter an image URL for this chat's background.</p>
+              <p className="text-xs text-nada-secondary mb-4">Enter an image URL for this chat&apos;s background.</p>
               <form onSubmit={(e) => {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
