@@ -425,7 +425,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const incomingReactions = useSocketStore((state) => state.incomingReactions);
   const incomingDeletions = useSocketStore((state) => state.incomingDeletions);
   const sendReaction = useSocketStore((state) => state.sendReaction);
-  const sendReaction = useSocketStore((state) => state.sendReaction);
   const setSocketGhostMode = useSocketStore((state) => state.setGhostMode);
   const processedReactions = useRef<Set<string>>(new Set());
   const processedDeletions = useRef<Set<string>>(new Set());
