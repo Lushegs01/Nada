@@ -101,7 +101,7 @@ export const CallSignalEnvelopeSchema = z.object({
   recipient: PubkeyHashSchema,
   sender: PubkeyHashSchema,
   timestamp: z.number().int().positive(),
-  mode: z.enum(["voice", "video"]),
+  mode: z.enum(["voice", "video", "group"]),
   signalType: z.enum(["offer", "answer", "ice", "hangup", "reject"]),
   payload: z.string().min(1)
 });
@@ -146,6 +146,7 @@ export const DeletionEnvelopeSchema = z.object({
   messageId: UuidSchema,
   recipient: PubkeyHashSchema,
   sender: PubkeyHashSchema,
+  timestamp: z.number().int().positive()
 });
 
 export type DeletionEnvelope = z.infer<typeof DeletionEnvelopeSchema>;

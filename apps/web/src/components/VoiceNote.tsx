@@ -223,7 +223,7 @@ function WaveformBars({
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    const smooth = smoothRef.current;
+    const smooth = smoothRef.current!;
     const barW = Math.floor((W - (BAR_COUNT - 1) * 2) / BAR_COUNT);
 
     if (analyser && active) {
@@ -376,9 +376,9 @@ export function parseInlineFileMessage(body: string): {
   const [mimeType, filename, sizeStr, ...dataParts] = parts;
   const dataUrl = dataParts.join("|"); // rejoin in case data had pipes
   return {
-    mimeType,
-    filename,
-    sizeBytes: parseInt(sizeStr, 10) || 0,
+    mimeType: mimeType!,
+    filename: filename!,
+    sizeBytes: parseInt(sizeStr!, 10) || 0,
     dataUrl
   };
 }

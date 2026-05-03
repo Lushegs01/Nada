@@ -27,12 +27,10 @@ const contentSecurityPolicy = [
 
 const nextConfig = {
   eslint: {
-    // Lint errors will show as warnings but never block the build
-    ignoreDuringBuilds: true
+    ignoreDuringBuilds: false
   },
   typescript: {
-    // Type errors are caught in CI typecheck; don't block prod builds
-    ignoreBuildErrors: true
+    ignoreBuildErrors: false
   },
   poweredByHeader: false,
   reactStrictMode: true,

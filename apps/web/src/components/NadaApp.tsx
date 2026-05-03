@@ -102,6 +102,8 @@ import type {
   InvitePayload,
   MessageEnvelope,
   PaidBillingPlan,
+  PollData,
+  PollOption,
   ReactionEnvelope,
   MediaAttachment,
   MessageKind,
@@ -276,13 +278,13 @@ function OfflineBanner({ isOnline }: { isOnline: boolean }): JSX.Element | null 
 
 function Splash(): JSX.Element {
   return (
-    <main className="grid min-h-dvh place-items-center" style={{ background: "rgb(5 5 5)" }}>
+    <main className="grid min-h-dvh place-items-center" style={{ background: "rgb(var(--nada-bg))" }}>
       <div className="flex flex-col items-center gap-6 animate-fade-in">
         <div
-          className="grid h-16 w-16 place-items-center rounded-2xl text-xl font-black text-black shadow-gold-glow"
-          style={{ background: "linear-gradient(135deg, #F7B928, #8A6318)" }}
+          className="grid h-16 w-16 place-items-center rounded-2xl text-xl font-black text-black shadow-gold-glow overflow-hidden"
+          style={{ background: "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)))" }}
         >
-          N
+          <img src="/logo.png" alt="NADA Logo" className="h-full w-full object-cover" />
         </div>
         <div className="flex items-center gap-1.5">
           <div className="nada-typing-dot" />
@@ -341,10 +343,10 @@ function Onboarding({
   };
 
   return (
-    <section className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-6 py-12" style={{ background: "rgb(5 5 5)" }}>
+    <section className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-6 py-12" style={{ background: "rgb(var(--nada-bg))" }}>
       <div
         className="mb-6 grid h-14 w-14 place-items-center rounded-2xl text-lg font-black text-black shadow-gold-glow animate-scale-in"
-        style={{ background: "linear-gradient(135deg, #F7B928, #8A6318)" }}
+        style={{ background: "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)))" }}
       >
         N
       </div>
@@ -352,7 +354,7 @@ function Onboarding({
         NADA
       </p>
       <h1 className="mt-3 text-3xl font-bold tracking-tight text-nada-primary" style={{ letterSpacing: "-0.5px" }}>Anonymous by default.</h1>
-      <p className="mt-3 text-base text-nada-secondary/80 leading-relaxed">
+      <p className="mt-3 text-base text-nada-secondary/[.80] leading-relaxed">
         Your identity is a keypair generated on this device. No phone number,
         email, or contact upload.
       </p>
@@ -367,12 +369,12 @@ function Onboarding({
         </button>
       ) : (
         <div className="mt-8 space-y-5 animate-fade-in">
-          <div className="grid grid-cols-3 gap-2 rounded-2xl border border-nada-border/8 p-3" style={{ background: "rgb(11 11 13)" }}>
+          <div className="grid grid-cols-3 gap-2 rounded-2xl border border-nada-border/[.08] p-3" style={{ background: "rgb(var(--nada-surface))" }}>
             {seedWords.map((word, index) => (
               <div
-                className="rounded-xl border border-nada-border/8 px-3 py-2.5 text-xs text-nada-primary"
+                className="rounded-xl border border-nada-border/[.08] px-3 py-2.5 text-xs text-nada-primary"
                 key={`${word}-${index}`}
-                style={{ background: "rgb(17 17 19)" }}
+                style={{ background: "rgb(var(--nada-surface-elevated))" }}
               >
                 <span className="mr-1 text-nada-accent/60">{index + 1}</span>
                 {word}
@@ -383,7 +385,7 @@ function Onboarding({
             <input
               checked={saved}
               className="h-5 w-5 rounded"
-              style={{ accentColor: "#F7B928" }}
+              style={{ accentColor: "rgb(var(--nada-accent))" }}
               onChange={(event) => { setSaved(event.target.checked); }}
               type="checkbox"
             />
@@ -454,7 +456,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [chatPref, setChatPrefState] = useState<ChatPrefRecord>({
     chatId: "", mutedUntil: 0, clearedAt: 0, blockedPubkeyHashes: [],
-    pinnedMessageId: null, pinnedMessageBody: null, wallpaperUrl: undefined, updatedAt: 0
+    pinnedMessageId: null, pinnedMessageBody: null, updatedAt: 0
   });
   const [showProfile, setShowProfile] = useState(false);
   const [blurShieldActive, setBlurShieldActive] = useState(false);
@@ -538,12 +540,12 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       replyMessage.senderPubkeyHash === identity.pubkeyHash
         ? "You"
         : contacts.find((contact) => contact.pubkeyHash === replyMessage.senderPubkeyHash)
-            ?.localDisplayName;
+            ?.localDisplayName || undefined;
 
     return buildReplySnapshot({
       message: replyMessage,
       myPubkeyHash: identity.pubkeyHash,
-      senderName
+      ...(senderName && { senderName })
     });
   }, [contacts, identity.pubkeyHash, replyMessage]);
   const editingMessage = useMemo(
@@ -1173,7 +1175,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       const outboundGroupMessages = localMessages.filter(m => m.direction === "outbound");
       
       for (const msg of outboundGroupMessages) {
-        if (!isSubscribed || socketStatus !== "connected") break;
+        if (!isSubscribed || relayStatus !== "connected") break;
         
         const group = chats.find(c => c.id === msg.chatId && c.type === "group");
         if (!group) continue;
@@ -1905,14 +1907,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       if (!targetGroup.groupSenderKey) return;
       const envelopeId = crypto.randomUUID();
       const payload: GroupMessageEnvelope = {
-        type: "group_message",
+        type: "group-message",
         id: envelopeId,
         groupId: targetGroup.id,
+        recipients: targetGroup.memberPubkeyHashes,
         sender: identity.pubkeyHash,
         timestamp: Date.now(),
         ciphertext: bodyToForward // This needs to be re-encrypted technically, but for now we forward the raw body which will be encrypted by sendGroupEnvelope wrapper if needed
       };
-      
+
       const record: MessageRecord = {
         id: envelopeId,
         chatId: targetGroup.id,
@@ -1921,7 +1924,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         body: bodyToForward,
         createdAt: Date.now(),
         status: "local",
-        direction: "outbound"
+        direction: "outbound",
+        kind: "text",
+        encryptedPayload: ""
       };
       await nadaDb.messages.add(record);
       if (targetGroup.id === selectedChatId) {
@@ -1946,7 +1951,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         body: bodyToForward,
         createdAt: Date.now(),
         status: "queued",
-        direction: "outbound"
+        direction: "outbound",
+        kind: "text",
+        encryptedPayload: ""
       };
       await nadaDb.messages.add(record);
       if (targetChatId === selectedChatId) {
@@ -2049,7 +2056,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       return;
     }
 
-    const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    const vapidKey = process.env['NEXT_PUBLIC_VAPID_PUBLIC_KEY'];
     if (!vapidKey) return;
 
     void navigator.serviceWorker.ready.then(async (registration) => {
@@ -2057,7 +2064,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         const existingSub = await registration.pushManager.getSubscription();
         if (existingSub) {
           // Send it to the server anyway to ensure pubkeyHash is updated if it changed
-          const relayUrl = process.env.NEXT_PUBLIC_RELAY_URL?.replace("ws://", "http://").replace("wss://", "https://") || "";
+          const relayUrl = process.env['NEXT_PUBLIC_RELAY_URL']?.replace("ws://", "http://").replace("wss://", "https://") || "";
           if (relayUrl) {
             await fetch(`${relayUrl}/api/v1/push/subscribe`, {
               method: "POST",
@@ -2087,7 +2094,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           applicationServerKey: outputArray
         });
 
-        const relayUrl = process.env.NEXT_PUBLIC_RELAY_URL?.replace("ws://", "http://").replace("wss://", "https://") || "";
+        const relayUrl = process.env['NEXT_PUBLIC_RELAY_URL']?.replace("ws://", "http://").replace("wss://", "https://") || "";
         if (!relayUrl) return;
 
         await fetch(`${relayUrl}/api/v1/push/subscribe`, {
@@ -2208,7 +2215,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                 
                 {globalMessageResults.length > 0 && (
                   <div className="mt-4">
-                    <p className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-nada-secondary/50">Messages</p>
+                    <p className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-nada-secondary/[.50]">Messages</p>
                     {globalMessageResults.map(({ message, chatTitle, chatId }) => (
                       <ChatListItem
                         key={message.id}
@@ -2370,7 +2377,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         onRevealBlurShield={() => setBlurShieldRevealed(true)}
         onSetWallpaper={async (url) => {
           if (!selectedChatId) return;
-          await setChatPref(selectedChatId, { wallpaperUrl: url ?? undefined });
+          await setChatPref(selectedChatId, url ? { wallpaperUrl: url } : {});
           setChatPrefState(await getChatPref(selectedChatId));
         }}
       />
@@ -2567,7 +2574,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       <AnimatePresence>
         {dashboardToast && (
           <motion.div
-            className="fixed bottom-24 left-1/2 z-[950] -translate-x-1/2 rounded-xl bg-nada-surface border border-nada-border/50 px-5 py-3 text-sm text-nada-primary shadow-xl"
+            className="fixed bottom-24 left-1/2 z-[950] -translate-x-1/2 rounded-xl bg-nada-surface border border-nada-border/[.05]0 px-5 py-3 text-sm text-nada-primary shadow-xl"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
@@ -2587,7 +2594,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           >
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowGhostModal(false)} />
             <motion.div
-              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/[.05]0 p-6 shadow-2xl"
               initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
             >
               <div className="flex items-center gap-3 mb-4">
@@ -2635,7 +2642,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       <AnimatePresence>
         {inAppNotification && (
           <motion.div
-            className="fixed top-4 left-1/2 z-[1000] -translate-x-1/2 cursor-pointer rounded-2xl bg-nada-surface border border-nada-border/50 p-4 shadow-2xl flex items-center gap-4 w-[90%] max-w-sm"
+            className="fixed top-4 left-1/2 z-[1000] -translate-x-1/2 cursor-pointer rounded-2xl bg-nada-surface border border-nada-border/[.05]0 p-4 shadow-2xl flex items-center gap-4 w-[90%] max-w-sm"
             initial={{ y: -50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -50, opacity: 0 }}
@@ -2674,7 +2681,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           >
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setForwardMessageId(null)} />
             <motion.div
-              className="relative z-10 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl bg-nada-surface border border-nada-border/50 shadow-2xl flex flex-col max-h-[80vh]"
+              className="relative z-10 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl bg-nada-surface border border-nada-border/[.05]0 shadow-2xl flex flex-col max-h-[80vh]"
               initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }}
             >
               <div className="flex items-center justify-between border-b border-nada-border/10 p-4">
@@ -2732,7 +2739,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           >
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMoodModal(false)} />
             <motion.div
-              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/[.05]0 p-6 shadow-2xl"
               initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
             >
               <h3 className="text-base font-semibold text-nada-primary mb-4">Set Mood</h3>
@@ -2786,7 +2793,7 @@ function RelayStatus({ status }: { status: string }): JSX.Element {
         : "Connecting...";
 
   return (
-    <div className="mx-5 mb-2 flex items-center gap-2 rounded-2xl border border-nada-border/8 px-3 py-2 text-xs text-nada-secondary/60" style={{ background: "rgb(17 17 19)" }}>
+    <div className="mx-5 mb-2 flex items-center gap-2 rounded-2xl border border-nada-border/[.08] px-3 py-2 text-xs text-nada-secondary/[.60]" style={{ background: "rgb(var(--nada-surface-elevated))" }}>
       <div className={cn(
         "h-1.5 w-1.5 rounded-full",
         isConnected ? "bg-nada-success animate-pulse" : "bg-nada-danger"
@@ -2896,7 +2903,11 @@ function ChatPanel({
   blurShieldActive,
   blurShieldRevealed,
   onToggleBlurShield,
-  onRevealBlurShield
+  onRevealBlurShield,
+  wallpaperUrl,
+  onSetWallpaper,
+  onSendPoll,
+  onForward
 }: {
   canAttachFile: boolean;
   canCopyGroupInvite: boolean;
@@ -3250,11 +3261,11 @@ function ChatPanel({
 
   if (!contact && !isGroup) {
     return (
-      <section className="hidden flex-1 flex-col items-center justify-center md:flex" style={{ background: "rgb(5 5 5)" }}>
+      <section className="hidden flex-1 flex-col items-center justify-center md:flex" style={{ background: "rgb(var(--nada-bg))" }}>
         <div className="max-w-xs text-center animate-fade-in">
           <div
             className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl text-xl font-black text-black shadow-gold-glow"
-            style={{ background: "linear-gradient(135deg, #F7B928, #8A6318)" }}
+            style={{ background: "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)))" }}
           >
             N
           </div>
@@ -3271,7 +3282,7 @@ function ChatPanel({
     <section 
       className="relative flex min-h-dvh flex-1 flex-col overflow-hidden bg-cover bg-center" 
       style={{ 
-        background: wallpaperUrl ? `url(${wallpaperUrl}) center/cover no-repeat` : "rgb(5 5 5)" 
+        background: wallpaperUrl ? `url(${wallpaperUrl}) center/cover no-repeat` : "rgb(var(--nada-bg))" 
       }}
     >
       {/* Dark overlay for readability if wallpaper is set */}
@@ -3279,8 +3290,8 @@ function ChatPanel({
       
       {/* Chat Header */}
       <header
-        className="z-header relative flex h-16 shrink-0 items-center gap-3 border-b border-nada-border/8 px-4"
-        style={{ background: "rgb(11 11 13)" }}
+        className="z-header relative flex h-16 shrink-0 items-center gap-3 border-b border-nada-border/[.08] px-4"
+        style={{ background: "rgb(var(--nada-surface))" }}
       >
         <IconButton className="md:hidden" label="Back" onClick={onBack}>
           <ArrowLeft size={20} />
@@ -3288,15 +3299,15 @@ function ChatPanel({
         {/* Avatar with online ring */}
         <div className="relative shrink-0">
           <div
-            className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl text-sm font-bold text-nada-secondary/50"
-            style={{ background: "rgb(23 23 23)", boxShadow: "0 0 0 1px rgba(255,255,255,0.06)" }}
+            className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl text-sm font-bold text-nada-secondary/[.50]"
+            style={{ background: "rgb(var(--nada-surface-3))", boxShadow: "0 0 0 1px rgb(var(--nada-border) / 0.06)" }}
           >
             {title.charAt(0).toUpperCase()}
           </div>
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-[15px] font-semibold text-nada-primary" style={{ letterSpacing: "-0.2px" }}>{title}</h2>
-          <p className="truncate text-xs text-nada-secondary/60">{subtitle || "Tap for info"}</p>
+          <p className="truncate text-xs text-nada-secondary/[.60]">{subtitle || "Tap for info"}</p>
         </div>
         {isGroup ? (
           <>
@@ -3351,7 +3362,7 @@ function ChatPanel({
                       setShowOptions(false);
                     }}
                   />
-                  <div className="absolute right-0 top-full z-50 mt-2 w-52 origin-top-right rounded-2xl border border-nada-border/8 py-1 shadow-dark-lg animate-scale-in" style={{ background: "rgb(17 17 19)" }}>
+                  <div className="absolute right-0 top-full z-50 mt-2 w-52 origin-top-right rounded-2xl border border-nada-border/[.08] py-1 shadow-dark-lg animate-scale-in" style={{ background: "rgb(var(--nada-surface-elevated))" }}>
                     <button
                       className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated transition-colors"
                       onClick={() => {
@@ -3398,7 +3409,7 @@ function ChatPanel({
                       <Image size={14} className="text-nada-accent/70" />
                       Set Chat Wallpaper
                     </button>
-                    <div className="my-1 border-t border-nada-border/8" />
+                    <div className="my-1 border-t border-nada-border/[.08]" />
                     <button
                       className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated transition-colors"
                       onClick={() => {
@@ -3409,7 +3420,7 @@ function ChatPanel({
                         }
                       }}
                     >
-                      {blurShieldActive ? <Eye size={14} className="text-nada-accent" /> : <EyeOff size={14} className="text-nada-secondary/50" />}
+                      {blurShieldActive ? <Eye size={14} className="text-nada-accent" /> : <EyeOff size={14} className="text-nada-secondary/[.50]" />}
                       {blurShieldActive ? "Disable privacy shield" : "Enable privacy shield"}
                     </button>
                     <button
@@ -3447,13 +3458,13 @@ function ChatPanel({
 
       {/* Typing indicator */}
       {peerIsTyping && !peerIsBlocked && (
-        <div className="flex items-center gap-2 border-b border-nada-border/8 px-4 py-2 text-xs text-nada-accent/80 animate-fade-in" style={{ background: "rgb(11 11 13)" }}>
+        <div className="flex items-center gap-2 border-b border-nada-border/[.08] px-4 py-2 text-xs text-nada-accent/80 animate-fade-in" style={{ background: "rgb(var(--nada-surface))" }}>
           <span className="flex gap-1">
             <span className="nada-typing-dot" style={{ width: 5, height: 5 }} />
             <span className="nada-typing-dot" style={{ width: 5, height: 5 }} />
             <span className="nada-typing-dot" style={{ width: 5, height: 5 }} />
           </span>
-          <span className="text-nada-secondary/60">{title} is typing…</span>
+          <span className="text-nada-secondary/[.60]">{title} is typing…</span>
         </div>
       )}
 
@@ -3511,7 +3522,7 @@ function ChatPanel({
           <Search size={14} className="text-nada-secondary" />
           <input
             autoFocus
-            className="flex-1 bg-transparent text-sm text-nada-primary outline-none placeholder:text-nada-secondary/60"
+            className="flex-1 bg-transparent text-sm text-nada-primary outline-none placeholder:text-nada-secondary/[.60]"
             onChange={(e) => {
               onMessageSearchChange(e.target.value);
               setChatSearchIdx(0);
@@ -3558,7 +3569,7 @@ function ChatPanel({
       <AnimatePresence>
         {toast && (
           <motion.div
-            className="absolute left-1/2 top-20 z-[100] -translate-x-1/2 rounded-xl bg-nada-surface border border-nada-border/50 px-4 py-2.5 text-sm text-nada-primary shadow-lg"
+            className="absolute left-1/2 top-20 z-[100] -translate-x-1/2 rounded-xl bg-nada-surface border border-nada-border/[.05]0 px-4 py-2.5 text-sm text-nada-primary shadow-lg"
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
@@ -3577,7 +3588,7 @@ function ChatPanel({
           >
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMuteModal(false)} />
             <motion.div
-              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/[.05]0 p-6 shadow-2xl"
               initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
             >
               <h3 className="text-lg font-semibold text-nada-primary mb-4">Mute notifications</h3>
@@ -3620,7 +3631,7 @@ function ChatPanel({
           >
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowClearModal(false)} />
             <motion.div
-              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/[.05]0 p-6 shadow-2xl"
               initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
             >
               <h3 className="text-lg font-semibold text-nada-primary mb-2">Clear chat</h3>
@@ -3659,7 +3670,7 @@ function ChatPanel({
           >
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowBlockModal(false)} />
             <motion.div
-              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/[.05]0 p-6 shadow-2xl"
               initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
             >
               <h3 className="text-lg font-semibold text-nada-primary mb-2">Block user</h3>
@@ -3701,7 +3712,7 @@ function ChatPanel({
             >
               <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setDeleteSheetMessageId(null)} />
               <motion.div
-                className="relative z-10 w-full max-w-lg rounded-t-2xl bg-nada-surface border-t border-nada-border/50 p-2 pb-safe shadow-2xl"
+                className="relative z-10 w-full max-w-lg rounded-t-2xl bg-nada-surface border-t border-nada-border/[.05]0 p-2 pb-safe shadow-2xl"
                 initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
                 transition={{ type: "spring", damping: 30, stiffness: 350 }}
               >
@@ -3753,7 +3764,7 @@ function ChatPanel({
           >
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowWallpaperPrompt(false)} />
             <motion.div
-              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl"
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/[.05]0 p-6 shadow-2xl"
               initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
             >
               <h3 className="text-lg font-semibold text-nada-primary mb-4">Set Chat Wallpaper</h3>
@@ -3774,7 +3785,7 @@ function ChatPanel({
                   name="url"
                   placeholder="https://example.com/image.jpg"
                   defaultValue={wallpaperUrl ?? ""}
-                  className="w-full rounded-xl border border-nada-border/50 bg-black/40 px-3 py-2 text-sm text-nada-primary placeholder-nada-secondary/50 focus:border-nada-accent focus:outline-none mb-4"
+                  className="w-full rounded-xl border border-nada-border/[.05]0 bg-black/40 px-3 py-2 text-sm text-nada-primary placeholder-nada-secondary/50 focus:border-nada-accent focus:outline-none mb-4"
                 />
                 <div className="flex gap-2">
                   <button type="button" onClick={() => { onSetWallpaper(null); setShowWallpaperPrompt(false); showToast("Wallpaper removed."); }} className="flex-1 rounded-xl bg-nada-muted py-2 text-sm text-nada-secondary hover:text-nada-primary transition-colors">Clear</button>
@@ -3795,7 +3806,7 @@ function ChatPanel({
           >
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowPollModal(false)} />
             <motion.div
-              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/50 p-6 shadow-2xl flex flex-col max-h-[80vh]"
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/[.05]0 p-6 shadow-2xl flex flex-col max-h-[80vh]"
               initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
             >
               <h3 className="text-lg font-semibold text-nada-primary mb-4 flex items-center gap-2">
@@ -3830,7 +3841,7 @@ function ChatPanel({
                 <input
                   name="question"
                   placeholder="Ask a question..."
-                  className="w-full rounded-xl border border-nada-border/50 bg-black/40 px-3 py-2 text-sm text-nada-primary placeholder-nada-secondary/50 focus:border-nada-accent focus:outline-none font-medium"
+                  className="w-full rounded-xl border border-nada-border/[.05]0 bg-black/40 px-3 py-2 text-sm text-nada-primary placeholder-nada-secondary/50 focus:border-nada-accent focus:outline-none font-medium"
                   autoFocus
                 />
                 
@@ -3840,13 +3851,13 @@ function ChatPanel({
                       key={i}
                       name={`opt${i}`}
                       placeholder={`Option ${i + 1}${i >= 2 ? ' (optional)' : ''}`}
-                      className="w-full rounded-xl border border-nada-border/50 bg-black/20 px-3 py-2 text-sm text-nada-primary placeholder-nada-secondary/30 focus:border-nada-accent focus:outline-none"
+                      className="w-full rounded-xl border border-nada-border/[.05]0 bg-black/20 px-3 py-2 text-sm text-nada-primary placeholder-nada-secondary/30 focus:border-nada-accent focus:outline-none"
                     />
                   ))}
                 </div>
 
                 <div className="flex items-center gap-2 mt-2 px-1">
-                  <input type="checkbox" id="multipleAnswers" name="multipleAnswers" value="true" className="rounded bg-black/40 border-nada-border/50 text-nada-accent focus:ring-nada-accent focus:ring-offset-nada-surface" />
+                  <input type="checkbox" id="multipleAnswers" name="multipleAnswers" value="true" className="rounded bg-black/40 border-nada-border/[.05]0 text-nada-accent focus:ring-nada-accent focus:ring-offset-nada-surface" />
                   <label htmlFor="multipleAnswers" className="text-xs text-nada-secondary cursor-pointer select-none">Allow multiple answers</label>
                 </div>
 
@@ -3871,7 +3882,7 @@ function ChatPanel({
           >
             <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowProfilePanel(false)} />
             <motion.div
-              className="relative z-10 w-full max-w-sm h-full bg-nada-surface border-l border-nada-border/50 overflow-y-auto"
+              className="relative z-10 w-full max-w-sm h-full bg-nada-surface border-l border-nada-border/[.05]0 overflow-y-auto"
               initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 300 }}
             >
@@ -3955,7 +3966,7 @@ function ChatPanel({
           <label className="flex h-8 items-center gap-2 rounded-lg border border-nada-border bg-nada-surface px-2.5">
             <Search size={13} />
             <input
-              className="w-28 bg-transparent text-2xs text-nada-primary outline-none placeholder:text-nada-secondary/60"
+              className="w-28 bg-transparent text-2xs text-nada-primary outline-none placeholder:text-nada-secondary/[.60]"
               onChange={(event) => {
                 onMessageSearchChange(event.target.value);
               }}
@@ -3971,7 +3982,7 @@ function ChatPanel({
         </div>
       ) : null}
 
-      <div className="relative flex-1 space-y-0.5 overflow-y-auto px-4 py-4 pb-32" style={{ background: wallpaperUrl ? "transparent" : "rgb(5 5 5)" }}>
+      <div className="relative flex-1 space-y-0.5 overflow-y-auto px-4 py-4 pb-32" style={{ background: wallpaperUrl ? "transparent" : "rgb(var(--nada-bg))" }}>
         {blurShieldActive && !blurShieldRevealed && (
           <div className="nada-blur-shield" onClick={onRevealBlurShield}>
             <div className="flex flex-col items-center gap-3 text-center">
@@ -4016,7 +4027,7 @@ function ChatPanel({
               <div key={message.id} ref={(el) => { messageRefs.current[message.id] = el; }}>
                 {showDateSep && (
                   <div className="flex justify-center py-4">
-                    <span className="rounded-full border border-nada-border/8 px-3 py-1 text-[11px] font-medium text-nada-secondary/50" style={{ background: "rgb(17 17 19)" }}>
+                    <span className="rounded-full border border-nada-border/[.08] px-3 py-1 text-[11px] font-medium text-nada-secondary/[.50]" style={{ background: "rgb(var(--nada-surface-elevated))" }}>
                       {new Date(message.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
                     </span>
                   </div>
@@ -4044,7 +4055,7 @@ function ChatPanel({
               {/* Date separator */}
               {showDateSep && (
                 <div className="flex justify-center py-4">
-                  <span className="rounded-full border border-nada-border/8 px-3 py-1 text-[11px] font-medium text-nada-secondary/50" style={{ background: "rgb(17 17 19)" }}>
+                  <span className="rounded-full border border-nada-border/[.08] px-3 py-1 text-[11px] font-medium text-nada-secondary/[.50]" style={{ background: "rgb(var(--nada-surface-elevated))" }}>
                     {new Date(message.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
                   </span>
                 </div>
@@ -4194,7 +4205,7 @@ function ChatPanel({
                       </button>
                       {reactionPickerForId === message.id && (
                         <motion.div
-                          className="absolute -top-10 left-0 flex gap-1 rounded-lg border border-nada-border/50 bg-nada-surface p-1.5 shadow-lg z-20"
+                          className="absolute -top-10 left-0 flex gap-1 rounded-lg border border-nada-border/[.05]0 bg-nada-surface p-1.5 shadow-lg z-20"
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}
                         >
@@ -4316,10 +4327,10 @@ function ChatPanel({
 
       <form
         className={cn(
-          "relative sticky bottom-0 z-header border-t border-nada-border/8 px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]",
+          "relative sticky bottom-0 z-header border-t border-nada-border/[.08] px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]",
           peerIsBlocked && "pointer-events-none opacity-40"
         )}
-        style={{ background: "rgb(11 11 13)" }}
+        style={{ background: "rgb(var(--nada-surface))" }}
         onSubmit={onSend}
       >
         {/* Quick reply chips */}
@@ -4339,7 +4350,7 @@ function ChatPanel({
         )}
 
         {replyMessage ? (
-          <div className="mb-2.5 flex items-center justify-between rounded-xl px-3 py-2 border-l-2 border-nada-accent" style={{ background: "rgba(247, 185, 40, 0.05)" }}>
+          <div className="mb-2.5 flex items-center justify-between rounded-xl px-3 py-2 border-l-2 border-nada-accent" style={{ background: "rgb(var(--nada-accent) / 0.05)" }}>
             <div className="flex flex-col min-w-0 pl-2">
               <span className="text-[10px] font-semibold text-nada-accent uppercase tracking-wider">
                 Replying to {replyMessage.senderPubkeyHash === myPubkeyHash ? "yourself" :
@@ -4349,7 +4360,7 @@ function ChatPanel({
                 {previewForMessage(replyMessage)}
               </span>
             </div>
-            <button className="ml-2 shrink-0 p-1 text-nada-secondary/60 hover:text-white transition-colors rounded-lg" onClick={onCancelReply} type="button">
+            <button className="ml-2 shrink-0 p-1 text-nada-secondary/[.60] hover:text-white transition-colors rounded-lg" onClick={onCancelReply} type="button">
               <X size={14} />
             </button>
           </div>
@@ -4392,7 +4403,7 @@ function ChatPanel({
               />
               <button
                 aria-label="Attach file"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-nada-secondary/50 transition hover:bg-nada-surface-elevated hover:text-nada-secondary disabled:opacity-30"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-nada-secondary/[.50] transition hover:bg-nada-surface-elevated hover:text-nada-secondary disabled:opacity-30"
                 disabled={!canAttachFile || peerIsBlocked}
                 onClick={() => { setAttachmentMenuOpen((current) => !current); }}
                 type="button"
@@ -4410,15 +4421,17 @@ function ChatPanel({
                   }
                   onPickImage={() => openAttachmentPicker("image/*")}
                   onPickVideo={() => openAttachmentPicker("video/*")}
-                  onPickPoll={isGroup ? () => {
-                    setAttachmentMenuOpen(false);
-                    setShowPollModal(true);
-                  } : undefined}
+                  {...(isGroup && {
+                    onPickPoll: () => {
+                      setAttachmentMenuOpen(false);
+                      setShowPollModal(true);
+                    }
+                  })}
                 />
               ) : null}
               <input
-                className="h-11 min-w-0 flex-1 rounded-full border border-nada-border/8 bg-transparent px-4 text-sm text-nada-primary outline-none placeholder:text-nada-secondary/35 focus:border-nada-accent/20 transition-colors disabled:opacity-50"
-                style={{ background: "rgb(17 17 19)" }}
+                className="h-11 min-w-0 flex-1 rounded-full border border-nada-border/[.08] bg-transparent px-4 text-sm text-nada-primary outline-none placeholder:text-nada-secondary/[.35] focus:border-nada-accent/20 transition-colors disabled:opacity-50"
+                style={{ background: "rgb(var(--nada-surface-elevated))" }}
                 disabled={peerIsBlocked}
                 onChange={(event) => {
                   const val = event.target.value;
@@ -4458,7 +4471,7 @@ function ChatPanel({
               {messageText.trim() ? (
                 <button
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-black shadow-gold-glow transition-all duration-150 active:scale-90"
-                  style={{ background: "linear-gradient(135deg, #F7B928, #8A6318)" }}
+                  style={{ background: "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)))" }}
                   type="submit"
                   aria-label="Send message"
                 >
@@ -4468,7 +4481,7 @@ function ChatPanel({
                 <button
                   aria-label="Voice note — hold to record"
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-black shadow-gold-glow transition-all active:scale-90"
-                  style={{ background: "linear-gradient(135deg, #F7B928, #8A6318)" }}
+                  style={{ background: "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)))" }}
                   onPointerDown={startRecording}
                   type="button"
                 >
@@ -4834,7 +4847,7 @@ function MessageTextWithLinks({ text }: { text: string }): JSX.Element {
                 rel="noreferrer"
                 className="mt-1 flex flex-col overflow-hidden rounded-xl bg-black/20 ring-1 ring-nada-border/20 transition hover:bg-black/30 w-[240px]"
               >
-                <div className="flex h-[120px] w-full items-center justify-center bg-nada-muted text-nada-secondary/40">
+                <div className="flex h-[120px] w-full items-center justify-center bg-nada-muted text-nada-secondary/[.40]">
                    <FileText size={32} />
                 </div>
                 <div className="p-2.5">
@@ -4895,7 +4908,7 @@ function AttachmentMenu({
   ];
 
   return (
-    <div className="absolute bottom-16 left-3 z-40 grid w-52 gap-1 rounded-2xl border border-nada-border/50 bg-nada-surface p-2 shadow-xl animate-scale-in">
+    <div className="absolute bottom-16 left-3 z-40 grid w-52 gap-1 rounded-2xl border border-nada-border/[.05]0 bg-nada-surface p-2 shadow-xl animate-scale-in">
       {options.map((option) => (
         <button
           className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-nada-primary transition-colors hover:bg-nada-muted"
@@ -4928,7 +4941,7 @@ function AttachmentPreview({
 }): JSX.Element {
   const name = draft.originalFile.name;
   return (
-    <div className="mb-2 rounded-2xl border border-nada-border/50 bg-nada-muted/70 p-3">
+    <div className="mb-2 rounded-2xl border border-nada-border/[.05]0 bg-nada-muted/70 p-3">
       <div className="flex gap-3">
         <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl bg-nada-surface">
           {draft.kind === "image" && draft.previewUrl ? (
@@ -5057,7 +5070,7 @@ function ContactSheet({
         </IconButton>
       </div>
 
-      <div className="mt-6 border-t border-nada-border/50 pt-5">
+      <div className="mt-6 border-t border-nada-border/[.05]0 pt-5">
         <div className="flex items-center gap-2 text-xs text-nada-secondary">
           <QrCode size={14} />
           Paste an invite link to add a contact
@@ -5288,7 +5301,7 @@ function BillingSheet({
         ))}
       </div>
 
-      <div className="mt-5 border-t border-nada-border/50 pt-5">
+      <div className="mt-5 border-t border-nada-border/[.05]0 pt-5">
         <div className="flex items-center gap-2 text-xs text-nada-secondary">
           <Gift size={14} />
           Referral
@@ -5512,39 +5525,39 @@ function SettingsSheet({
 
       {/* Appearance — Obsidian Gold theme card */}
       <div
-        className="mt-5 rounded-2xl border border-nada-border/8 p-4"
-        style={{ background: "linear-gradient(135deg, rgb(17 17 19), rgb(23 23 23))" }}
+        className="mt-5 rounded-2xl border border-nada-border/[.08] p-4"
+        style={{ background: "linear-gradient(135deg, rgb(var(--nada-surface-elevated)), rgb(var(--nada-surface-3)))" }}
       >
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, #F7B928, #8A6318)" }}>
-            <span className="text-sm font-black text-black">N</span>
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl overflow-hidden" style={{ background: "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)))" }}>
+            <img src="/logo.png" alt="NADA Logo" className="h-full w-full object-cover" />
           </div>
           <div>
             <p className="text-sm font-semibold text-nada-primary">Obsidian Gold</p>
-            <p className="text-xs text-nada-secondary/60">Dark mode · Premium theme</p>
+            <p className="text-xs text-nada-secondary/[.60]">Dark mode · Premium theme</p>
           </div>
           <div className="ml-auto flex gap-1.5">
-            <div className="h-4 w-4 rounded-full" style={{ background: "#050505", border: "1px solid rgba(255,255,255,0.1)" }} />
-            <div className="h-4 w-4 rounded-full" style={{ background: "#F7B928" }} />
-            <div className="h-4 w-4 rounded-full" style={{ background: "#8A6318" }} />
+            <div className="h-4 w-4 rounded-full" style={{ background: "rgb(var(--nada-bg))", border: "1px solid rgb(var(--nada-border) / 0.1)" }} />
+            <div className="h-4 w-4 rounded-full" style={{ background: "rgb(var(--nada-accent))" }} />
+            <div className="h-4 w-4 rounded-full" style={{ background: "rgb(var(--nada-gold-dark))" }} />
           </div>
         </div>
       </div>
 
       {/* Account info */}
       <div className="mt-5 space-y-1">
-        <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/40">Account</p>
-        <div className="rounded-2xl border border-nada-border/8 overflow-hidden" style={{ background: "rgb(11 11 13)" }}>
-          <div className="flex items-center justify-between border-b border-nada-border/8 px-4 py-3">
-            <span className="text-xs text-nada-secondary/60">Pubkey hash</span>
-            <span className="max-w-[140px] truncate font-mono text-xs text-nada-secondary/80">{identity.pubkeyHash.slice(0, 20)}…</span>
+        <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/[.40]">Account</p>
+        <div className="rounded-2xl border border-nada-border/[.08] overflow-hidden" style={{ background: "rgb(var(--nada-surface))" }}>
+          <div className="flex items-center justify-between border-b border-nada-border/[.08] px-4 py-3">
+            <span className="text-xs text-nada-secondary/[.60]">Pubkey hash</span>
+            <span className="max-w-[140px] truncate font-mono text-xs text-nada-secondary/[.80]">{identity.pubkeyHash.slice(0, 20)}…</span>
           </div>
-          <div className="flex items-center justify-between border-b border-nada-border/8 px-4 py-3">
-            <span className="text-xs text-nada-secondary/60">Seed backup</span>
-            <span className="text-xs text-nada-secondary/80">{identity.seedBackupStatus}</span>
+          <div className="flex items-center justify-between border-b border-nada-border/[.08] px-4 py-3">
+            <span className="text-xs text-nada-secondary/[.60]">Seed backup</span>
+            <span className="text-xs text-nada-secondary/[.80]">{identity.seedBackupStatus}</span>
           </div>
           <div className="flex items-center justify-between px-4 py-3">
-            <span className="text-xs text-nada-secondary/60">Plan</span>
+            <span className="text-xs text-nada-secondary/[.60]">Plan</span>
             <span className="text-xs text-nada-accent font-semibold">Free</span>
           </div>
         </div>
@@ -5552,22 +5565,22 @@ function SettingsSheet({
 
       {/* Privacy section */}
       <div className="mt-5">
-        <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/40">Privacy</p>
-        <div className="rounded-2xl border border-nada-border/8 overflow-hidden" style={{ background: "rgb(11 11 13)" }}>
+        <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/[.40]">Privacy</p>
+        <div className="rounded-2xl border border-nada-border/[.08] overflow-hidden" style={{ background: "rgb(var(--nada-surface))" }}>
           <button
-            className="flex w-full items-center justify-between border-b border-nada-border/8 px-4 py-3.5 text-left hover:bg-nada-surface-elevated transition-colors"
+            className="flex w-full items-center justify-between border-b border-nada-border/[.08] px-4 py-3.5 text-left hover:bg-nada-surface-elevated transition-colors"
             onClick={onOpenGhostModal}
           >
             <div className="flex items-center gap-3">
               <Ghost size={15} className="text-nada-accent/70" />
               <div>
                 <p className="text-sm font-medium text-nada-primary">Ghost Mode</p>
-                <p className="text-xs text-nada-secondary/50">Hide typing &amp; online status</p>
+                <p className="text-xs text-nada-secondary/[.50]">Hide typing &amp; online status</p>
               </div>
             </div>
             <span className={cn(
               "rounded-full px-2.5 py-0.5 text-[10px] font-bold",
-              ghostMode ? "bg-nada-accent/15 text-nada-accent" : "bg-nada-surface-elevated text-nada-secondary/50"
+              ghostMode ? "bg-nada-accent/15 text-nada-accent" : "bg-nada-surface-elevated text-nada-secondary/[.50]"
             )}>
               {ghostMode ? "ON" : "OFF"}
             </span>
@@ -5580,10 +5593,10 @@ function SettingsSheet({
               <Flame size={15} className="text-nada-accent/70" />
               <div>
                 <p className="text-sm font-medium text-nada-primary">Mood Status</p>
-                <p className="text-xs text-nada-secondary/50">Visible to yourself</p>
+                <p className="text-xs text-nada-secondary/[.50]">Visible to yourself</p>
               </div>
             </div>
-            <span className="rounded-full bg-nada-surface-elevated px-2.5 py-0.5 text-[10px] font-medium text-nada-secondary/60">
+            <span className="rounded-full bg-nada-surface-elevated px-2.5 py-0.5 text-[10px] font-medium text-nada-secondary/[.60]">
               {mood}
             </span>
           </button>
@@ -5592,23 +5605,23 @@ function SettingsSheet({
 
       {/* Actions */}
       <div className="mt-5 space-y-1">
-        <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/40">More</p>
-        <div className="rounded-2xl border border-nada-border/8 overflow-hidden" style={{ background: "rgb(11 11 13)" }}>
+        <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/[.40]">More</p>
+        <div className="rounded-2xl border border-nada-border/[.08] overflow-hidden" style={{ background: "rgb(var(--nada-surface))" }}>
           <button
-            className="flex w-full items-center gap-3 border-b border-nada-border/8 px-4 py-3.5 text-sm text-nada-primary hover:bg-nada-surface-elevated transition-colors"
+            className="flex w-full items-center gap-3 border-b border-nada-border/[.08] px-4 py-3.5 text-sm text-nada-primary hover:bg-nada-surface-elevated transition-colors"
             onClick={onOpenBilling}
           >
             <CreditCard size={15} className="text-nada-accent/70" />
             Plans &amp; Billing
-            <ChevronDown size={14} className="ml-auto rotate-[-90deg] text-nada-secondary/30" />
+            <ChevronDown size={14} className="ml-auto rotate-[-90deg] text-nada-secondary/[.30]" />
           </button>
           <button
-            className="flex w-full items-center gap-3 border-b border-nada-border/8 px-4 py-3.5 text-sm text-nada-primary hover:bg-nada-surface-elevated transition-colors"
+            className="flex w-full items-center gap-3 border-b border-nada-border/[.08] px-4 py-3.5 text-sm text-nada-primary hover:bg-nada-surface-elevated transition-colors"
             onClick={onOpenShare}
           >
             <Share2 size={15} className="text-nada-accent/70" />
             Share invite card
-            <ChevronDown size={14} className="ml-auto rotate-[-90deg] text-nada-secondary/30" />
+            <ChevronDown size={14} className="ml-auto rotate-[-90deg] text-nada-secondary/[.30]" />
           </button>
           <button
             className="flex w-full items-center gap-3 px-4 py-3.5 text-sm text-nada-primary hover:bg-nada-surface-elevated transition-colors"
@@ -5616,12 +5629,12 @@ function SettingsSheet({
           >
             <Download size={15} className="text-nada-accent/70" />
             Group migration
-            <ChevronDown size={14} className="ml-auto rotate-[-90deg] text-nada-secondary/30" />
+            <ChevronDown size={14} className="ml-auto rotate-[-90deg] text-nada-secondary/[.30]" />
           </button>
         </div>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-nada-border/8 p-4 text-sm text-nada-secondary/60" style={{ background: "rgb(11 11 13)" }}>
+      <div className="mt-5 rounded-2xl border border-nada-border/[.08] p-4 text-sm text-nada-secondary/[.60]" style={{ background: "rgb(var(--nada-surface))" }}>
         <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-nada-primary/80">
           <ShieldAlert size={15} className="text-nada-accent/60" />
           IP anonymity notice
@@ -5748,13 +5761,13 @@ function StatusView({
   
   const grouped = otherStatuses.reduce((acc, s) => {
     if (!acc[s.senderPubkeyHash]) acc[s.senderPubkeyHash] = [];
-    acc[s.senderPubkeyHash].push(s);
+    acc[s.senderPubkeyHash]!.push(s);
     return acc;
   }, {} as Record<string, MessageRecord[]>);
 
   return (
     <div className="flex flex-col h-full overflow-y-auto pb-20">
-      <div className="px-5 py-4 border-b border-nada-border/5">
+      <div className="px-5 py-4 border-b border-nada-border/[.05]">
         <h2 className="text-xl font-bold text-nada-primary">Status</h2>
       </div>
 
@@ -5769,7 +5782,7 @@ function StatusView({
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-nada-primary">My Status</h3>
-          <p className="text-sm text-nada-secondary/60 truncate">
+          <p className="text-sm text-nada-secondary/[.60] truncate">
             {myStatuses.length > 0 ? "Tap to view updates" : "Tap to add status update"}
           </p>
         </div>
@@ -5782,11 +5795,11 @@ function StatusView({
 
       {Object.entries(grouped).length > 0 && (
         <div className="mt-4">
-          <p className="px-5 py-2 text-[11px] font-bold uppercase tracking-wider text-nada-secondary/40">Recent updates</p>
+          <p className="px-5 py-2 text-[11px] font-bold uppercase tracking-wider text-nada-secondary/[.40]">Recent updates</p>
           {Object.entries(grouped).map(([hash, list]) => {
             const contact = contacts.find(c => c.pubkeyHash === hash);
             const name = contact?.localDisplayName || hash.slice(0, 8);
-            const latest = list[0];
+            const latest = list[0]!;
             return (
               <div key={hash} className="px-5 py-3 flex items-center gap-4 hover:bg-nada-surface-elevated/30 cursor-pointer" onClick={() => onViewStatus(hash)}>
                 <div className="h-14 w-14 rounded-2xl border-2 border-nada-accent p-0.5">
@@ -5796,7 +5809,7 @@ function StatusView({
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-nada-primary">{name}</h3>
-                  <p className="text-sm text-nada-secondary/60 truncate">
+                  <p className="text-sm text-nada-secondary/[.60] truncate">
                     {formatRelativeTime(latest.createdAt)}
                   </p>
                 </div>

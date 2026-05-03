@@ -127,7 +127,6 @@ export async function getChatPref(chatId: string): Promise<ChatPrefRecord> {
     blockedPubkeyHashes: [],
     pinnedMessageId: null,
     pinnedMessageBody: null,
-    wallpaperUrl: undefined,
     updatedAt: 0
   };
 }

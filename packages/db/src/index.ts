@@ -98,7 +98,7 @@ export const CallRecordSchema = z.object({
   id: z.string().min(1).max(128),
   chatId: z.string().min(1),
   peerPubkeyHash: PubkeyHashSchema.optional(),
-  mode: z.enum(["voice", "video"]),
+  mode: z.enum(["voice", "video", "group"]),
   status: z.enum(["idle", "ringing", "connecting", "active", "ended", "failed"]),
   startedAt: z.number().int().positive(),
   endedAt: z.number().int().positive().optional()

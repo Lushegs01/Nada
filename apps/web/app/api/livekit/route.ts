@@ -12,8 +12,8 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const apiKey = process.env.LIVEKIT_API_KEY;
-  const apiSecret = process.env.LIVEKIT_API_SECRET;
+  const apiKey = process.env['LIVEKIT_API_KEY'];
+  const apiSecret = process.env['LIVEKIT_API_SECRET'];
 
   if (!apiKey || !apiSecret) {
     // Return a mock token for development if no keys are provided

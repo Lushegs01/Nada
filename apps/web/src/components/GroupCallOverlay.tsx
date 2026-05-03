@@ -32,7 +32,7 @@ export function GroupCallOverlay() {
 
   if (!call || call.mode !== "group") return null;
 
-  const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
+  const serverUrl = process.env['NEXT_PUBLIC_LIVEKIT_URL'];
 
   if (!serverUrl || token === "mock-token-please-set-livekit-keys") {
     return (

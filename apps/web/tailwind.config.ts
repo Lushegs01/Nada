@@ -67,7 +67,7 @@ const config = {
         surface: "rgb(var(--nada-surface) / <alpha-value>)"
       },
       fontFamily: {
-        sans: ["'Inter'", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "system-ui", "sans-serif"]
+        sans: ["'Be Vietnam Pro'", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "system-ui", "sans-serif"]
       },
       fontSize: {
         "2xs": ["10px", { lineHeight: "1.4" }],

@@ -85,5 +85,5 @@ export async function decryptEncryptedFileBytes({
     key,
     base64ToBytes(encryptedBlobBase64)
   );
-  return new Uint8Array(plaintext);
+  return new Uint8Array(plaintext as ArrayBuffer);
 }
