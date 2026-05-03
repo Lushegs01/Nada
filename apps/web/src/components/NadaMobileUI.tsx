@@ -273,10 +273,19 @@ const NadaLogoMark = ({ size = 28 }: { size?: number }) => (
 /* ─────────────────────────────────────────────────────────────
    Mobile Header — VANTA style
    ───────────────────────────────────────────────────────────── */
+const TAB_TITLES: Record<string, string> = {
+  chats: "Inbox",
+  status: "Status",
+  communities: "Groups",
+  settings: "Settings"
+};
+
 export const MobileHeader = ({
+  activeTab = "chats",
   onComposeClick
 }: {
   displayName: string;
+  activeTab?: string;
   onCameraClick: () => void;
   onMoreClick: () => void;
   onComposeClick?: () => void;
@@ -291,7 +300,7 @@ export const MobileHeader = ({
 
     <div className="pt-4">
       <h1 className="text-[28px] font-bold tracking-tight text-nada-primary" style={{ letterSpacing: "-0.5px" }}>
-        Inbox
+        {TAB_TITLES[activeTab] ?? "Inbox"}
       </h1>
     </div>
 
@@ -330,6 +339,7 @@ export const MobileChatsHome = ({
   onTabChange: (tab: string) => void;
   headerProps: {
     displayName: string;
+    activeTab?: string;
     onCameraClick: () => void;
     onMoreClick: () => void;
   };
@@ -337,6 +347,7 @@ export const MobileChatsHome = ({
   <div className="flex h-full flex-col overflow-hidden" style={{ background: "rgb(var(--nada-bg))" }}>
     <MobileHeader
       {...headerProps}
+      activeTab={headerProps.activeTab ?? activeTab}
       onComposeClick={onComposeClick}
     />
     <SearchBar value={searchQuery} onChange={onSearchChange} />

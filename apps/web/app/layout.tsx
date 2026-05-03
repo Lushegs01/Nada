@@ -32,8 +32,8 @@ export default function RootLayout({
   children
 }: Readonly<{ children: ReactNode }>): JSX.Element {
   return (
-    <html lang="en" className={`${inter.variable} dark`}>
-      <body className="bg-nada-bg text-nada-primary antialiased font-sans">
+    <html lang="en" className={`${inter.variable} dark`} suppressHydrationWarning>
+      <body className="bg-nada-bg text-nada-primary antialiased font-sans" suppressHydrationWarning>
         {children}
       </body>
     </html>

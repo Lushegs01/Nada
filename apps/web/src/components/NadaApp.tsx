@@ -457,6 +457,18 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
   const [inAppNotification, setInAppNotification] = useState<{ id: string; title: string; body: string; chatId: string } | null>(null);
+
+  useEffect(() => {
+    if (!showGhostModal && !showMoodModal && !forwardMessageId) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (showGhostModal) setShowGhostModal(false);
+      else if (showMoodModal) setShowMoodModal(false);
+      else if (forwardMessageId) setForwardMessageId(null);
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [showGhostModal, showMoodModal, forwardMessageId]);
   const [allStatuses, setAllStatuses] = useState<MessageRecord[]>([]);
   const [selectedStatusSenderHash, setSelectedStatusSenderHash] = useState<string | null>(null);
 
@@ -2102,9 +2114,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           unreadTotal={totalUnreadCount}
           onComposeClick={() => setPanel("contacts")}
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={(tab) => {
+            setActiveTab(tab);
+            setPanel(null);
+            setShowGhostModal(false);
+            setShowMoodModal(false);
+          }}
           headerProps={{
             displayName: displayName,
+            activeTab: activeTab,
             onCameraClick: () => setPanel("status_create" as Panel),
             onMoreClick: () => setPanel("settings")
           }}
@@ -2344,6 +2362,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             onClose={() => {
               setPanel(null);
             }}
+            onNotify={showToast}
             onContactAdded={(contact) => {
               setContacts((current) => [contact, ...current]);
               setSelectedContactHash(contact.pubkeyHash);
@@ -2419,8 +2438,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             }}
             displayName={displayName}
             onDisplayNameChange={async (name) => {
-              setDisplayName(name);
-              await nadaDb.settings.put({ key: "displayName", value: name, updatedAt: Date.now() });
+              try {
+                setDisplayName(name);
+                await nadaDb.settings.put({ key: "displayName", value: name, updatedAt: Date.now() });
+                showToast("Display name updated.");
+              } catch {
+                showToast("Couldn't save display name. Please try again.");
+              }
             }}
           />
         ) : null}
@@ -2883,6 +2907,38 @@ function ChatPanel({
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [deleteSheetMessageId, setDeleteSheetMessageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const anyOpen =
+      showWallpaperPrompt ||
+      showPollModal ||
+      showMuteModal ||
+      showClearModal ||
+      showBlockModal ||
+      showProfilePanel ||
+      deleteSheetMessageId !== null;
+    if (!anyOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (showWallpaperPrompt) setShowWallpaperPrompt(false);
+      else if (showPollModal) setShowPollModal(false);
+      else if (showMuteModal) setShowMuteModal(false);
+      else if (showClearModal) setShowClearModal(false);
+      else if (showBlockModal) setShowBlockModal(false);
+      else if (showProfilePanel) setShowProfilePanel(false);
+      else if (deleteSheetMessageId !== null) setDeleteSheetMessageId(null);
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [
+    showWallpaperPrompt,
+    showPollModal,
+    showMuteModal,
+    showClearModal,
+    showBlockModal,
+    showProfilePanel,
+    deleteSheetMessageId
+  ]);
   const [chatSearchActive, setChatSearchActive] = useState(false);
   const [chatSearchIdx, setChatSearchIdx] = useState(0);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
@@ -4916,14 +4972,17 @@ function AttachmentPreview({
 function ContactSheet({
   identity,
   onClose,
-  onContactAdded
+  onContactAdded,
+  onNotify
 }: {
   identity: IdentityRecord;
   onClose: () => void;
   onContactAdded: (contact: ContactRecord) => void;
+  onNotify?: (msg: string) => void;
 }): JSX.Element {
   const [inviteUrl, setInviteUrl] = useState("");
   const [pasteValue, setPasteValue] = useState("");
+  const [feedback, setFeedback] = useState<{ kind: "error" | "success"; text: string } | null>(null);
   const ownInvite = useMemo<InvitePayload>(
     () => ({
       version: 1,
@@ -4945,13 +5004,24 @@ function ContactSheet({
   }, [ownInvite]);
 
   const addContact = async (): Promise<void> => {
+    setFeedback(null);
     const payload = parseInviteInput(pasteValue);
-    if (!payload || payload.pubkeyHash === identity.pubkeyHash) {
+    if (!payload) {
+      setFeedback({ kind: "error", text: "That invite link doesn't look right. Paste the full URL." });
+      return;
+    }
+    if (payload.pubkeyHash === identity.pubkeyHash) {
+      setFeedback({ kind: "error", text: "That's your own invite link." });
       return;
     }
 
-    const contact = await upsertContact(payload);
-    onContactAdded(contact);
+    try {
+      const contact = await upsertContact(payload);
+      onNotify?.(`Added ${contact.localDisplayName}.`);
+      onContactAdded(contact);
+    } catch {
+      setFeedback({ kind: "error", text: "Couldn't save contact. Please try again." });
+    }
   };
 
   return (
@@ -4963,16 +5033,24 @@ function ContactSheet({
         </IconButton>
       </div>
 
-      <div className="mt-5 grid place-items-center rounded-2xl bg-white p-5 shadow-sm">
-        {inviteUrl ? (
-          <QRCodeSVG
-            bgColor="#FFFFFF"
-            fgColor="#0A0A0F"
-            level="M"
-            size={184}
-            value={inviteUrl}
-          />
-        ) : null}
+      <div
+        className="mt-5 rounded-2xl border border-nada-accent/30 p-1.5"
+        style={{
+          background:
+            "linear-gradient(135deg, rgb(var(--nada-accent) / 0.18), rgb(var(--nada-surface-elevated)))"
+        }}
+      >
+        <div className="grid place-items-center rounded-xl bg-[#F8F4E6] p-5">
+          {inviteUrl ? (
+            <QRCodeSVG
+              bgColor="#F8F4E6"
+              fgColor="#0A0A0F"
+              level="M"
+              size={184}
+              value={inviteUrl}
+            />
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-4 flex gap-2">
@@ -4986,6 +5064,7 @@ function ContactSheet({
           onClick={() => {
             if (inviteUrl) {
               void navigator.clipboard.writeText(inviteUrl);
+              onNotify?.("Invite link copied.");
             }
           }}
         >
@@ -5002,10 +5081,22 @@ function ContactSheet({
           className="nada-input mt-3 min-h-24 w-full resize-none p-3 text-sm"
           onChange={(event) => {
             setPasteValue(event.target.value);
+            if (feedback) setFeedback(null);
           }}
           placeholder="Paste invite link..."
           value={pasteValue}
         />
+        {feedback ? (
+          <p
+            role={feedback.kind === "error" ? "alert" : "status"}
+            className={cn(
+              "mt-2 text-xs",
+              feedback.kind === "error" ? "text-red-400" : "text-emerald-400"
+            )}
+          >
+            {feedback.text}
+          </p>
+        ) : null}
         <Button className="mt-3 w-full" onClick={() => void addContact()}>
           Save contact
         </Button>
@@ -5479,18 +5570,21 @@ function SettingsSheet({
         <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/[.40]">Profile</p>
         <div className="rounded-2xl border border-nada-border/[.08] overflow-hidden" style={{ background: "rgb(var(--nada-surface))" }}>
           <div className="flex items-center justify-between border-b border-nada-border/[.08] px-4 py-3.5">
-            <div className="flex flex-col">
+            <div className="flex flex-1 flex-col">
               <span className="text-xs text-nada-secondary/[.60]">Display Name</span>
               {isEditingName ? (
                 <input
                   autoFocus
-                  className="mt-1 bg-transparent text-sm font-semibold text-nada-primary outline-none"
+                  className="mt-1 w-full rounded-md border-b border-nada-accent/60 bg-transparent text-sm font-semibold text-nada-primary outline-none focus:border-nada-accent"
                   value={tempName}
                   onChange={(e) => setTempName(e.target.value)}
+                  onFocus={(e) => e.currentTarget.select()}
                   onBlur={() => {
                     setIsEditingName(false);
                     if (tempName.trim() && tempName !== displayName) {
                       onDisplayNameChange(tempName.trim());
+                    } else if (!tempName.trim()) {
+                      setTempName(displayName);
                     }
                   }}
                   onKeyDown={(e) => {
@@ -5502,12 +5596,33 @@ function SettingsSheet({
                   }}
                 />
               ) : (
-                <span className="text-sm font-semibold text-nada-primary">{displayName}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempName(displayName);
+                    setIsEditingName(true);
+                  }}
+                  className="mt-0.5 cursor-text text-left text-sm font-semibold text-nada-primary hover:text-nada-accent transition-colors"
+                >
+                  {displayName}
+                </button>
               )}
             </div>
-            <button 
-              onClick={() => setIsEditingName(!isEditingName)}
-              className="p-2 text-nada-accent/70 hover:text-nada-accent transition-colors"
+            <button
+              type="button"
+              aria-label={isEditingName ? "Save display name" : "Edit display name"}
+              onClick={() => {
+                if (isEditingName) {
+                  setIsEditingName(false);
+                  if (tempName.trim() && tempName !== displayName) {
+                    onDisplayNameChange(tempName.trim());
+                  }
+                } else {
+                  setTempName(displayName);
+                  setIsEditingName(true);
+                }
+              }}
+              className="ml-2 p-2 text-nada-accent/70 hover:text-nada-accent transition-colors"
             >
               <Edit3 size={16} />
             </button>
