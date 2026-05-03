@@ -9,6 +9,7 @@ import {
   type FormEvent,
   type ReactNode
 } from "react";
+import Dexie from "dexie";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
