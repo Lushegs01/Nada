@@ -10,6 +10,10 @@ export const metadata: Metadata = {
   title: {
     default: "NADA",
     template: "%s · NADA"
+  },
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png"
   }
 };
 

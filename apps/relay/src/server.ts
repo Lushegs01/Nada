@@ -68,6 +68,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
 
   app.get("/ws", { websocket: true }, (connection, request) => {
     if (!isOriginAllowed(request.headers.origin, env.allowedOrigin)) {
+      app.log.warn({ origin: request.headers.origin, allowed: env.allowedOrigin }, "WebSocket origin not allowed");
       connection.socket.close(1008, "Origin not allowed");
       return;
     }

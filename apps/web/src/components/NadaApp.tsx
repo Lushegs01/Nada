@@ -345,10 +345,10 @@ function Onboarding({
   return (
     <section className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-6 py-12" style={{ background: "rgb(var(--nada-bg))" }}>
       <div
-        className="mb-6 grid h-14 w-14 place-items-center rounded-2xl text-lg font-black text-black shadow-gold-glow animate-scale-in"
+        className="mb-6 grid h-14 w-14 place-items-center rounded-2xl text-lg font-black text-black shadow-gold-glow animate-scale-in overflow-hidden"
         style={{ background: "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)))" }}
       >
-        N
+        <img src="/logo.png" alt="NADA Logo" className="h-full w-full object-cover" />
       </div>
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-nada-accent">
         NADA
@@ -552,18 +552,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     () => messages.find((message) => message.id === editingMessageId) ?? null,
     [editingMessageId, messages]
   );
-  const visibleMessages = useMemo(
-    () =>
-      messages.filter((message) =>
-        message.createdAt > chatPref.clearedAt &&
-        matchesSearch(
-          `${previewForMessage(message)} ${message.status} ${
-            message.mentions?.join(" ") ?? ""
-          }`,
-          messageSearchQuery
-        )
-      ),
-    [messageSearchQuery, messages, chatPref.clearedAt]
+  const chatMessages = useMemo(
+    () => messages.filter((message) => message.createdAt > chatPref.clearedAt),
+    [messages, chatPref.clearedAt]
   );
 
   const peerIsBlocked = useMemo(
@@ -2023,7 +2014,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const alreadyPinned = chatPref.pinnedMessageId === message.id;
     await setChatPref(selectedChatId, {
       pinnedMessageId: alreadyPinned ? null : message.id,
-      pinnedMessageBody: alreadyPinned ? null : (message.deletedAt ? "Deleted message" : message.body.slice(0, 120))
+      pinnedMessageBody: alreadyPinned ? null : previewForMessage(message).slice(0, 120)
     });
     setChatPrefState(await getChatPref(selectedChatId));
   };
@@ -2143,6 +2134,19 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
               onPostStatus={() => setPanel("status_create" as any)}
               onViewStatus={(hash) => setSelectedStatusSenderHash(hash)}
             />
+          ) : activeTab === "settings" ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center px-6 animate-fade-in">
+              <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-3xl border border-nada-border/[.08]" style={{ background: "rgb(var(--nada-surface-elevated))" }}>
+                <Settings className="h-9 w-9 text-nada-secondary/[.20]" />
+              </div>
+              <h3 className="mb-2 text-base font-bold text-nada-primary">Settings</h3>
+              <p className="mb-8 text-sm leading-relaxed text-nada-secondary/[.60]">
+                Configure your account, privacy, and appearance.
+              </p>
+              <button className="nada-btn-gold px-6 py-3 text-sm font-bold" onClick={() => setPanel("settings")}>
+                Open Settings
+              </button>
+            </div>
           ) : (
           <div className="flex flex-col">
             <RelayStatus status={relayStatus} />
@@ -2180,7 +2184,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                       />
                     );
                   })}
-                {contacts
+                {activeTab !== "communities" && contacts
                   .filter((contact) => {
                     if (activeFilter === "groups") return false;
                     const chatId = directChatId(identity.pubkeyHash, contact.pubkeyHash);
@@ -2262,7 +2266,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         isGroup={Boolean(selectedGroup)}
         messageSearchQuery={messageSearchQuery}
         messageText={messageText}
-        messages={visibleMessages}
+        messages={chatMessages}
         onBack={() => {
           setSelectedContactHash(null);
           setSelectedGroupId(null);
@@ -2461,6 +2465,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             mood={mood}
             onClose={() => {
               setPanel(null);
+            }}
+            displayName={displayName}
+            onDisplayNameChange={async (name) => {
+              setDisplayName(name);
+              await nadaDb.settings.put({ key: "displayName", value: name, updatedAt: Date.now() });
             }}
           />
         ) : null}
@@ -3051,6 +3060,24 @@ function ChatPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
+  // Handle chat search scrolling
+  useEffect(() => {
+    if (chatSearchActive && searchMatchIds.length > 0) {
+      const matchId = searchMatchIds[chatSearchIdx];
+      if (matchId) {
+        const el = messageRefs.current[matchId];
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          // Subtle highlight animation
+          el.animate([
+            { backgroundColor: 'rgba(var(--nada-accent), 0.2)' },
+            { backgroundColor: 'transparent' }
+          ], { duration: 2000 });
+        }
+      }
+    }
+  }, [chatSearchIdx, searchMatchIds, chatSearchActive]);
+
   useEffect(() => {
     return () => {
       // Cleanup any active recordings when the chat panel unmounts
@@ -3264,10 +3291,10 @@ function ChatPanel({
       <section className="hidden flex-1 flex-col items-center justify-center md:flex" style={{ background: "rgb(var(--nada-bg))" }}>
         <div className="max-w-xs text-center animate-fade-in">
           <div
-            className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl text-xl font-black text-black shadow-gold-glow"
+            className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl overflow-hidden shadow-gold-glow"
             style={{ background: "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)))" }}
           >
-            N
+            <img src="/logo.png" alt="NADA Logo" className="h-full w-full object-cover" />
           </div>
           <h2 className="text-lg font-bold text-nada-primary">NADA</h2>
           <p className="mt-2 text-sm text-nada-secondary/70 leading-relaxed">
@@ -5502,7 +5529,9 @@ function SettingsSheet({
   onOpenMoodModal,
   ghostMode,
   mood,
-  onClose
+  onClose,
+  displayName,
+  onDisplayNameChange
 }: {
   identity: IdentityRecord;
   onOpenBilling: () => void;
@@ -5513,7 +5542,12 @@ function SettingsSheet({
   ghostMode: boolean;
   mood: string;
   onClose: () => void;
+  displayName: string;
+  onDisplayNameChange: (name: string) => void;
 }): JSX.Element {
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState(displayName);
+
   return (
     <Sheet onClose={onClose}>
       <div className="flex items-center justify-between">
@@ -5540,6 +5574,47 @@ function SettingsSheet({
             <div className="h-4 w-4 rounded-full" style={{ background: "rgb(var(--nada-bg))", border: "1px solid rgb(var(--nada-border) / 0.1)" }} />
             <div className="h-4 w-4 rounded-full" style={{ background: "rgb(var(--nada-accent))" }} />
             <div className="h-4 w-4 rounded-full" style={{ background: "rgb(var(--nada-gold-dark))" }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Account info */}
+      <div className="mt-5 space-y-1">
+        <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/[.40]">Profile</p>
+        <div className="rounded-2xl border border-nada-border/[.08] overflow-hidden" style={{ background: "rgb(var(--nada-surface))" }}>
+          <div className="flex items-center justify-between border-b border-nada-border/[.08] px-4 py-3.5">
+            <div className="flex flex-col">
+              <span className="text-xs text-nada-secondary/[.60]">Display Name</span>
+              {isEditingName ? (
+                <input
+                  autoFocus
+                  className="mt-1 bg-transparent text-sm font-semibold text-nada-primary outline-none"
+                  value={tempName}
+                  onChange={(e) => setTempName(e.target.value)}
+                  onBlur={() => {
+                    setIsEditingName(false);
+                    if (tempName.trim() && tempName !== displayName) {
+                      onDisplayNameChange(tempName.trim());
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Escape") {
+                      setTempName(displayName);
+                      setIsEditingName(false);
+                    }
+                  }}
+                />
+              ) : (
+                <span className="text-sm font-semibold text-nada-primary">{displayName}</span>
+              )}
+            </div>
+            <button 
+              onClick={() => setIsEditingName(!isEditingName)}
+              className="p-2 text-nada-accent/70 hover:text-nada-accent transition-colors"
+            >
+              <Edit3 size={16} />
+            </button>
           </div>
         </div>
       </div>
@@ -5668,6 +5743,14 @@ function Sheet({
   children: ReactNode;
   onClose: () => void;
 }): JSX.Element {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
     <motion.div
       animate={{ opacity: 1 }}
@@ -5834,6 +5917,14 @@ function StatusCreateSheet({
   const [text, setText] = useState("");
   const [isPosting, setIsPosting] = useState(false);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
     <motion.div
       className="fixed inset-0 z-[1000] flex flex-col bg-black md:relative md:inset-auto md:h-full md:w-full"
@@ -5893,6 +5984,14 @@ function StatusViewerSheet({
     }, 5000);
     return () => clearTimeout(timer);
   }, [currentIndex, statuses.length, onClose]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   if (!currentStatus) return null;
 

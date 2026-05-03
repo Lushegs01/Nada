@@ -1,0 +1,42 @@
+
+> relay@0.1.0 lint C:\Users\USER\Documents\New project 3\apps\relay
+> eslint src --ext .ts
+
+
+C:\Users\USER\Documents\New project 3\apps\relay\src\index.ts
+  5:3  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+
+C:\Users\USER\Documents\New project 3\apps\relay\src\monetization-repository.ts
+  195:5  error  '_pubkeyHash' is defined but never used    @typescript-eslint/no-unused-vars
+  196:5  error  '_referralCode' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\USER\Documents\New project 3\apps\relay\src\monetization-routes.ts
+  300:49  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  301:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Documents\New project 3\apps\relay\src\push-routes.ts
+  68:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Documents\New project 3\apps\relay\src\server.ts
+   38:40  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   46:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   51:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   55:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   56:43  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   57:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   58:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   82:16  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   91:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   99:8   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  155:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  217:18  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  252:20  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  291:20  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  390:18  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Documents\New project 3\apps\relay\src\upload-routes.ts
+  60:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 22 problems (22 errors, 0 warnings)
+
+ ELIFECYCLE  Command failed with exit code 1.

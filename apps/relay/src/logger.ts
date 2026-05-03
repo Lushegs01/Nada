@@ -13,7 +13,7 @@ export function createLoggerOption(env: RelayEnv): FastifyServerOptions["logger"
       censor: "[redacted]",
       paths: [
         "req.headers.authorization",
-        "req.headers.stripe-signature",
+        "req.headers['stripe-signature']",
         "req.headers.cookie",
         "req.headers.origin",
         "req.ip",

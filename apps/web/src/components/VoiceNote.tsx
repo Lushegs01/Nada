@@ -233,11 +233,11 @@ function WaveformBars({
       for (let i = 0; i < BAR_COUNT; i++) {
         let sum = 0;
         for (let j = 0; j < step; j++) {
-          sum += dataArray[i * step + j];
+          sum += dataArray[i * step + j]!;
         }
         const avg = sum / step / 255;
         // Lerp for smoothing
-        smooth[i] = smooth[i] * 0.6 + avg * 0.4;
+        smooth[i] = smooth[i]! * 0.6 + avg * 0.4;
       }
     } else if (active) {
       // Animated fallback if no analyser
@@ -248,12 +248,12 @@ function WaveformBars({
     } else {
       // Idle — flat low bars
       for (let i = 0; i < BAR_COUNT; i++) {
-        smooth[i] = smooth[i] * 0.85 + 0.04 * 0.15;
+        smooth[i] = smooth[i]! * 0.85 + 0.04 * 0.15;
       }
     }
 
     for (let i = 0; i < BAR_COUNT; i++) {
-      const h = Math.max(3, smooth[i] * H * 0.9);
+      const h = Math.max(3, smooth[i]! * H * 0.9);
       const x = i * (barW + 2);
       const y = (H - h) / 2;
       // Red for recording, accent for idle

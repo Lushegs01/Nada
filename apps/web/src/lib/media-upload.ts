@@ -133,7 +133,7 @@ export async function uploadEncryptedMedia({
   body.set("size", String(file.size));
   body.set(
     "file",
-    new Blob([encryptedBytes as Uint8Array], { type: "application/octet-stream" }),
+    new Blob([encryptedBytes as any], { type: "application/octet-stream" }),
     `${encryptedFile.contentHash}.bin`
   );
 
@@ -185,7 +185,7 @@ export async function openDecryptedMedia(media: MediaAttachment): Promise<string
     nonceBase64: media.nonceBase64
   });
   return URL.createObjectURL(
-    new Blob([plaintext as Uint8Array], { type: media.mimeType || "application/octet-stream" })
+    new Blob([plaintext as any], { type: media.mimeType || "application/octet-stream" })
   );
 }
 
