@@ -953,8 +953,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
          }
       });
     });
-
     void loadStatuses();
+    return () => { active = false; };
   }, [identity, incoming, loadStatuses, selectedChatId, sendDelivery, showNotification]);
 
   useEffect(() => {
@@ -1001,6 +1001,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     });
 
     void loadStatuses();
+
+    return () => { active = false; };
   }, [groupIncoming, identity, loadStatuses, selectedChatId, sendDelivery, showNotification]);
 
   /** Insert a system call-log message bubble into the current chat */
@@ -1399,7 +1401,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       ? buildMediaPayload({ media, type: "status" })
       : buildTextPayload({ text });
     
-    const body = encodeMessagePayload({ ...payload, type: "status" as "status" });
+    const body = encodeMessagePayload({ ...payload, type: "status" as const });
     const ciphertext = await mockEncryptMessage(body);
     
     const record: MessageRecord = {
@@ -1776,7 +1778,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         signalType: "offer",
         payload: JSON.stringify(offer)
       });
-    } catch {
+    } catch { /* ignore capture error */ }
       callStore.failCall("Could not start media capture.");
     }
   };
@@ -1874,7 +1876,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           delete parsed.replyTo;
           bodyToForward = JSON.stringify(parsed);
         }
-      } catch { }
+      } catch { /* ignore parse error */ }
     }
 
     if (isTargetGroup && targetGroup) {
@@ -2114,7 +2116,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
               identity={identity}
               contacts={contacts}
               statuses={allStatuses}
-              onPostStatus={() => setPanel("status_create" as any)}
+              onPostStatus={() => setPanel("status_create" as Panel)}
               onViewStatus={(hash) => setSelectedStatusSenderHash(hash)}
             />
           ) : activeTab === "settings" ? (
@@ -2456,7 +2458,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             }}
           />
         ) : null}
-        {panel === ("status_create" as any) ? (
+        {panel === ("status_create" as Panel) ? (
           <StatusCreateSheet
             identity={identity}
             onClose={() => setPanel(null)}
@@ -2552,7 +2554,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
               signalType: "answer",
               payload: JSON.stringify(answer)
             });
-          } catch {
+          } catch { /* ignore error */ }
             callStore.failCall("Could not access camera/microphone.");
           }
         }}
@@ -2795,57 +2797,7 @@ function RelayStatus({ status }: { status: string }): JSX.Element {
   );
 }
 
-function EmptyContacts({ onAdd }: { onAdd: () => void }): JSX.Element {
-  return (
-    <div className="mx-2 mt-16 flex flex-col items-center text-center animate-fade-in">
-      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-nada-accent/10 text-nada-accent">
-        <MessageCircle size={24} />
-      </div>
-      <h2 className="mt-4 text-base font-semibold text-nada-primary">No chats yet</h2>
-      <p className="mt-1.5 text-sm text-nada-secondary max-w-[240px]">
-        Add a contact to start a private conversation. Your invite links stay local.
-      </p>
-      <Button className="mt-5" onClick={onAdd} size="sm">
-        <Plus size={16} />
-        Add contact
-      </Button>
-    </div>
-  );
-}
 
-function FloatingNav({
-  onAddContact,
-  onCreateGroup,
-  onOpenSettings,
-  onOpenShare
-}: {
-  onAddContact: () => void;
-  onCreateGroup: () => void;
-  onOpenSettings: () => void;
-  onOpenShare: () => void;
-}): JSX.Element {
-  return (
-    <nav className="absolute inset-x-0 bottom-0 z-shell border-t border-nada-border/40 bg-nada-surface pb-[env(safe-area-inset-bottom)]">
-      <div className="flex items-center justify-around px-2 py-1.5">
-        <IconButton label="Chats">
-          <MessageCircle size={20} />
-        </IconButton>
-        <IconButton label="Add contact" onClick={onAddContact}>
-          <Plus size={20} />
-        </IconButton>
-        <IconButton label="Create group" onClick={onCreateGroup}>
-          <Users size={20} />
-        </IconButton>
-        <IconButton label="Share NADA" onClick={onOpenShare}>
-          <Share2 size={20} />
-        </IconButton>
-        <IconButton label="Settings" onClick={onOpenSettings}>
-          <Settings size={20} />
-        </IconButton>
-      </div>
-    </nav>
-  );
-}
 
 function ChatPanel({
   canAttachFile,
@@ -2958,7 +2910,6 @@ function ChatPanel({
   const [showOptions, setShowOptions] = useState(false);
   const [activeMessageMenu, setActiveMessageMenu] = useState<string | null>(null);
   const [reactionPickerForId, setReactionPickerForId] = useState<string | null>(null);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showWallpaperPrompt, setShowWallpaperPrompt] = useState(false);
   const [showPollModal, setShowPollModal] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -2983,7 +2934,6 @@ function ChatPanel({
     mimeType: string;
   } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const pinnedMsgRef = useRef<HTMLDivElement | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
@@ -3177,7 +3127,7 @@ function ChatPanel({
         recordingSecondsRef.current += 1;
         setRecordingSeconds((s) => s + 1);
       }, 1000);
-    } catch {
+    } catch { /* ignore recording error */
       showToast("Microphone access denied. Please allow microphone access and try again.");
     }
   };
@@ -5704,20 +5654,6 @@ function SettingsSheet({
   );
 }
 
-function SettingsRow({
-  label,
-  value
-}: {
-  label: string;
-  value: string;
-}): JSX.Element {
-  return (
-    <div className="rounded-xl bg-nada-muted px-4 py-3">
-      <p className="text-xs text-nada-secondary">{label}</p>
-      <p className="mt-0.5 break-all text-sm font-medium text-nada-primary">{value}</p>
-    </div>
-  );
-}
 
 function Sheet({
   children,
