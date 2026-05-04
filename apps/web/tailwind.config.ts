@@ -101,13 +101,33 @@ const config = {
         "slide-up": {
           "0%":   { opacity: "0", transform: "translateY(100%)" },
           "100%": { opacity: "1", transform: "translateY(0)" }
+        },
+        "scale-in": {
+          "0%":   { opacity: "0", transform: "scale(0.95)" },
+          "100%": { opacity: "1", transform: "scale(1)" }
+        },
+        "slide-in-left": {
+          "0%":   { opacity: "0", transform: "translateX(-16px)" },
+          "100%": { opacity: "1", transform: "translateX(0)" }
+        },
+        "pulse-subtle": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.8" }
+        },
+        "shimmer": {
+          "0%": { backgroundPosition: "-1000px 0" },
+          "100%": { backgroundPosition: "1000px 0" }
         }
       },
       animation: {
         "bubble-in":      "bubble-in 0.25s ease-out both",
         "fade-in":        "fade-in 0.2s ease-out both",
         "slide-in-right": "slide-in-right 0.3s ease-out both",
-        "slide-up":       "slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both"
+        "slide-in-left":  "slide-in-left 0.3s ease-out both",
+        "slide-up":       "slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "scale-in":       "scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "pulse-subtle":   "pulse-subtle 2s ease-in-out infinite",
+        "shimmer":        "shimmer 2s infinite"
       },
       spacing: {
         "safe-bottom": "env(safe-area-inset-bottom)"
