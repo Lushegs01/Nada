@@ -4033,8 +4033,15 @@ function ChatPanel({
           }
           // ─────────────────────────────────────────────────────────────────────
 
+          const prevMsgSameSender = prevMessage && prevMessage.senderPubkeyHash === message.senderPubkeyHash && !showDateSep;
+          const nextMessage = messages[index + 1];
+          const nextMsgSameSender = nextMessage && nextMessage.senderPubkeyHash === message.senderPubkeyHash && (new Date(nextMessage.createdAt).toDateString() === new Date(message.createdAt).toDateString());
+
+          const isFirstInCluster = !prevMsgSameSender;
+          const isLastInCluster = !nextMsgSameSender;
+
           return (
-            <div key={message.id} ref={(el) => { messageRefs.current[message.id] = el; }}>
+            <div key={message.id} ref={(el) => { messageRefs.current[message.id] = el; }} className={cn(isFirstInCluster ? "mt-3" : "mt-0.5")}>
               {/* Date separator */}
               {showDateSep && (
                 <div className="flex justify-center py-4">
@@ -4063,8 +4070,8 @@ function ChatPanel({
                     if ("vibrate" in navigator) navigator.vibrate(10);
                   }
                 }}
-                initial={{ opacity: 0, y: 6 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
+                initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setActiveMessageMenu(isMenuOpen ? null : message.id);
@@ -4094,10 +4101,10 @@ function ChatPanel({
                 </div>
                 <div
                   className={cn(
-                    "relative max-w-[75%] px-3 py-2",
+                    "relative max-w-[85%] px-4 py-2.5",
                     message.direction === "outbound"
-                      ? "nada-bubble-sent"
-                      : "nada-bubble-received",
+                      ? cn("nada-bubble-sent", isLastInCluster && "has-tail")
+                      : cn("nada-bubble-received", isLastInCluster && "has-tail"),
                     isPinned && "ring-1 ring-nada-accent/40"
                   )}
                 >
@@ -5763,12 +5770,12 @@ function Sheet({
       <motion.div
         animate={{ y: 0, opacity: 1 }}
         className="nada-sheet ml-auto flex h-full w-full max-w-md flex-col overflow-y-auto rounded-none md:rounded-2xl p-5 pt-safe-area pb-safe-area pl-safe-area pr-safe-area"
-        exit={{ y: 24, opacity: 0 }}
-        initial={{ y: 24, opacity: 0 }}
+        exit={{ y: 32, opacity: 0 }}
+        initial={{ y: 32, opacity: 0 }}
         onClick={(event) => {
           event.stopPropagation();
         }}
-        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        transition={{ type: "spring", damping: 22, stiffness: 420 }}
       >
         {children}
       </motion.div>
@@ -5927,7 +5934,10 @@ function StatusCreateSheet({
   return (
     <motion.div
       className="fixed inset-0 z-[1000] flex flex-col bg-black md:relative md:inset-auto md:h-full md:w-full pt-safe-area pb-safe-area pl-safe-area pr-safe-area"
-      initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+      initial={{ y: "100%" }} 
+      animate={{ y: 0 }} 
+      exit={{ y: "100%" }}
+      transition={{ type: "spring", damping: 25, stiffness: 350 }}
     >
       <div className="flex h-16 items-center justify-between px-4 text-white">
         <button onClick={onClose} className="p-2"><X size={24} /></button>
@@ -5995,7 +6005,10 @@ function StatusViewerSheet({
   return (
     <motion.div
       className="fixed inset-0 z-[1100] flex flex-col bg-black text-white"
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      initial={{ opacity: 0, scale: 0.95 }} 
+      animate={{ opacity: 1, scale: 1 }} 
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ type: "spring", damping: 30, stiffness: 400 }}
     >
       <div className="absolute inset-x-0 top-0 z-10 p-4 pt-safe-area">
         <div className="flex gap-1 mb-4">
