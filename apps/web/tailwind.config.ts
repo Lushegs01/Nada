@@ -115,9 +115,9 @@ const config = {
       zIndex: {
         shell:   "10",
         header:  "20",
-        overlay: "50",
-        sheet:   "60",
-        toast:   "70"
+        overlay: "200",
+        sheet:   "210",
+        toast:   "300"
       }
     }
   },
