@@ -400,7 +400,6 @@ textarea::placeholder {
     outline: 2px solid rgb(var(--nada-accent));
     outline-offset: 2px;
   }
-}
 
   /* Sheet / modal panel */
   .nada-sheet {
