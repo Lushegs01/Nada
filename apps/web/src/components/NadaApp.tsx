@@ -4330,21 +4330,7 @@ function ChatPanel({
         )}
         onSubmit={onSend}
       >
-        {/* Quick reply chips */}
-        {showQuickReplies && (
-          <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
-            {QUICK_REPLIES.map((reply) => (
-              <button
-                key={reply}
-                type="button"
-                className="nada-quick-reply"
-                onClick={() => onMessageTextChange(reply)}
-              >
-                {reply}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Message reply preview */}
 
         {replyMessage ? (
           <div className="mb-2.5 flex items-center justify-between rounded-xl px-3 py-2 border-l-2 border-nada-accent backdrop-blur-md" style={{ background: "rgba(42, 171, 238, 0.08)" }}>
@@ -4400,12 +4386,12 @@ function ChatPanel({
               />
               <button
                 aria-label="Attach file"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-nada-secondary/[.50] transition hover:bg-nada-surface-elevated hover:text-nada-secondary disabled:opacity-30"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/5 text-nada-secondary/[.60] transition hover:bg-white/10 hover:text-white active:scale-90"
                 disabled={!canAttachFile || peerIsBlocked}
                 onClick={() => { setAttachmentMenuOpen((current) => !current); }}
                 type="button"
               >
-                <Paperclip size={19} />
+                <Plus size={20} />
               </button>
               {attachmentMenuOpen ? (
                 <AttachmentMenu
@@ -4427,8 +4413,7 @@ function ChatPanel({
                 />
               ) : null}
               <input
-                className="h-11 min-w-0 flex-1 rounded-full border border-nada-border/[.08] bg-transparent px-4 text-sm text-nada-primary outline-none placeholder:text-nada-secondary/[.35] focus:border-nada-accent/20 transition-colors disabled:opacity-50"
-                style={{ background: "rgb(var(--nada-surface-elevated))" }}
+                className="h-11 min-w-0 flex-1 rounded-full border border-white/[0.05] bg-white/5 px-4 text-[15px] text-nada-primary outline-none placeholder:text-nada-secondary/[.30] focus:border-nada-accent/30 focus:bg-white/[0.08] transition-all disabled:opacity-50"
                 disabled={peerIsBlocked}
                 onChange={(event) => {
                   const val = event.target.value;

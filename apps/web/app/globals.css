@@ -348,34 +348,6 @@ textarea::placeholder {
   }
 
   /* Quick reply buttons */
-  .nada-quick-reply {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 24px;
-    padding: 10px 20px;
-    font-size: 13px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.85);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    white-space: nowrap;
-    cursor: pointer;
-  }
-
-  .nada-quick-reply:hover {
-    background: rgba(42, 171, 238, 0.15);
-    border-color: rgba(42, 171, 238, 0.35);
-    color: #fff;
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(42, 171, 238, 0.2);
-  }
-
-  .nada-quick-reply:active {
-    transform: translateY(0) scale(0.96);
-  }
-
   /* Overlay / backdrop */
   .nada-overlay {
     background: rgba(5, 5, 10, 0.85);
