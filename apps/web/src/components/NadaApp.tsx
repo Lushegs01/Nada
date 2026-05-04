@@ -3285,8 +3285,11 @@ function ChatPanel({
         {/* Avatar with online ring */}
         <div className="relative shrink-0">
           <div
-            className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl text-sm font-bold text-nada-secondary/[.50]"
-            style={{ background: "rgb(var(--nada-surface-3))", boxShadow: "0 0 0 1px rgb(var(--nada-border) / 0.06)" }}
+            className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl text-sm font-bold text-white shadow-lg"
+            style={{ 
+              background: "linear-gradient(135deg, #2AABEE 0%, #1A7AB0 100%)",
+              boxShadow: "0 2px 8px rgba(42, 171, 238, 0.3)"
+            }}
           >
             {title.charAt(0).toUpperCase()}
           </div>
@@ -4344,7 +4347,7 @@ function ChatPanel({
         )}
 
         {replyMessage ? (
-          <div className="mb-2.5 flex items-center justify-between rounded-xl px-3 py-2 border-l-2 border-nada-accent" style={{ background: "rgb(var(--nada-accent) / 0.05)" }}>
+          <div className="mb-2.5 flex items-center justify-between rounded-xl px-3 py-2 border-l-2 border-nada-accent backdrop-blur-md" style={{ background: "rgba(42, 171, 238, 0.08)" }}>
             <div className="flex flex-col min-w-0 pl-2">
               <span className="text-[10px] font-semibold text-nada-accent uppercase tracking-wider">
                 Replying to {replyMessage.senderPubkeyHash === myPubkeyHash ? "yourself" :

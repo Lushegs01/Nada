@@ -243,27 +243,31 @@ select {
   }
 
   .nada-quick-reply {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 999px;
-    padding: 6px 14px;
-    font-size: 11px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 20px;
+    padding: 8px 18px;
+    font-size: 12px;
     font-weight: 600;
     color: rgba(255, 255, 255, 0.85);
-    transition: all 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     white-space: nowrap;
+    cursor: pointer;
   }
 
   .nada-quick-reply:hover {
-    background: rgba(255, 255, 255, 0.12);
-    transform: translateY(-1px);
+    background: rgba(42, 171, 238, 0.1);
+    border-color: rgba(42, 171, 238, 0.3);
     color: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(42, 171, 238, 0.15);
   }
 
   .nada-quick-reply:active {
-    transform: scale(0.95);
+    transform: translateY(0) scale(0.96);
   }
 
   /* Overlay / backdrop */
