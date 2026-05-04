@@ -2972,10 +2972,6 @@ function ChatPanel({
 
   const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👎"];
 
-  const lastInboundMessage = useMemo(() => {
-    const inbound = messages.filter((m) => m.direction === "inbound" && !m.deletedAt);
-    return inbound[inbound.length - 1] ?? null;
-  }, [messages]);
 
 
   // Show toast helper
