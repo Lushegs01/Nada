@@ -69,6 +69,8 @@ import {
   isInlineFileMessage,
   parseInlineFileMessage
 } from "@/components/VoiceNote";
+import { MessageContextMenu, type ContextMenuAction } from "@/components/MessageContextMenu";
+import { VirtualMessageList } from "@/components/VirtualMessageList";
 import { useCallStore } from "@/stores/useCallStore";
 import { QRCodeSVG } from "qrcode.react";
 import { 
@@ -2832,6 +2834,76 @@ function RelayStatus({ status }: { status: string }): JSX.Element {
 
 
 
+function buildContextMenuActions(
+  message: MessageRecord,
+  handlers: {
+    onReply: (m: MessageRecord) => void;
+    onForward: (id: string) => void;
+    onPin: (m: MessageRecord) => void;
+    onEditMessage: (m: MessageRecord) => void;
+    onCopy: (text: string) => void;
+    onDelete: (id: string) => void;
+    isPinned: boolean;
+  }
+): ContextMenuAction[] {
+  const isOutbound = message.direction === "outbound";
+  const canCopy = !message.deletedAt && !isVoiceNoteMessage(message.body) && !isInlineFileMessage(message.body);
+  const canEdit = isOutbound && !message.deletedAt && messageKindFromRecord(message) === "text";
+
+  const actions: ContextMenuAction[] = [
+    {
+      id: "reply",
+      label: "Reply",
+      icon: <Reply size={16} />,
+      onSelect: () => handlers.onReply(message)
+    }
+  ];
+
+  if (canCopy) {
+    actions.push({
+      id: "copy",
+      label: "Copy",
+      icon: <Copy size={16} />,
+      onSelect: () => handlers.onCopy(previewForMessage(message))
+    });
+  }
+
+  actions.push({
+    id: "forward",
+    label: "Forward",
+    icon: <Share2 size={16} />,
+    onSelect: () => handlers.onForward(message.id)
+  });
+
+  actions.push({
+    id: "pin",
+    label: handlers.isPinned ? "Unpin" : "Pin",
+    icon: <Pin size={16} />,
+    onSelect: () => handlers.onPin(message)
+  });
+
+  if (canEdit) {
+    actions.push({
+      id: "edit",
+      label: "Edit",
+      icon: <Edit3 size={16} />,
+      onSelect: () => handlers.onEditMessage(message)
+    });
+  }
+
+  if (!message.deletedAt) {
+    actions.push({
+      id: "delete",
+      label: isOutbound ? "Delete" : "Delete for me",
+      icon: <Trash2 size={16} />,
+      destructive: true,
+      onSelect: () => handlers.onDelete(message.id)
+    });
+  }
+
+  return actions;
+}
+
 function ChatPanel({
   canAttachFile,
   canCopyGroupInvite,
@@ -2941,8 +3013,14 @@ function ChatPanel({
 }): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [showOptions, setShowOptions] = useState(false);
-  const [activeMessageMenu, setActiveMessageMenu] = useState<string | null>(null);
-  const [reactionPickerForId, setReactionPickerForId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    message: MessageRecord;
+    x: number;
+    y: number;
+    origin: "left" | "right";
+  } | null>(null);
+  const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
+  const longPressFired = useRef(false);
   const [showWallpaperPrompt, setShowWallpaperPrompt] = useState(false);
   const [showPollModal, setShowPollModal] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -2998,7 +3076,7 @@ function ChatPanel({
     url: string;
     mimeType: string;
   } | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const virtualListRef = useRef<import("@/components/VirtualMessageList").VirtualListHandle | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
@@ -3039,27 +3117,44 @@ function ChatPanel({
     return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   };
 
+  // Auto-scroll to the latest message when count changes (virtualizer handles
+  // pin-to-bottom, but explicitly request a smooth scroll so the user always
+  // sees their just-sent message).
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (virtualListRef.current?.isAtBottom()) {
+      virtualListRef.current?.scrollToBottom({ behavior: "smooth" });
+    }
   }, [messages.length]);
+
+  // Scroll to a message by id and play a highlight pulse once it's rendered.
+  const scrollToMessage = useCallback((id: string, highlight = true): void => {
+    virtualListRef.current?.scrollToKey(id, { align: "center", behavior: "smooth" });
+    if (!highlight) return;
+    let attempts = 0;
+    const tryHighlight = (): void => {
+      const el = messageRefs.current[id];
+      if (el) {
+        el.animate([
+          { backgroundColor: "rgba(129, 140, 248, 0.28)" },
+          { backgroundColor: "transparent" }
+        ], { duration: 1600, easing: "ease-out" });
+      } else if (attempts < 12) {
+        attempts++;
+        requestAnimationFrame(tryHighlight);
+      }
+    };
+    requestAnimationFrame(tryHighlight);
+  }, []);
 
   // Handle chat search scrolling
   useEffect(() => {
     if (chatSearchActive && searchMatchIds.length > 0) {
       const matchId = searchMatchIds[chatSearchIdx];
       if (matchId) {
-        const el = messageRefs.current[matchId];
-        if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-          // Subtle highlight animation
-          el.animate([
-            { backgroundColor: 'rgba(var(--nada-accent), 0.2)' },
-            { backgroundColor: 'transparent' }
-          ], { duration: 2000 });
-        }
+        scrollToMessage(matchId, true);
       }
     }
-  }, [chatSearchIdx, searchMatchIds, chatSearchActive]);
+  }, [chatSearchIdx, searchMatchIds, chatSearchActive, scrollToMessage]);
 
   useEffect(() => {
     return () => {
@@ -3550,10 +3645,7 @@ function ChatPanel({
       {pinnedMessageId && pinnedMessageBody && (
         <button
           className="nada-pinned-banner flex w-full items-center gap-2.5 px-4 py-2 text-left animate-fade-in"
-          onClick={() => {
-            const el = messageRefs.current[pinnedMessageId];
-            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-          }}
+          onClick={() => scrollToMessage(pinnedMessageId, true)}
           type="button"
         >
           <Pin size={13} className="shrink-0 text-nada-accent" />
@@ -4051,22 +4143,31 @@ function ChatPanel({
         </div>
       ) : null}
 
-      <div className="relative flex-1 overflow-y-auto px-3 py-3 pb-32" style={{ background: "transparent" }}>
-        {blurShieldActive && !blurShieldRevealed && (
-          <div className="nada-blur-shield" onClick={onRevealBlurShield}>
-            <div className="flex flex-col items-center gap-3 text-center">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-nada-surface/80 text-nada-secondary">
-                <EyeOff size={22} />
+      <VirtualMessageList
+        ref={virtualListRef}
+        items={messages}
+        getKey={(m) => m.id}
+        estimateSize={72}
+        overscan={8}
+        className="relative flex-1 overflow-y-auto px-3 py-3 pb-32"
+        style={{ background: "transparent" }}
+        beforeChildren={
+          blurShieldActive && !blurShieldRevealed ? (
+            <div className="nada-blur-shield" onClick={onRevealBlurShield}>
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div className="grid h-12 w-12 place-items-center rounded-2xl bg-nada-surface/80 text-nada-secondary">
+                  <EyeOff size={22} />
+                </div>
+                <p className="text-sm font-medium text-nada-primary">Privacy shield active</p>
+                <p className="text-xs text-nada-secondary">Tap to reveal messages</p>
               </div>
-              <p className="text-sm font-medium text-nada-primary">Privacy shield active</p>
-              <p className="text-xs text-nada-secondary">Tap to reveal messages</p>
             </div>
-          </div>
-        )}
-        {messages.map((message, index) => {
+          ) : null
+        }
+        renderItem={(message: MessageRecord, index: number) => {
           const prevMessage = messages[index - 1];
           const showDateSep = !prevMessage || new Date(message.createdAt).toDateString() !== new Date(prevMessage.createdAt).toDateString();
-          const isMenuOpen = activeMessageMenu === message.id;
+          const isMenuOpen = contextMenu?.message.id === message.id;
 
           const reactions = message.reactions ?? {};
           const hasReactions = Object.keys(reactions).length > 0;
@@ -4140,7 +4241,6 @@ function ChatPanel({
                 </div>
               )}
               <motion.div
-                animate={{ opacity: 1, y: 0 }}
                 className={cn(
                   "group relative flex touch-pan-y px-1 py-0.5",
                   message.direction === "outbound" ? "justify-end" : "justify-start"
@@ -4161,25 +4261,55 @@ function ChatPanel({
                     if ("vibrate" in navigator) navigator.vibrate(10);
                   }
                 }}
-                initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                initial={false}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  setActiveMessageMenu(isMenuOpen ? null : message.id);
+                  e.stopPropagation();
+                  setContextMenu({
+                    message,
+                    x: e.clientX,
+                    y: e.clientY,
+                    origin: message.direction === "outbound" ? "right" : "left"
+                  });
                 }}
                 onPointerDown={(e) => {
+                  longPressFired.current = false;
+                  longPressOrigin.current = { x: e.clientX, y: e.clientY };
+                  if (e.pointerType === "mouse") return;
                   longPressTimer.current = setTimeout(() => {
-                    setActiveMessageMenu(message.id);
+                    longPressFired.current = true;
+                    if ("vibrate" in navigator) {
+                      try { navigator.vibrate(15); } catch { /* ignore */ }
+                    }
+                    setContextMenu({
+                      message,
+                      x: longPressOrigin.current?.x ?? e.clientX,
+                      y: longPressOrigin.current?.y ?? e.clientY,
+                      origin: message.direction === "outbound" ? "right" : "left"
+                    });
                   }, 500);
-                  if (e.pointerType === "mouse") {
+                }}
+                onPointerMove={(e) => {
+                  if (!longPressOrigin.current || !longPressTimer.current) return;
+                  const dx = e.clientX - longPressOrigin.current.x;
+                  const dy = e.clientY - longPressOrigin.current.y;
+                  if (dx * dx + dy * dy > 10 * 10) {
                     clearTimeout(longPressTimer.current);
+                    longPressTimer.current = null;
                   }
                 }}
                 onPointerUp={() => {
-                  if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                  if (longPressTimer.current) {
+                    clearTimeout(longPressTimer.current);
+                    longPressTimer.current = null;
+                  }
                 }}
                 onPointerLeave={() => {
-                  if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                  if (longPressTimer.current) {
+                    clearTimeout(longPressTimer.current);
+                    longPressTimer.current = null;
+                  }
                 }}
               >
                 <div
@@ -4200,17 +4330,10 @@ function ChatPanel({
                   )}
                 >
                   {message.replyToId ? (
-                    <div 
+                    <div
                       className="mb-1.5 rounded-lg bg-black/10 px-2.5 py-1.5 text-xs opacity-80 cursor-pointer hover:opacity-100 transition-opacity"
                       onClick={() => {
-                        const el = messageRefs.current[message.replyToId!];
-                        if (el) {
-                          el.scrollIntoView({ behavior: "smooth", block: "center" });
-                          el.animate([
-                            { backgroundColor: 'rgba(56, 189, 248, 0.3)' },
-                            { backgroundColor: 'transparent' }
-                          ], { duration: 1500 });
-                        }
+                        if (message.replyToId) scrollToMessage(message.replyToId, true);
                       }}
                     >
                       {(() => {
@@ -4268,106 +4391,53 @@ function ChatPanel({
                     )}
                   </div>
 
-                  {/* Hover actions — desktop only */}
+                  {/* Hover actions — desktop only. Right-click / long-press opens the full glassmorphic menu. */}
                   <div className={cn(
                     "absolute -top-9 right-0 flex items-center gap-0.5 rounded-xl border border-nada-border/20 px-1.5 py-1 shadow-lg transition-all z-10",
                     isMenuOpen ? "opacity-100 visible" : "opacity-0 invisible group-hover:opacity-100 group-hover:visible"
                   )}
                     style={{ background: "rgb(var(--nada-surface-elevated) / 0.95)", backdropFilter: "blur(12px)" }}
                   >
-                    {/* Reaction picker toggle */}
-                    <div className="relative">
-                      <button
-                        aria-label="React"
-                        className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setReactionPickerForId(reactionPickerForId === message.id ? null : message.id);
-                          setActiveMessageMenu(null);
-                        }}
-                        type="button"
-                      >
-                        <Smile size={14} />
-                      </button>
-                      {reactionPickerForId === message.id && (
-                        <motion.div
-                          className="absolute -top-10 left-0 flex gap-1 rounded-lg border border-nada-border/10 bg-nada-surface p-1.5 shadow-lg z-20"
-                          initial={{ opacity: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                        >
-                          {REACTION_EMOJIS.map((emoji) => (
-                            <button
-                              key={emoji}
-                              className="text-base hover:scale-125 transition-transform"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onReact(message, emoji);
-                                setReactionPickerForId(null);
-                              }}
-                              type="button"
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </div>
                     <button
                       aria-label="Reply"
                       className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
-                      onClick={() => { onReply(message); setActiveMessageMenu(null); }}
+                      onClick={() => onReply(message)}
                       type="button"
                     >
                       <Reply size={14} />
                     </button>
                     <button
-                      aria-label="Forward"
+                      aria-label="React"
                       className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
-                      onClick={() => { onForward(message.id); setActiveMessageMenu(null); }}
+                      onClick={(e) => {
+                        const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                        setContextMenu({
+                          message,
+                          x: rect.left + rect.width / 2,
+                          y: rect.bottom + 6,
+                          origin: message.direction === "outbound" ? "right" : "left"
+                        });
+                      }}
                       type="button"
                     >
-                      <Share2 size={14} />
+                      <Smile size={14} />
                     </button>
                     <button
-                      aria-label="Pin message"
-                      className={cn(
-                        "rounded-md p-1.5 transition hover:bg-nada-muted",
-                        isPinned ? "text-nada-accent" : "text-nada-secondary hover:text-nada-primary"
-                      )}
-                      onClick={() => { onPin(message); setActiveMessageMenu(null); }}
+                      aria-label="More actions"
+                      className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
+                      onClick={(e) => {
+                        const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                        setContextMenu({
+                          message,
+                          x: rect.right,
+                          y: rect.bottom + 6,
+                          origin: "right"
+                        });
+                      }}
                       type="button"
                     >
-                      <Pin size={14} />
+                      <MoreVertical size={14} />
                     </button>
-                    {message.direction === "outbound" && !message.deletedAt ? (
-                       <>
-                        <button
-                          aria-label="Edit"
-                          className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
-                          onClick={() => { onEditMessage(message); setActiveMessageMenu(null); }}
-                          type="button"
-                        >
-                          <Edit3 size={14} />
-                        </button>
-                        <button
-                          aria-label="Delete"
-                          className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-danger"
-                          onClick={() => { setDeleteSheetMessageId(message.id); setActiveMessageMenu(null); }}
-                          type="button"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </>
-                    ) : !message.deletedAt ? (
-                      <button
-                        aria-label="Delete for me"
-                        className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-danger"
-                        onClick={() => { setDeleteSheetMessageId(message.id); setActiveMessageMenu(null); }}
-                        type="button"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    ) : null}
                   </div>
                 </div>
 
@@ -4399,17 +4469,34 @@ function ChatPanel({
               {hasReactions && <div className="h-5" />}
             </div>
           );
-        })}
-        <div ref={messagesEndRef} />
-      </div>
+        }}
+      />
 
-      {/* Click-away to close message menu / reaction picker */}
-      {(activeMessageMenu || reactionPickerForId) && (
-        <div className="fixed inset-0 z-30" onClick={() => {
-          setActiveMessageMenu(null);
-          setReactionPickerForId(null);
-        }} />
-      )}
+      {/* Glassmorphic context menu — opens on right-click and long-press */}
+      <MessageContextMenu
+        open={Boolean(contextMenu)}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        origin={contextMenu?.origin}
+        reactions={REACTION_EMOJIS.slice(0, 6)}
+        onPickReaction={(emoji) => {
+          if (contextMenu) onReact(contextMenu.message, emoji);
+        }}
+        actions={contextMenu ? buildContextMenuActions(contextMenu.message, {
+          onReply,
+          onForward,
+          onPin,
+          onEditMessage,
+          onCopy: (text) => {
+            if (typeof navigator !== "undefined" && navigator.clipboard) {
+              void navigator.clipboard.writeText(text);
+              showToast("Copied to clipboard");
+            }
+          },
+          onDelete: (id) => setDeleteSheetMessageId(id),
+          isPinned: pinnedMessageId === contextMenu.message.id
+        }) : []}
+        onClose={() => setContextMenu(null)}
+      />
 
       <form
         className={cn(
