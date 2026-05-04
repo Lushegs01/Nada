@@ -2104,7 +2104,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   }, [identity.pubkeyHash]);
 
   return (
-    <div className="h-dvh w-full overflow-hidden flex items-center justify-center bg-black">
+    <div className="h-dvh w-full overflow-hidden flex items-center justify-center bg-nada-bg pl-safe-area pr-safe-area">
       <section className="flex h-full w-full max-w-[1600px] bg-nada-surface md:h-[calc(100dvh-2rem)] md:rounded-3xl md:border md:border-nada-border/10 md:shadow-2xl md:overflow-hidden">
         <aside
           className={cn(
@@ -3273,7 +3273,7 @@ function ChatPanel({
       
       {/* Chat Header */}
       <header
-        className="z-header relative flex h-16 shrink-0 items-center gap-3 border-b border-nada-border/[.08] px-4"
+        className="z-header relative flex h-16 shrink-0 items-center gap-3 border-b border-nada-border/[.08] px-4 pl-safe-area pr-safe-area"
         style={{ background: "rgb(var(--nada-surface))" }}
       >
         <IconButton className="md:hidden" label="Back" onClick={onBack}>
@@ -5755,14 +5755,14 @@ function Sheet({
   return (
     <motion.div
       animate={{ opacity: 1 }}
-      className="nada-overlay fixed inset-0 z-overlay p-3"
+      className="nada-overlay fixed inset-0 z-overlay p-0 md:p-3"
       exit={{ opacity: 0 }}
       initial={{ opacity: 0 }}
       onClick={onClose}
     >
       <motion.div
         animate={{ y: 0, opacity: 1 }}
-        className="nada-sheet ml-auto flex h-full w-full max-w-md flex-col overflow-y-auto rounded-2xl p-5"
+        className="nada-sheet ml-auto flex h-full w-full max-w-md flex-col overflow-y-auto rounded-none md:rounded-2xl p-5 pt-safe-area pb-safe-area pl-safe-area pr-safe-area"
         exit={{ y: 24, opacity: 0 }}
         initial={{ y: 24, opacity: 0 }}
         onClick={(event) => {
@@ -5926,7 +5926,7 @@ function StatusCreateSheet({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[1000] flex flex-col bg-black md:relative md:inset-auto md:h-full md:w-full"
+      className="fixed inset-0 z-[1000] flex flex-col bg-black md:relative md:inset-auto md:h-full md:w-full pt-safe-area pb-safe-area pl-safe-area pr-safe-area"
       initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
     >
       <div className="flex h-16 items-center justify-between px-4 text-white">
@@ -5997,7 +5997,7 @@ function StatusViewerSheet({
       className="fixed inset-0 z-[1100] flex flex-col bg-black text-white"
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
     >
-      <div className="absolute inset-x-0 top-0 z-10 p-4 pt-10">
+      <div className="absolute inset-x-0 top-0 z-10 p-4 pt-safe-area">
         <div className="flex gap-1 mb-4">
           {statuses.map((_, i) => (
             <div key={i} className="h-1 flex-1 rounded-full bg-white/20 overflow-hidden">
