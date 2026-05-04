@@ -38,7 +38,6 @@ import {
   Mic,
   MoreVertical,
   Music,
-  Paperclip,
   Phone,
   Pin,
   Plus,
@@ -2970,16 +2969,6 @@ function ChatPanel({
   const wasTyping = useRef(false);
   const lastTypingEmitAt = useRef(0);
 
-  const QUICK_REPLIES = [
-    "👍 Got it!",
-    "On my way!",
-    "Can we talk later?",
-    "Sure, sounds good!",
-    "Haha 😂",
-    "Send me the details.",
-    "I'll check and let you know.",
-    "❤️"
-  ];
 
   const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👎"];
 
@@ -2988,7 +2977,6 @@ function ChatPanel({
     return inbound[inbound.length - 1] ?? null;
   }, [messages]);
 
-  const showQuickReplies = lastInboundMessage !== null && messageText.trim() === "";
 
   // Show toast helper
   const showToast = (msg: string) => {
