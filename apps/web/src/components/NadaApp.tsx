@@ -3263,18 +3263,21 @@ function ChatPanel({
 
   return (
     <section 
-      className="relative flex min-h-dvh flex-1 flex-col overflow-hidden bg-cover bg-center" 
+      className="relative flex min-h-dvh flex-1 flex-col overflow-hidden" 
       style={{ 
-        background: wallpaperUrl ? `url(${wallpaperUrl}) center/cover no-repeat` : "rgb(var(--nada-bg))" 
+        background: wallpaperUrl ? `url(${wallpaperUrl}) center/cover no-repeat` : "#05050A" 
       }}
     >
+      {!wallpaperUrl && (
+        <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03]" style={{ backgroundImage: "url('https://www.transparenttextures.com/patterns/stardust.png')" }} />
+      )}
       {/* Dark overlay for readability if wallpaper is set */}
       {wallpaperUrl && <div className="absolute inset-0 bg-black/40 z-0 pointer-events-none" />}
       
       {/* Chat Header */}
       <header
-        className="z-header relative flex h-16 shrink-0 items-center gap-3 border-b border-nada-border/[.08] px-4 pl-safe-area pr-safe-area"
-        style={{ background: "rgb(var(--nada-surface))" }}
+        className="z-header relative flex h-16 shrink-0 items-center gap-3 border-b border-white/[0.04] px-4 pl-safe-area pr-safe-area"
+        style={{ background: "rgba(13, 20, 30, 0.8)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" }}
       >
         <IconButton className="md:hidden" label="Back" onClick={onBack}>
           <ArrowLeft size={20} />
@@ -4317,10 +4320,9 @@ function ChatPanel({
 
       <form
         className={cn(
-          "relative sticky bottom-0 z-header border-t border-nada-border/[.08] px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]",
+          "nada-input-bar relative sticky bottom-0 z-header px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]",
           peerIsBlocked && "pointer-events-none opacity-40"
         )}
-        style={{ background: "rgb(var(--nada-surface))" }}
         onSubmit={onSend}
       >
         {/* Quick reply chips */}

@@ -203,8 +203,8 @@ export const BottomNavigation = ({
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-header border-t border-nada-border/[.08] pb-safe-area pl-safe-area pr-safe-area"
-      style={{ background: "rgb(var(--nada-surface) / 0.92)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" }}
+      className="fixed bottom-0 left-0 right-0 z-header border-t border-white/[0.04] pb-safe-area pl-safe-area pr-safe-area"
+      style={{ background: "rgba(13, 20, 30, 0.8)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" }}
     >
       <div className="flex h-16 items-center justify-around px-2">
         {tabs.map((tab) => {
@@ -290,8 +290,8 @@ export const MobileHeader = ({
   onComposeClick?: () => void;
 }) => (
   <header
-    className="sticky top-0 z-header flex items-end justify-between px-5 pb-3 pt-safe-area pl-safe-area pr-safe-area"
-    style={{ background: "rgb(var(--nada-bg))" }}
+    className="sticky top-0 z-header flex items-end justify-between px-5 pb-3 pt-safe-area pl-safe-area pr-safe-area border-b border-white/[0.04]"
+    style={{ background: "rgba(13, 20, 30, 0.8)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" }}
   >
     <div className="flex items-center gap-3 pt-4">
       <NadaLogoMark size={30} />
