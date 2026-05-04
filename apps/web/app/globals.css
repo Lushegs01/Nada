@@ -92,13 +92,17 @@ select {
   background: transparent;
 }
 
+::-webkit-scrollbar {
+  width: 4px;
+}
+
 ::-webkit-scrollbar-thumb {
-  background: rgb(43 82 120 / 0.5); /* #2B5278 */
-  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--nada-accent) / 0.5);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 /* ── Component Layer ──────────────────────────────────── */
@@ -236,6 +240,30 @@ select {
     border: 2px solid rgb(var(--nada-accent));
     border-radius: 999px;
     pointer-events: none;
+  }
+
+  .nada-quick-reply {
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .nada-quick-reply:hover {
+    background: rgba(255, 255, 255, 0.12);
+    transform: translateY(-1px);
+    color: #fff;
+  }
+
+  .nada-quick-reply:active {
+    transform: scale(0.95);
   }
 
   /* Overlay / backdrop */

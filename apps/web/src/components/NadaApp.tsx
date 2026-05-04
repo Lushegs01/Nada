@@ -4066,7 +4066,9 @@ function ChatPanel({
                     : { left: 0, right: 96 }
                 }
                 dragDirectionLock
-                dragElastic={0.16}
+                dragElastic={0.25}
+                dragSnapToOrigin={true}
+                dragTransition={{ bounceStiffness: 600, bounceDamping: 15 }}
                 onDragEnd={(_event, info) => {
                   if (Math.abs(info.offset.x) > 64) {
                     onReply(message);
