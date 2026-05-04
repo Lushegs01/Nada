@@ -214,33 +214,32 @@ export const BottomNavigation = ({
             <button
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
-              className="relative flex flex-col items-center justify-center flex-1 h-full gap-1 transition-all active:scale-90"
+              className="relative flex flex-col items-center justify-center flex-1 h-full pt-1.5 transition-all active:scale-95 group"
             >
-              {/* Active underline */}
-              {isActive && (
-                <motion.div
-                  layoutId="nav-active"
-                  className="absolute -top-[1px] left-1/2 h-[2px] w-8 -translate-x-1/2 rounded-full bg-nada-accent"
-                  style={{ boxShadow: "0 0 8px rgb(var(--nada-accent) / 0.5)" }}
-                />
-              )}
-
-              <div className="relative">
+              <div className="relative flex items-center justify-center h-8 w-14 mb-1">
+                {isActive && (
+                  <motion.div
+                    layoutId="nav-active-pill"
+                    className="absolute inset-0 rounded-full bg-nada-accent/15"
+                    initial={false}
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  />
+                )}
                 <Icon
                   className={cn(
-                    "h-[22px] w-[22px] transition-colors",
+                    "h-[22px] w-[22px] transition-colors relative z-10",
                     isActive ? "text-nada-accent" : "text-nada-secondary/[.40]"
                   )}
                 />
                 {tab.badge !== undefined && tab.badge > 0 && (
-                  <span className="absolute -top-1 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-nada-accent px-0.5 text-[9px] font-black text-black border border-black">
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-nada-accent px-0.5 text-[9px] font-black text-black border border-black z-20">
                     {tab.badge > 99 ? "99+" : tab.badge}
                   </span>
                 )}
               </div>
 
               <span className={cn(
-                "text-[10px] font-semibold tracking-tight transition-colors",
+                "text-[10px] font-bold tracking-tight transition-colors pb-1.5 relative z-10",
                 isActive ? "text-nada-accent" : "text-nada-secondary/[.40]"
               )}>
                 {tab.label}
