@@ -1,14 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { Inter } from "next/font/google";
 
 import "./globals.css";
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap"
-});
 
 export const metadata: Metadata = {
   applicationName: "NADA",
@@ -36,7 +29,7 @@ export default function RootLayout({
   children
 }: Readonly<{ children: ReactNode }>): JSX.Element {
   return (
-    <html lang="en" className={`${inter.variable} dark`} suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body className="bg-nada-bg text-nada-primary antialiased font-sans" suppressHydrationWarning>
         {children}
       </body>

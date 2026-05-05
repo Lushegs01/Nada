@@ -584,7 +584,30 @@ textarea::placeholder {
     border: 1px solid rgb(var(--nada-border) / 0.22);
   }
 
-  /* ── Quick reply chips ── */
+  /* Virtualized message viewport */
+  .nada-message-virtuoso {
+    height: 100%;
+    scrollbar-gutter: stable;
+  }
+
+  .nada-message-context-menu {
+    background:
+      linear-gradient(145deg, rgb(var(--nada-surface-elevated) / 0.82), rgb(var(--nada-surface) / 0.76)),
+      rgb(var(--nada-surface) / 0.88);
+    border: 1px solid rgb(255 255 255 / 0.11);
+    backdrop-filter: blur(26px) saturate(145%);
+    -webkit-backdrop-filter: blur(26px) saturate(145%);
+    box-shadow:
+      0 18px 60px rgb(0 0 0 / 0.46),
+      0 1px 0 rgb(255 255 255 / 0.07) inset,
+      0 0 0 1px rgb(var(--nada-accent) / 0.08);
+  }
+
+  .nada-message-context-menu button {
+    user-select: none;
+  }
+
+  /* Quick reply chips */
   .nada-quick-reply {
     display: inline-flex;
     align-items: center;

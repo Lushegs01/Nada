@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, AlertCircle, Loader2 } from "lucide-react";
 import { cn } from "@nada/ui";
+import WaveSurfer from "wavesurfer.js";
 
 function formatDur(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -226,82 +227,69 @@ export function VoiceNoteBubble({
   durationSeconds: number;
   outbound: boolean;
 }): JSX.Element {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wavesurfer = useRef<WaveSurfer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(Math.max(durationSeconds, 0));
   const [error, setError] = useState(false);
-  // Data URIs may not fire loadedmetadata on all browsers — treat as ready immediately
-  const [loading, setLoading] = useState(!src.startsWith("data:"));
-  // Peaks: start with a deterministic placeholder so the bubble has full
-  // structure immediately; replace with real peaks once decoded.
-  const fallback = useMemo(() => fallbackPeaks(src.length || 7), [src]);
-  const [peaks, setPeaks] = useState<number[]>(() => peaksCache.get(src) ?? fallback);
-  const [peaksReady, setPeaksReady] = useState<boolean>(() => peaksCache.has(src));
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!src) {
+    if (!src || !containerRef.current) {
       setError(true);
       return;
     }
 
-    const audio = new Audio();
-    audioRef.current = audio;
-
-    // Reset UI state
     setError(false);
     setIsPlaying(false);
     setCurrentTime(0);
-    // Data URIs: trust the stored durationSeconds, no need to wait for metadata
-    setLoading(!src.startsWith("data:"));
+    setDuration(Math.max(durationSeconds, 0));
+    setLoading(true);
 
-    audio.preload = "metadata";
+    const ws = WaveSurfer.create({
+      container: containerRef.current,
+      waveColor: outbound ? "rgba(255, 255, 255, 0.35)" : "rgba(129, 140, 248, 0.35)",
+      progressColor: outbound ? "rgba(255, 255, 255, 0.95)" : "rgba(129, 140, 248, 1)",
+      cursorColor: "transparent",
+      barWidth: 2.5,
+      barGap: 2,
+      barRadius: 2,
+      dragToSeek: true,
+      height: 34,
+      interact: true,
+      normalize: true,
+      url: src
+    });
+    wavesurfer.current = ws;
 
-    audio.onloadedmetadata = () => {
-      if (isFinite(audio.duration) && audio.duration > 0) {
-        setDuration(audio.duration);
-      }
+    ws.on("ready", () => {
+      const nextDuration = ws.getDuration();
       setLoading(false);
-    };
-
-    // canplaythrough: also clear loading for data URIs that skip loadedmetadata
-    audio.oncanplaythrough = () => {
-      setLoading(false);
-    };
-
-    audio.onerror = () => {
+      setDuration(
+        Number.isFinite(nextDuration) && nextDuration > 0
+          ? nextDuration
+          : Math.max(durationSeconds, 0)
+      );
+    });
+    ws.on("error", () => {
       setError(true);
       setLoading(false);
-    };
-
-    audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
-
-    audio.onended = () => {
+    });
+    ws.on("play", () => setIsPlaying(true));
+    ws.on("pause", () => setIsPlaying(false));
+    ws.on("finish", () => {
       setIsPlaying(false);
       setCurrentTime(0);
-    };
-
-    audio.onpause = () => setIsPlaying(false);
-    audio.onplay = () => setIsPlaying(true);
-
-    // Assign src after wiring events
-    audio.src = src;
-    audio.load();
+      ws.seekTo(0);
+    });
+    ws.on("timeupdate", (cur) => setCurrentTime(cur));
 
     return () => {
-      audio.pause();
-      audio.onloadedmetadata = null;
-      audio.oncanplaythrough = null;
-      audio.onerror = null;
-      audio.ontimeupdate = null;
-      audio.onended = null;
-      audio.onpause = null;
-      audio.onplay = null;
-      audio.src = "";
-      audioRef.current = null;
+      ws.destroy();
+      wavesurfer.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src]);
+  }, [durationSeconds, src, outbound]);
 
   // Decode peaks once the bubble mounts. Cached across re-mounts.
   useEffect(() => {
@@ -322,35 +310,12 @@ export function VoiceNoteBubble({
   }, [src, peaksReady]);
 
   function togglePlay(): void {
-    const audio = audioRef.current;
-    if (!audio || error) return;
-
-    if (isPlaying) {
-      audio.pause();
-    } else {
-      // Reset to start if at end
-      if (audio.ended || (audio.duration > 0 && audio.currentTime >= audio.duration - 0.1)) {
-        audio.currentTime = 0;
-      }
-      const promise = audio.play();
-      if (promise !== undefined) {
-        promise.catch(() => {
-          // Autoplay blocked — this should not happen since it's triggered by a click
-          setIsPlaying(false);
-        });
-      }
+    if (wavesurfer.current && !error) {
+      wavesurfer.current.playPause();
     }
   }
 
-  function seekTo(fraction: number): void {
-    const audio = audioRef.current;
-    if (!audio || !duration) return;
-    audio.currentTime = Math.max(0, Math.min(duration, fraction * duration));
-    setCurrentTime(audio.currentTime);
-  }
-
-  const progress = duration > 0 ? Math.min(currentTime / duration, 1) : 0;
-  const displayDuration = isPlaying || currentTime > 0 ? currentTime : duration;
+  const displayDuration = isPlaying ? currentTime : duration;
 
   if (error) {
     return (
@@ -362,7 +327,7 @@ export function VoiceNoteBubble({
   }
 
   return (
-    <div className="flex min-w-[230px] max-w-[300px] items-center gap-3">
+    <div className="flex min-w-[240px] max-w-[320px] items-center gap-3">
       {/* Play / Pause button */}
       <button
         aria-label={isPlaying ? "Pause voice note" : "Play voice note"}
@@ -387,33 +352,30 @@ export function VoiceNoteBubble({
       </button>
 
       {/* Waveform + duration */}
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <PlaybackWaveform
-          peaks={peaks}
-          progress={progress}
-          outbound={outbound}
-          isPlaying={isPlaying}
-          onSeek={seekTo}
-        />
-        <div className="flex items-center justify-between gap-2">
-          <span
-            className={cn(
-              "text-[10.5px] tabular-nums tracking-wide",
-              outbound ? "text-white/70" : "text-nada-secondary"
-            )}
-          >
-            {formatDur(Math.round(displayDuration))}
-          </span>
-          {!peaksReady && !loading ? (
-            <span
-              className={cn(
-                "text-[9px] uppercase tracking-[0.12em]",
-                outbound ? "text-white/40" : "text-nada-secondary/50"
-              )}
-            >
-              Decoding…
-            </span>
+      <div className="flex flex-1 flex-col gap-1 overflow-hidden relative">
+        <div className="relative h-9 w-full overflow-hidden rounded-lg">
+          {loading ? (
+            <div className="absolute inset-0 flex items-center gap-1.5">
+              {Array.from({ length: 24 }, (_, index) => (
+                <span
+                  key={index}
+                  className={cn(
+                    "w-0.5 rounded-full animate-pulse",
+                    outbound ? "bg-white/55" : "bg-nada-accent/45"
+                  )}
+                  style={{
+                    animationDelay: `${index * 34}ms`,
+                    height: `${28 + ((index * 17) % 54)}%`
+                  }}
+                />
+              ))}
+            </div>
           ) : null}
+          <div
+            ref={containerRef}
+            aria-label="Voice note waveform"
+            className={cn("h-9 w-full transition-opacity", loading && "opacity-0")}
+          />
         </div>
       </div>
     </div>

@@ -12,6 +12,7 @@ import {
 import Dexie from "dexie";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
   ArrowLeft,
   BarChart2,
@@ -49,7 +50,6 @@ import {
   Share2,
   ShieldAlert,
   ShieldOff,
-  Smile,
   Trash2,
   Upload,
   User,
@@ -174,6 +174,12 @@ type Panel =
   | "settings"
   | "share"
   | null;
+
+type MessageContextMenuState = {
+  messageId: string;
+  x: number;
+  y: number;
+};
 
 export function NadaApp(): JSX.Element {
   const [identity, setIdentity] = useState<IdentityRecord | null>(null);
@@ -3029,14 +3035,7 @@ function ChatPanel({
 }): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [showOptions, setShowOptions] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{
-    message: MessageRecord;
-    x: number;
-    y: number;
-    origin: "left" | "right";
-  } | null>(null);
-  const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
-  const longPressFired = useRef(false);
+  const [messageMenu, setMessageMenu] = useState<MessageContextMenuState | null>(null);
   const [showWallpaperPrompt, setShowWallpaperPrompt] = useState(false);
   const [showPollModal, setShowPollModal] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -3056,7 +3055,8 @@ function ChatPanel({
       showClearModal ||
       showBlockModal ||
       showProfilePanel ||
-      deleteSheetMessageId !== null;
+      deleteSheetMessageId !== null ||
+      messageMenu !== null;
     if (!anyOpen) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -3067,6 +3067,7 @@ function ChatPanel({
       else if (showBlockModal) setShowBlockModal(false);
       else if (showProfilePanel) setShowProfilePanel(false);
       else if (deleteSheetMessageId !== null) setDeleteSheetMessageId(null);
+      else if (messageMenu !== null) setMessageMenu(null);
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
@@ -3077,7 +3078,8 @@ function ChatPanel({
     showClearModal,
     showBlockModal,
     showProfilePanel,
-    deleteSheetMessageId
+    deleteSheetMessageId,
+    messageMenu
   ]);
   const [chatSearchActive, setChatSearchActive] = useState(false);
   const [chatSearchIdx, setChatSearchIdx] = useState(0);
@@ -3092,7 +3094,7 @@ function ChatPanel({
     url: string;
     mimeType: string;
   } | null>(null);
-  const virtualListRef = useRef<import("@/components/VirtualMessageList").VirtualListHandle | null>(null);
+  const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
@@ -3110,6 +3112,94 @@ function ChatPanel({
   const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👎"];
 
 
+
+  const activeMessageMenu = messageMenu?.messageId ?? null;
+  const messageIndexById = useMemo(() => {
+    return new Map(messages.map((message, index) => [message.id, index]));
+  }, [messages]);
+
+  const contextMenuMessage = useMemo(() => {
+    if (!messageMenu) return null;
+    return messages.find((message) => message.id === messageMenu.messageId) ?? null;
+  }, [messageMenu, messages]);
+
+  const setMessageRef = useCallback((messageId: string, el: HTMLDivElement | null): void => {
+    if (el) {
+      messageRefs.current[messageId] = el;
+    } else {
+      delete messageRefs.current[messageId];
+    }
+  }, []);
+
+  const highlightMessage = useCallback((messageId: string): void => {
+    const el = messageRefs.current[messageId];
+    if (!el) return;
+
+    el.animate(
+      [
+        { backgroundColor: "rgb(var(--nada-accent) / 0.24)" },
+        { backgroundColor: "transparent" }
+      ],
+      { duration: 1600, easing: "ease-out" }
+    );
+  }, []);
+
+  const scrollToMessage = useCallback((messageId: string): void => {
+    const index = messageIndexById.get(messageId);
+    if (index === undefined) return;
+
+    const renderedMessage = messageRefs.current[messageId];
+    if (renderedMessage) {
+      renderedMessage.scrollIntoView({ behavior: "smooth", block: "center" });
+      highlightMessage(messageId);
+      return;
+    }
+
+    virtuosoRef.current?.scrollToIndex({
+      index,
+      align: "center",
+      behavior: "smooth"
+    });
+    window.setTimeout(() => highlightMessage(messageId), 420);
+  }, [highlightMessage, messageIndexById]);
+
+  const closeMessageContextMenu = useCallback((): void => {
+    setMessageMenu(null);
+  }, []);
+
+  const openMessageContextMenu = useCallback((
+    message: MessageRecord,
+    point: { x: number; y: number }
+  ): void => {
+    if (message.deletedAt) return;
+
+    const menuWidth = 252;
+    const menuHeight = message.direction === "outbound" ? 338 : 292;
+    const padding = 12;
+    const x = Math.min(
+      Math.max(point.x, padding),
+      Math.max(padding, window.innerWidth - menuWidth - padding)
+    );
+    const y = Math.min(
+      Math.max(point.y, padding),
+      Math.max(padding, window.innerHeight - menuHeight - padding)
+    );
+
+    setMessageMenu({ messageId: message.id, x, y });
+  }, []);
+
+  const copyMessageToClipboard = (message: MessageRecord): void => {
+    const copyText = previewForMessage(message);
+    if (!navigator.clipboard) {
+      showToast("Clipboard is not available.");
+      return;
+    }
+
+    void navigator.clipboard.writeText(copyText).then(
+      () => showToast("Message copied."),
+      () => showToast("Copy failed.")
+    );
+  };
 
   // Show toast helper
   const showToast = (msg: string) => {
@@ -3137,9 +3227,12 @@ function ChatPanel({
   // pin-to-bottom, but explicitly request a smooth scroll so the user always
   // sees their just-sent message).
   useEffect(() => {
-    if (virtualListRef.current?.isAtBottom()) {
-      virtualListRef.current?.scrollToBottom({ behavior: "smooth" });
-    }
+    if (messages.length === 0) return;
+    virtuosoRef.current?.scrollToIndex({
+      index: messages.length - 1,
+      align: "end",
+      behavior: "smooth"
+    });
   }, [messages.length]);
 
   // Scroll to a message by id and play a highlight pulse once it's rendered.
@@ -3167,14 +3260,28 @@ function ChatPanel({
     if (chatSearchActive && searchMatchIds.length > 0) {
       const matchId = searchMatchIds[chatSearchIdx];
       if (matchId) {
-        scrollToMessage(matchId, true);
+        scrollToMessage(matchId);
       }
     }
-  }, [chatSearchIdx, searchMatchIds, chatSearchActive, scrollToMessage]);
+  }, [chatSearchIdx, chatSearchActive, scrollToMessage, searchMatchIds]);
+
+  useEffect(() => {
+    if (!messageMenu) return;
+    const close = (): void => {
+      setMessageMenu(null);
+    };
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [messageMenu]);
 
   useEffect(() => {
     return () => {
       // Cleanup any active recordings when the chat panel unmounts
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
       if (recordingTimer.current) window.clearInterval(recordingTimer.current);
       void recordingAudioContext.current?.close();
       if (mediaRecorder.current && mediaRecorder.current.state !== "inactive") {
@@ -3656,7 +3763,9 @@ function ChatPanel({
       {pinnedMessageId && pinnedMessageBody && (
         <button
           className="nada-pinned-banner flex w-full items-center gap-2.5 px-4 py-2 text-left animate-fade-in"
-          onClick={() => scrollToMessage(pinnedMessageId, true)}
+          onClick={() => {
+            scrollToMessage(pinnedMessageId);
+          }}
           type="button"
         >
           <Pin size={13} className="shrink-0 text-nada-accent" />
@@ -4159,28 +4268,32 @@ function ChatPanel({
         </div>
       ) : null}
 
-      <VirtualMessageList
-        ref={virtualListRef}
-        items={messages}
-        getKey={(m) => m.id}
-        estimateSize={72}
-        overscan={8}
-        className="relative flex-1 overflow-y-auto px-3 py-3 pb-32"
-        style={{ background: "transparent" }}
-        beforeChildren={
-          blurShieldActive && !blurShieldRevealed ? (
-            <div className="nada-blur-shield" onClick={onRevealBlurShield}>
-              <div className="flex flex-col items-center gap-3 text-center">
-                <div className="grid h-12 w-12 place-items-center rounded-2xl bg-nada-surface/80 text-nada-secondary">
-                  <EyeOff size={22} />
-                </div>
-                <p className="text-sm font-medium text-nada-primary">Privacy shield active</p>
-                <p className="text-xs text-nada-secondary">Tap to reveal messages</p>
+      <div className="relative min-h-0 flex-1" style={{ background: "transparent" }}>
+        {blurShieldActive && !blurShieldRevealed && (
+          <div className="nada-blur-shield" onClick={onRevealBlurShield}>
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-nada-surface/80 text-nada-secondary">
+                <EyeOff size={22} />
               </div>
             </div>
-          ) : null
-        }
-        renderItem={(message: MessageRecord, index: number) => {
+          </div>
+        )}
+        <Virtuoso
+          key={messages[0]?.chatId ?? contact?.pubkeyHash ?? title}
+          ref={virtuosoRef}
+          alignToBottom
+          atBottomThreshold={120}
+          className="nada-message-virtuoso"
+          computeItemKey={(_index, message) => message.id}
+          components={{
+            Header: () => <div className="h-3" />,
+            Footer: () => <div className="h-32" />
+          }}
+          data={messages}
+          followOutput="smooth"
+          increaseViewportBy={{ top: 700, bottom: 900 }}
+          initialTopMostItemIndex={Math.max(0, messages.length - 1)}
+          itemContent={(index, message) => {
           const prevMessage = messages[index - 1];
           const showDateSep = !prevMessage || new Date(message.createdAt).toDateString() !== new Date(prevMessage.createdAt).toDateString();
           const isMenuOpen = contextMenu?.message.id === message.id;
@@ -4210,7 +4323,7 @@ function ChatPanel({
                 : `${isVideo ? "Video" : "Voice"} call started`;
             const isMissed = callLog.status === "missed";
             return (
-              <div key={message.id} ref={(el) => { messageRefs.current[message.id] = el; }}>
+              <div key={message.id} ref={(el) => setMessageRef(message.id, el)} className="px-3">
                 {showDateSep && (
                   <div className="flex justify-center py-3">
                     <span className="nada-date-pill">
@@ -4245,9 +4358,14 @@ function ChatPanel({
 
           const isFirstInCluster = !prevMsgSameSender;
           const isLastInCluster = !nextMsgSameSender;
+          const shouldAnimateIn = index >= Math.max(0, messages.length - 3);
 
           return (
-            <div key={message.id} ref={(el) => { messageRefs.current[message.id] = el; }} className={cn(isFirstInCluster ? "mt-3" : "mt-0.5")}>
+            <div
+              key={message.id}
+              ref={(el) => setMessageRef(message.id, el)}
+              className={cn("px-3", isFirstInCluster ? "mt-3" : "mt-0.5")}
+            >
               {/* Date separator */}
               {showDateSep && (
                 <div className="flex justify-center py-3">
@@ -4277,43 +4395,23 @@ function ChatPanel({
                     if ("vibrate" in navigator) navigator.vibrate(10);
                   }
                 }}
-                initial={false}
+                initial={shouldAnimateIn ? { opacity: 0, y: 8, scale: 0.98 } : false}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  e.stopPropagation();
-                  setContextMenu({
-                    message,
-                    x: e.clientX,
-                    y: e.clientY,
-                    origin: message.direction === "outbound" ? "right" : "left"
-                  });
+                  openMessageContextMenu(message, { x: e.clientX, y: e.clientY });
                 }}
                 onPointerDown={(e) => {
-                  longPressFired.current = false;
-                  longPressOrigin.current = { x: e.clientX, y: e.clientY };
                   if (e.pointerType === "mouse") return;
+                  if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                  const point = { x: e.clientX, y: e.clientY };
                   longPressTimer.current = setTimeout(() => {
-                    longPressFired.current = true;
-                    if ("vibrate" in navigator) {
-                      try { navigator.vibrate(15); } catch { /* ignore */ }
-                    }
-                    setContextMenu({
-                      message,
-                      x: longPressOrigin.current?.x ?? e.clientX,
-                      y: longPressOrigin.current?.y ?? e.clientY,
-                      origin: message.direction === "outbound" ? "right" : "left"
-                    });
+                    openMessageContextMenu(message, point);
+                    if ("vibrate" in navigator) navigator.vibrate(10);
                   }, 500);
                 }}
-                onPointerMove={(e) => {
-                  if (!longPressOrigin.current || !longPressTimer.current) return;
-                  const dx = e.clientX - longPressOrigin.current.x;
-                  const dy = e.clientY - longPressOrigin.current.y;
-                  if (dx * dx + dy * dy > 10 * 10) {
-                    clearTimeout(longPressTimer.current);
-                    longPressTimer.current = null;
-                  }
+                onPointerCancel={() => {
+                  if (longPressTimer.current) clearTimeout(longPressTimer.current);
                 }}
                 onPointerUp={() => {
                   if (longPressTimer.current) {
@@ -4342,14 +4440,15 @@ function ChatPanel({
                     message.direction === "outbound"
                       ? cn("nada-bubble-sent", isLastInCluster && "has-tail")
                       : cn("nada-bubble-received", isLastInCluster && "has-tail"),
-                    isPinned && "ring-1 ring-nada-accent/40"
+                    isPinned && "ring-1 ring-nada-accent/40",
+                    isMenuOpen && "ring-1 ring-white/30"
                   )}
                 >
                   {message.replyToId ? (
                     <div
                       className="mb-1.5 rounded-lg bg-black/10 px-2.5 py-1.5 text-xs opacity-80 cursor-pointer hover:opacity-100 transition-opacity"
                       onClick={() => {
-                        if (message.replyToId) scrollToMessage(message.replyToId, true);
+                        if (message.replyToId) scrollToMessage(message.replyToId);
                       }}
                     >
                       {(() => {
@@ -4407,54 +4506,6 @@ function ChatPanel({
                     )}
                   </div>
 
-                  {/* Hover actions — desktop only. Right-click / long-press opens the full glassmorphic menu. */}
-                  <div className={cn(
-                    "absolute -top-9 right-0 flex items-center gap-0.5 rounded-xl border border-nada-border/20 px-1.5 py-1 shadow-lg transition-all z-10",
-                    isMenuOpen ? "opacity-100 visible" : "opacity-0 invisible group-hover:opacity-100 group-hover:visible"
-                  )}
-                    style={{ background: "rgb(var(--nada-surface-elevated) / 0.95)", backdropFilter: "blur(12px)" }}
-                  >
-                    <button
-                      aria-label="Reply"
-                      className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
-                      onClick={() => onReply(message)}
-                      type="button"
-                    >
-                      <Reply size={14} />
-                    </button>
-                    <button
-                      aria-label="React"
-                      className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
-                      onClick={(e) => {
-                        const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                        setContextMenu({
-                          message,
-                          x: rect.left + rect.width / 2,
-                          y: rect.bottom + 6,
-                          origin: message.direction === "outbound" ? "right" : "left"
-                        });
-                      }}
-                      type="button"
-                    >
-                      <Smile size={14} />
-                    </button>
-                    <button
-                      aria-label="More actions"
-                      className="rounded-md p-1.5 text-nada-secondary transition hover:bg-nada-muted hover:text-nada-primary"
-                      onClick={(e) => {
-                        const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                        setContextMenu({
-                          message,
-                          x: rect.right,
-                          y: rect.bottom + 6,
-                          origin: "right"
-                        });
-                      }}
-                      type="button"
-                    >
-                      <MoreVertical size={14} />
-                    </button>
-                  </div>
                 </div>
 
                 {/* Reaction chips */}
@@ -4485,34 +4536,106 @@ function ChatPanel({
               {hasReactions && <div className="h-5" />}
             </div>
           );
-        }}
-      />
+          }}
+        />
+      </div>
 
-      {/* Glassmorphic context menu — opens on right-click and long-press */}
-      <MessageContextMenu
-        open={Boolean(contextMenu)}
-        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
-        origin={contextMenu?.origin}
-        reactions={REACTION_EMOJIS.slice(0, 6)}
-        onPickReaction={(emoji) => {
-          if (contextMenu) onReact(contextMenu.message, emoji);
-        }}
-        actions={contextMenu ? buildContextMenuActions(contextMenu.message, {
-          onReply,
-          onForward,
-          onPin,
-          onEditMessage,
-          onCopy: (text) => {
-            if (typeof navigator !== "undefined" && navigator.clipboard) {
-              void navigator.clipboard.writeText(text);
-              showToast("Copied to clipboard");
-            }
-          },
-          onDelete: (id) => setDeleteSheetMessageId(id),
-          isPinned: pinnedMessageId === contextMenu.message.id
-        }) : []}
-        onClose={() => setContextMenu(null)}
-      />
+      <AnimatePresence>
+        {contextMenuMessage && messageMenu ? (
+          <>
+            <motion.button
+              aria-label="Close message menu"
+              className="fixed inset-0 z-[60] cursor-default bg-transparent"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeMessageContextMenu}
+              type="button"
+            />
+            <motion.div
+              className="nada-message-context-menu fixed z-[70] w-[252px] overflow-hidden rounded-2xl p-1.5"
+              style={{ left: messageMenu.x, top: messageMenu.y }}
+              initial={{ opacity: 0, scale: 0.94, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: -4 }}
+              transition={{ type: "spring", stiffness: 520, damping: 34 }}
+              onClick={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <div className="grid grid-cols-8 gap-1 px-1 pb-1 pt-1">
+                {REACTION_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    aria-label={`React with ${emoji}`}
+                    className="grid h-8 w-7 place-items-center rounded-xl text-[15px] transition hover:bg-white/10 hover:scale-110"
+                    onClick={() => {
+                      onReact(contextMenuMessage, emoji);
+                      closeMessageContextMenu();
+                    }}
+                    type="button"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+              <div className="my-1 h-px bg-white/10" />
+              <MessageContextAction
+                icon={<Reply size={15} />}
+                label="Reply"
+                onClick={() => {
+                  onReply(contextMenuMessage);
+                  closeMessageContextMenu();
+                }}
+              />
+              <MessageContextAction
+                icon={<Copy size={15} />}
+                label="Copy"
+                onClick={() => {
+                  copyMessageToClipboard(contextMenuMessage);
+                  closeMessageContextMenu();
+                }}
+              />
+              <MessageContextAction
+                icon={<Share2 size={15} />}
+                label="Forward"
+                onClick={() => {
+                  onForward(contextMenuMessage.id);
+                  closeMessageContextMenu();
+                }}
+              />
+              <MessageContextAction
+                active={pinnedMessageId === contextMenuMessage.id}
+                icon={<Pin size={15} />}
+                label={pinnedMessageId === contextMenuMessage.id ? "Unpin" : "Pin"}
+                onClick={() => {
+                  onPin(contextMenuMessage);
+                  closeMessageContextMenu();
+                }}
+              />
+              {contextMenuMessage.direction === "outbound" ? (
+                <MessageContextAction
+                  icon={<Edit3 size={15} />}
+                  label="Edit"
+                  onClick={() => {
+                    onEditMessage(contextMenuMessage);
+                    closeMessageContextMenu();
+                  }}
+                />
+              ) : null}
+              <div className="my-1 h-px bg-white/10" />
+              <MessageContextAction
+                danger
+                icon={<Trash2 size={15} />}
+                label="Delete"
+                onClick={() => {
+                  setDeleteSheetMessageId(contextMenuMessage.id);
+                  closeMessageContextMenu();
+                }}
+              />
+            </motion.div>
+          </>
+        ) : null}
+      </AnimatePresence>
 
       <form
         className={cn(
@@ -4740,6 +4863,43 @@ function ChatPanel({
         ) : null}
       </AnimatePresence>
     </section>
+  );
+}
+
+function MessageContextAction({
+  active = false,
+  danger = false,
+  icon,
+  label,
+  onClick
+}: {
+  active?: boolean;
+  danger?: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      className={cn(
+        "flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-[13px] font-semibold transition",
+        danger
+          ? "text-nada-danger hover:bg-red-500/10"
+          : active
+            ? "bg-nada-accent/[0.12] text-nada-accent"
+            : "text-nada-primary/85 hover:bg-white/[0.08] hover:text-white"
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      <span className={cn(
+        "grid h-7 w-7 place-items-center rounded-lg",
+        danger ? "bg-red-500/10" : "bg-white/[0.07]"
+      )}>
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
   );
 }
 
