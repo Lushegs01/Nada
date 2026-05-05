@@ -179,6 +179,22 @@ type MessageContextMenuState = {
   y: number;
 };
 
+function mergeMessageRecords(...groups: MessageRecord[][]): MessageRecord[] {
+  const byId = new Map<string, MessageRecord>();
+  for (const group of groups) {
+    for (const message of group) {
+      byId.set(message.id, message);
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) => {
+    if (a.createdAt !== b.createdAt) {
+      return a.createdAt - b.createdAt;
+    }
+    return a.id.localeCompare(b.id);
+  });
+}
+
 export function NadaApp(): JSX.Element {
   const [identity, setIdentity] = useState<IdentityRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -725,7 +741,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       }
       if (!active) return;
       const messageRecords = selectedChatId ? await loadMessagesForChat(selectedChatId) : [];
-      setMessages(messageRecords);
+      setMessages((current) =>
+        selectedChatId
+          ? mergeMessageRecords(
+              messageRecords,
+              current.filter((message) => message.chatId === selectedChatId)
+            )
+          : messageRecords
+      );
     })();
 
     return () => { active = false; };
@@ -932,7 +955,12 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         return;
       }
 
-      setMessages(records);
+      setMessages((current) =>
+        mergeMessageRecords(
+          records,
+          current.filter((message) => message.chatId === selectedChatId)
+        )
+      );
     });
 
     return () => {
@@ -1015,7 +1043,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       }
 
       setContacts(contactRecords);
-      setMessages(messageRecords);
+      setMessages((current) =>
+        selectedChatId
+          ? mergeMessageRecords(
+              messageRecords,
+              current.filter((message) => message.chatId === selectedChatId)
+            )
+          : messageRecords
+      );
 
       newEnvelopes.forEach((env) => {
          const chatId = directChatId(identity.pubkeyHash, env.sender);
@@ -1062,7 +1097,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       }
 
       setChats(chatRecords.filter((chat) => chat.type === "group"));
-      setMessages(messageRecords);
+      setMessages((current) =>
+        selectedChatId
+          ? mergeMessageRecords(
+              messageRecords,
+              current.filter((message) => message.chatId === selectedChatId)
+            )
+          : messageRecords
+      );
 
       newGroupEnvelopes.forEach((env) => {
          if (env.groupId !== selectedChatId) {
@@ -1398,20 +1440,33 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       ...(replySnapshot ? { replyTo: replySnapshot } : {})
     };
 
-    await nadaDb.messages.put(record);
+    setMessages((current) => mergeMessageRecords(current, [record]));
+    setMessageText("");
+    setReplyToId(null);
+    if ("vibrate" in navigator) {
+      navigator.vibrate(8);
+    }
+
     if (selectedGroup) {
-      await nadaDb.chats.update(selectedGroup.id, { updatedAt: timestamp });
       setChats((current) =>
         current.map((chat) =>
           chat.id === selectedGroup.id ? { ...chat, updatedAt: timestamp } : chat
         )
       );
     }
-    setMessages((current) => [...current, record]);
-    setMessageText("");
-    setReplyToId(null);
-    if ("vibrate" in navigator) {
-      navigator.vibrate(8);
+
+    try {
+      await nadaDb.messages.put(record);
+      if (selectedGroup) {
+        await nadaDb.chats.update(selectedGroup.id, { updatedAt: timestamp });
+      }
+    } catch {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === record.id ? { ...message, status: "local" } : message
+        )
+      );
+      showToast("Message saved on screen, but local storage failed.");
     }
   };
 
