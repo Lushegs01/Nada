@@ -83,7 +83,7 @@ function CallControl({
           variant === "danger"
             ? "bg-red-500 hover:bg-red-400"
             : active
-              ? "bg-white/30 ring-2 ring-white/40"
+              ? "bg-white/30 ring-2 ring-nada-accent/35"
               : "bg-white/15 hover:bg-white/25"
         )}
       >
@@ -245,7 +245,7 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
             {(call.phase === "outgoing-ringing" || call.phase === "connecting") && (
               <span className="absolute inset-0 animate-ping rounded-full bg-white/10" />
             )}
-            <div className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl ring-4 ring-white/10">
+            <div className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl ring-4 ring-nada-border/20">
               <Avatar label={call.peerName} size="lg" />
             </div>
           </div>
@@ -374,7 +374,7 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
               {(call.phase === "outgoing-ringing" || call.phase === "connecting") && (
                 <span className="absolute inset-0 animate-ping rounded-full bg-white/20" />
               )}
-              <div className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl ring-4 ring-white/20">
+              <div className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl ring-4 ring-nada-border/20">
                 <Avatar label={call.peerName} size="lg" />
               </div>
             </div>
@@ -400,7 +400,7 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
           className={cn(
             "overflow-hidden bg-slate-900 shadow-2xl",
             isActive 
-              ? "absolute right-4 top-4 z-[900] h-40 w-28 cursor-grab active:cursor-grabbing rounded-xl ring-1 ring-white/20 md:h-48 md:w-32" 
+              ? "absolute right-4 top-4 z-[900] h-40 w-28 cursor-grab active:cursor-grabbing rounded-xl ring-1 ring-nada-border/20 md:h-48 md:w-32"
               : "absolute inset-0 z-0 h-full w-full rounded-none"
           )}
         >
@@ -434,7 +434,7 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
 
         {/* Controls bar (WhatsApp style floating pill) */}
         <div className="absolute inset-x-0 bottom-8 flex justify-center pointer-events-none z-[950]">
-          <div className="flex items-center gap-6 rounded-full bg-slate-900/60 backdrop-blur-xl px-6 py-4 shadow-2xl ring-1 ring-white/10 pointer-events-auto">
+          <div className="flex items-center gap-6 rounded-full bg-slate-900/60 backdrop-blur-xl px-6 py-4 shadow-2xl ring-1 ring-nada-border/20 pointer-events-auto">
             <CallControl
               label={call.isCameraOff ? "Camera on" : "Camera off"}
               icon={call.isCameraOff ? VideoOff : Video}

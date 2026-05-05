@@ -38,7 +38,7 @@ export const SearchBar = ({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-11 w-full rounded-2xl border border-nada-border/22 pl-10 pr-4 text-[13.5px] text-nada-primary outline-none placeholder:text-nada-secondary/45 transition-all duration-200 focus:border-nada-accent/45 focus:ring-4 focus:ring-nada-accent/10"
+        className="h-11 w-full rounded-2xl border border-nada-border/10 pl-10 pr-4 text-[13.5px] text-nada-primary outline-none placeholder:text-nada-secondary/45 transition-all duration-200 focus:border-nada-accent/35 focus:ring-4 focus:ring-nada-accent/10"
         style={{
           background: "rgb(var(--nada-surface-elevated) / 0.7)",
           backdropFilter: "blur(14px) saturate(140%)",
@@ -242,7 +242,7 @@ export const BottomNavigation = ({
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-header border-t border-white/[0.04] pb-safe-area pl-safe-area pr-safe-area"
+      className="fixed bottom-0 left-0 right-0 z-header border-t border-nada-border/[0.05] pb-safe-area pl-safe-area pr-safe-area"
       style={{
         background: "linear-gradient(to top, rgba(8,10,22,0.98), rgba(8,10,22,0.78))",
         backdropFilter: "blur(28px) saturate(150%)",
@@ -343,7 +343,7 @@ export const MobileHeader = ({
   onComposeClick?: () => void;
 }) => (
   <header
-    className="sticky top-0 z-header flex items-center justify-between border-b border-white/[0.03] px-4 pb-3 pt-safe-area pl-safe-area pr-safe-area"
+    className="sticky top-0 z-header flex items-center justify-between border-b border-nada-border/[0.05] px-4 pb-3 pt-safe-area pl-safe-area pr-safe-area"
     style={{
       background: "linear-gradient(to bottom, rgba(8,10,22,0.98), rgba(8,10,22,0.82))",
       backdropFilter: "blur(28px) saturate(150%)",
@@ -441,7 +441,7 @@ export const EmptyChatListState = ({ onAdd }: { onAdd: () => void }) => (
       <div className="relative flex h-[92px] w-[92px] items-center justify-center rounded-[28px] border border-nada-border/22"
         style={{
           background: "linear-gradient(155deg, rgb(var(--nada-surface-elevated)) 0%, rgb(var(--nada-surface-3)) 100%)",
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 12px 36px rgba(0,0,0,0.32)"
+          boxShadow: "inset 0 1px 0 rgb(var(--nada-border) / 0.10), 0 12px 36px rgba(0,0,0,0.32)"
         }}
       >
         <MessageCircle className="h-9 w-9 text-nada-accent/55" strokeWidth={1.6} />
@@ -566,7 +566,7 @@ export const SettingsRowItem = ({
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px]"
         style={{
           background: danger ? "rgb(248 113 113 / 0.12)" : "rgb(var(--nada-accent) / 0.12)",
-          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.04)"
+          boxShadow: "inset 0 0 0 1px rgb(var(--nada-border) / 0.08)"
         }}
       >
         <Icon className={cn("h-[18px] w-[18px]", danger ? "text-nada-danger" : "text-nada-accent")} strokeWidth={2} />
