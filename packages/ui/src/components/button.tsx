@@ -4,25 +4,25 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../lib/cn";
 
 const buttonStyles = cva(
-  "inline-flex items-center justify-center gap-2 font-semibold transition-all duration-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nada-accent disabled:pointer-events-none disabled:opacity-50 select-none",
+  "inline-flex items-center justify-center gap-2 font-semibold tracking-tight transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nada-accent disabled:pointer-events-none disabled:opacity-50 select-none",
   {
     variants: {
       variant: {
         primary:
-          "bg-gradient-to-br from-nada-accent to-nada-gold-dark text-white rounded-xl shadow-md hover:shadow-lg hover:brightness-110 active:scale-[0.98] transform",
+          "rounded-2xl text-white border border-nada-accent/45 nada-btn-gold active:scale-[0.98]",
         secondary:
-          "bg-nada-surface-elevated text-nada-primary rounded-xl hover:bg-nada-surface-3 border border-nada-border/30 shadow-sm hover:shadow-md active:scale-[0.98] transform",
+          "rounded-2xl bg-nada-surface-elevated/70 text-nada-primary backdrop-blur-md border border-nada-border/30 hover:bg-nada-surface-3/80 hover:border-nada-border/50 hover:-translate-y-0.5 active:scale-[0.98] shadow-sm",
         ghost:
-          "text-nada-primary rounded-xl hover:bg-nada-muted/40 active:scale-[0.98] transform",
+          "rounded-2xl text-nada-primary hover:bg-nada-surface-elevated/40 active:scale-[0.98]",
         danger:
-          "bg-nada-danger text-white rounded-xl shadow-md hover:brightness-110 active:scale-[0.98] transform",
+          "rounded-2xl bg-nada-danger text-white shadow-md hover:brightness-110 active:scale-[0.98]",
         outline:
-          "border border-nada-border/50 text-nada-primary rounded-xl hover:bg-nada-muted/30 hover:border-nada-border/80 active:scale-[0.98] transform"
+          "rounded-2xl border border-nada-border/40 text-nada-primary hover:bg-nada-surface-elevated/35 hover:border-nada-border/70 active:scale-[0.98]"
       },
       size: {
-        sm: "h-8 px-3 text-xs",
-        md: "h-10 px-4 text-sm",
-        lg: "h-12 px-6 text-base"
+        sm: "h-9 px-3.5 text-xs",
+        md: "h-11 px-5 text-[13.5px]",
+        lg: "h-12 px-6 text-[14.5px]"
       }
     },
     defaultVariants: {
