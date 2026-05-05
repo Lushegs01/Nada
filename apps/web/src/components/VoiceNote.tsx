@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play, AlertCircle, Loader2 } from "lucide-react";
 import { cn } from "@nada/ui";
+import WaveSurfer from "wavesurfer.js";
 
 function formatDur(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -25,100 +26,76 @@ export function VoiceNoteBubble({
   durationSeconds: number;
   outbound: boolean;
 }): JSX.Element {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wavesurfer = useRef<WaveSurfer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(Math.max(durationSeconds, 0));
   const [error, setError] = useState(false);
-  // Data URIs may not fire loadedmetadata on all browsers — treat as ready immediately
-  const [loading, setLoading] = useState(!src.startsWith("data:"));
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!src) {
+    if (!src || !containerRef.current) {
       setError(true);
       return;
     }
 
-    const audio = new Audio();
-    audioRef.current = audio;
-
-    // Reset UI state
     setError(false);
     setIsPlaying(false);
     setCurrentTime(0);
-    // Data URIs: trust the stored durationSeconds, no need to wait for metadata
-    setLoading(!src.startsWith("data:"));
+    setDuration(Math.max(durationSeconds, 0));
+    setLoading(true);
 
-    audio.preload = "metadata";
+    const ws = WaveSurfer.create({
+      container: containerRef.current,
+      waveColor: outbound ? "rgba(255, 255, 255, 0.35)" : "rgba(129, 140, 248, 0.35)",
+      progressColor: outbound ? "rgba(255, 255, 255, 0.95)" : "rgba(129, 140, 248, 1)",
+      cursorColor: "transparent",
+      barWidth: 2.5,
+      barGap: 2,
+      barRadius: 2,
+      dragToSeek: true,
+      height: 34,
+      interact: true,
+      normalize: true,
+      url: src
+    });
+    wavesurfer.current = ws;
 
-    audio.onloadedmetadata = () => {
-      if (isFinite(audio.duration) && audio.duration > 0) {
-        setDuration(audio.duration);
-      }
+    ws.on("ready", () => {
+      const nextDuration = ws.getDuration();
       setLoading(false);
-    };
-
-    // canplaythrough: also clear loading for data URIs that skip loadedmetadata
-    audio.oncanplaythrough = () => {
-      setLoading(false);
-    };
-
-    audio.onerror = () => {
+      setDuration(
+        Number.isFinite(nextDuration) && nextDuration > 0
+          ? nextDuration
+          : Math.max(durationSeconds, 0)
+      );
+    });
+    ws.on("error", () => {
       setError(true);
       setLoading(false);
-    };
-
-    audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
-
-    audio.onended = () => {
+    });
+    ws.on("play", () => setIsPlaying(true));
+    ws.on("pause", () => setIsPlaying(false));
+    ws.on("finish", () => {
       setIsPlaying(false);
       setCurrentTime(0);
-    };
-
-    audio.onpause = () => setIsPlaying(false);
-    audio.onplay = () => setIsPlaying(true);
-
-    // Assign src after wiring events
-    audio.src = src;
-    audio.load();
+      ws.seekTo(0);
+    });
+    ws.on("timeupdate", (cur) => setCurrentTime(cur));
 
     return () => {
-      audio.pause();
-      audio.onloadedmetadata = null;
-      audio.oncanplaythrough = null;
-      audio.onerror = null;
-      audio.ontimeupdate = null;
-      audio.onended = null;
-      audio.onpause = null;
-      audio.onplay = null;
-      audio.src = "";
-      audioRef.current = null;
+      ws.destroy();
+      wavesurfer.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src]);
+  }, [durationSeconds, src, outbound]);
 
   function togglePlay(): void {
-    const audio = audioRef.current;
-    if (!audio || error) return;
-
-    if (isPlaying) {
-      audio.pause();
-    } else {
-      // Reset to start if at end
-      if (audio.ended || (audio.duration > 0 && audio.currentTime >= audio.duration - 0.1)) {
-        audio.currentTime = 0;
-      }
-      const promise = audio.play();
-      if (promise !== undefined) {
-        promise.catch(() => {
-          // Autoplay blocked — this should not happen since it's triggered by a click
-          setIsPlaying(false);
-        });
-      }
+    if (wavesurfer.current && !error) {
+      wavesurfer.current.playPause();
     }
   }
 
-  const pct = duration > 0 ? Math.min((currentTime / duration) * 100, 100) : 0;
   const displayDuration = isPlaying ? currentTime : duration;
 
   if (error) {
@@ -131,7 +108,7 @@ export function VoiceNoteBubble({
   }
 
   return (
-    <div className="flex min-w-[210px] max-w-[280px] items-center gap-3">
+    <div className="flex min-w-[240px] max-w-[320px] items-center gap-3">
       {/* Play / Pause button */}
       <button
         aria-label={isPlaying ? "Pause voice note" : "Play voice note"}
@@ -154,32 +131,30 @@ export function VoiceNoteBubble({
         )}
       </button>
 
-      {/* Progress bar + duration */}
-      <div className="flex flex-1 flex-col gap-1.5">
-        {/* Clickable progress bar */}
-        <div
-          role="progressbar"
-          aria-valuenow={Math.round(pct)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          className={cn(
-            "relative h-1.5 w-full cursor-pointer overflow-hidden rounded-full",
-            outbound ? "bg-white/25" : "bg-nada-accent/20"
-          )}
-          onClick={(e) => {
-            const audio = audioRef.current;
-            if (!audio || !duration) return;
-            const rect = e.currentTarget.getBoundingClientRect();
-            const pctClicked = (e.clientX - rect.left) / rect.width;
-            audio.currentTime = pctClicked * duration;
-          }}
-        >
+      {/* Waveform + duration */}
+      <div className="flex flex-1 flex-col gap-1 overflow-hidden relative">
+        <div className="relative h-9 w-full overflow-hidden rounded-lg">
+          {loading ? (
+            <div className="absolute inset-0 flex items-center gap-1.5">
+              {Array.from({ length: 24 }, (_, index) => (
+                <span
+                  key={index}
+                  className={cn(
+                    "w-0.5 rounded-full animate-pulse",
+                    outbound ? "bg-white/55" : "bg-nada-accent/45"
+                  )}
+                  style={{
+                    animationDelay: `${index * 34}ms`,
+                    height: `${28 + ((index * 17) % 54)}%`
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
           <div
-            className={cn(
-              "absolute left-0 top-0 h-full rounded-full transition-[width] duration-100",
-              outbound ? "bg-white" : "bg-nada-accent"
-            )}
-            style={{ width: `${pct}%` }}
+            ref={containerRef}
+            aria-label="Voice note waveform"
+            className={cn("h-9 w-full transition-opacity", loading && "opacity-0")}
           />
         </div>
         <span
