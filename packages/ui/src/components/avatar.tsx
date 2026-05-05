@@ -8,20 +8,20 @@ export interface AvatarProps {
 }
 
 const AVATAR_GRADIENTS = [
-  "from-nada-accent via-blue-500 to-nada-gold-dark",
-  "from-cyan-400 to-nada-accent",
-  "from-emerald-400 to-teal-600",
-  "from-amber-400 to-orange-600",
-  "from-rose-400 to-pink-600",
-  "from-purple-400 to-nada-accent",
-  "from-fuchsia-400 to-purple-600",
-  "from-lime-400 to-green-600"
+  "from-indigo-400 via-violet-400 to-indigo-600",
+  "from-sky-400 via-cyan-400 to-blue-600",
+  "from-emerald-400 via-teal-400 to-emerald-600",
+  "from-amber-400 via-orange-400 to-rose-500",
+  "from-rose-400 via-pink-400 to-fuchsia-500",
+  "from-violet-400 via-purple-400 to-indigo-600",
+  "from-fuchsia-400 via-pink-400 to-purple-600",
+  "from-lime-400 via-emerald-400 to-green-600"
 ] as const;
 
 const SIZE_MAP = {
-  sm: "h-9 w-9 text-xs",
-  md: "h-11 w-11 text-sm",
-  lg: "h-14 w-14 text-base"
+  sm: "h-9 w-9 text-xs rounded-[12px]",
+  md: "h-11 w-11 text-sm rounded-[14px]",
+  lg: "h-14 w-14 text-base rounded-[18px]"
 } as const;
 
 function hashLabel(label: string): number {
@@ -42,12 +42,15 @@ export function Avatar({ className, label, size = "md", showRing = false }: Avat
     <div
       aria-hidden="true"
       className={cn(
-        "grid shrink-0 place-items-center rounded-full bg-gradient-to-br font-bold text-white select-none shadow-md transition-all duration-200",
-        showRing && "ring-2 ring-nada-accent/30",
+        "grid shrink-0 place-items-center bg-gradient-to-br font-bold text-white select-none transition-all duration-200",
+        showRing && "ring-2 ring-nada-accent/35",
         gradient,
         SIZE_MAP[size],
         className
       )}
+      style={{
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 14px rgba(0,0,0,0.30)"
+      }}
     >
       {initial}
     </div>

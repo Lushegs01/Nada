@@ -5,10 +5,10 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   applicationName: "NADA",
-  description: "Anonymous messaging without phone numbers or email.",
+  description: "Anonymous, end-to-end encrypted messaging — without phone numbers or email.",
   manifest: "/manifest.webmanifest",
   title: {
-    default: "NADA",
+    default: "NADA — Anonymous Messaging",
     template: "%s · NADA"
   },
   icons: {
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: "dark",
-  themeColor: "#0E1621",
+  themeColor: "#080A16",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover"

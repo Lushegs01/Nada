@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, AlertCircle, Loader2 } from "lucide-react";
 import { cn } from "@nada/ui";
 import WaveSurfer from "wavesurfer.js";
@@ -11,6 +11,207 @@ function formatDur(totalSeconds: number): string {
   return m > 0
     ? `${m}:${s.toString().padStart(2, "0")}`
     : `0:${s.toString().padStart(2, "0")}`;
+}
+
+// ── Audio peak extraction (cached per src) ───────────────────────────────────
+// Decodes a data:audio/... URI once and computes per-bar amplitudes for the
+// playback waveform. Heavy work — cache by src so re-mounting / replays are
+// instant.
+
+const PLAYBACK_BAR_COUNT = 42;
+const peaksCache = new Map<string, number[]>();
+const peaksInflight = new Map<string, Promise<number[]>>();
+
+function fallbackPeaks(seed: number): number[] {
+  // Deterministic but pleasant-looking pseudo-waveform shown until decode finishes.
+  const out: number[] = [];
+  for (let i = 0; i < PLAYBACK_BAR_COUNT; i++) {
+    const t = i / PLAYBACK_BAR_COUNT;
+    const wave =
+      0.45 +
+      0.3 * Math.sin(t * Math.PI * 4 + seed) +
+      0.15 * Math.sin(t * Math.PI * 11 + seed * 1.7);
+    out.push(Math.max(0.18, Math.min(1, wave)));
+  }
+  return out;
+}
+
+async function computePeaks(src: string): Promise<number[]> {
+  const cached = peaksCache.get(src);
+  if (cached) return cached;
+
+  const inflight = peaksInflight.get(src);
+  if (inflight) return inflight;
+
+  const job = (async (): Promise<number[]> => {
+    const res = await fetch(src);
+    const arrayBuffer = await res.arrayBuffer();
+    const Ctor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!Ctor) throw new Error("No AudioContext");
+    const ctx = new Ctor();
+    const audioBuffer: AudioBuffer = await new Promise((resolve, reject) => {
+      // decodeAudioData consumes the buffer in some browsers — clone it.
+      ctx.decodeAudioData(arrayBuffer.slice(0), resolve, reject);
+    });
+    const channel = audioBuffer.getChannelData(0);
+    const samplesPerBar = Math.max(1, Math.floor(channel.length / PLAYBACK_BAR_COUNT));
+    const peaks: number[] = new Array(PLAYBACK_BAR_COUNT);
+    for (let i = 0; i < PLAYBACK_BAR_COUNT; i++) {
+      let max = 0;
+      let sumSq = 0;
+      const start = i * samplesPerBar;
+      const end = Math.min(start + samplesPerBar, channel.length);
+      for (let j = start; j < end; j++) {
+        const v = channel[j]!;
+        const abs = v < 0 ? -v : v;
+        if (abs > max) max = abs;
+        sumSq += v * v;
+      }
+      const rms = Math.sqrt(sumSq / Math.max(1, end - start));
+      peaks[i] = max * 0.6 + rms * 0.4;
+    }
+    // Normalize and apply a gentle compressor curve so quiet notes still look full.
+    let maxPeak = 0;
+    for (const p of peaks) if (p > maxPeak) maxPeak = p;
+    if (maxPeak < 1e-4) maxPeak = 1;
+    for (let i = 0; i < peaks.length; i++) {
+      const n = peaks[i]! / maxPeak;
+      peaks[i] = Math.max(0.12, Math.pow(n, 0.65));
+    }
+    void ctx.close?.();
+    peaksCache.set(src, peaks);
+    return peaks;
+  })().catch((err) => {
+    peaksInflight.delete(src);
+    throw err;
+  });
+
+  peaksInflight.set(src, job);
+  try {
+    const result = await job;
+    peaksInflight.delete(src);
+    return result;
+  } catch {
+    return fallbackPeaks(src.length);
+  }
+}
+
+// ── Playback waveform ────────────────────────────────────────────────────────
+// Animated, click-to-seek bars. Bars before the playhead are filled, after are
+// dimmed; the bar straddling the playhead pulses subtly to give a sense of
+// motion.
+
+function PlaybackWaveform({
+  peaks,
+  progress,
+  outbound,
+  isPlaying,
+  onSeek
+}: {
+  peaks: number[];
+  progress: number;
+  outbound: boolean;
+  isPlaying: boolean;
+  onSeek: (fraction: number) => void;
+}): JSX.Element {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+
+  const handleSeekFromEvent = useCallback(
+    (clientX: number) => {
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const fraction = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      onSeek(fraction);
+    },
+    [onSeek]
+  );
+
+  return (
+    <div
+      ref={containerRef}
+      role="slider"
+      aria-label="Voice note progress"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(progress * 100)}
+      tabIndex={0}
+      className="relative flex h-9 flex-1 cursor-pointer touch-none select-none items-center gap-[2px]"
+      onPointerDown={(e) => {
+        // Don't let pointer-down propagate to the parent message bubble — it
+        // would otherwise be interpreted as the start of swipe-to-reply or
+        // trigger the long-press context menu.
+        e.preventDefault();
+        e.stopPropagation();
+        draggingRef.current = true;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        handleSeekFromEvent(e.clientX);
+      }}
+      onPointerMove={(e) => {
+        if (!draggingRef.current) return;
+        e.stopPropagation();
+        handleSeekFromEvent(e.clientX);
+      }}
+      onPointerUp={(e) => {
+        draggingRef.current = false;
+        try {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+      }}
+      onPointerCancel={() => {
+        draggingRef.current = false;
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          onSeek(Math.max(0, progress - 0.05));
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          onSeek(Math.min(1, progress + 0.05));
+        }
+      }}
+    >
+      {peaks.map((amp, i) => {
+        const barCenter = (i + 0.5) / peaks.length;
+        const isPlayed = barCenter <= progress;
+        const isHead =
+          isPlaying &&
+          Math.abs(barCenter - progress) < 0.5 / peaks.length + 0.001;
+        const heightPct = 18 + amp * 82; // 18%..100% — never disappear
+
+        const playedColor = outbound ? "rgb(255 255 255)" : "rgb(129 140 248)";
+        const unplayedColor = outbound
+          ? "rgb(255 255 255 / 0.35)"
+          : "rgb(129 140 248 / 0.32)";
+
+        return (
+          <span
+            key={i}
+            aria-hidden
+            className={cn(
+              "block flex-1 rounded-full transition-[background-color,transform,box-shadow] duration-150 ease-out",
+              isHead && "nada-wave-head"
+            )}
+            style={{
+              height: `${heightPct}%`,
+              background: isPlayed ? playedColor : unplayedColor,
+              minWidth: 2,
+              transform: isHead ? "scaleY(1.06)" : "scaleY(1)",
+              boxShadow: isHead
+                ? `0 0 8px ${outbound ? "rgba(255,255,255,0.55)" : "rgba(129,140,248,0.55)"}`
+                : "none"
+            }}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
 // ── Voice note playback bubble ────────────────────────────────────────────────
@@ -90,6 +291,24 @@ export function VoiceNoteBubble({
     };
   }, [durationSeconds, src, outbound]);
 
+  // Decode peaks once the bubble mounts. Cached across re-mounts.
+  useEffect(() => {
+    if (!src || peaksReady) return;
+    let cancelled = false;
+    void computePeaks(src)
+      .then((result) => {
+        if (cancelled) return;
+        setPeaks(result);
+        setPeaksReady(true);
+      })
+      .catch(() => {
+        // Keep the fallback waveform — it still looks good.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [src, peaksReady]);
+
   function togglePlay(): void {
     if (wavesurfer.current && !error) {
       wavesurfer.current.playPause();
@@ -115,19 +334,20 @@ export function VoiceNoteBubble({
         onClick={togglePlay}
         disabled={loading}
         className={cn(
-          "grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all",
+          "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
           outbound
-            ? "bg-white/25 hover:bg-white/35 active:scale-95 text-white"
-            : "bg-nada-accent/15 hover:bg-nada-accent/25 active:scale-95 text-nada-accent",
+            ? "bg-white/25 hover:bg-white/35 active:scale-90 text-white"
+            : "bg-nada-accent/20 hover:bg-nada-accent/30 active:scale-90 text-nada-accent",
+          isPlaying && "shadow-[0_0_0_3px_rgba(255,255,255,0.12)]",
           loading && "opacity-50 cursor-wait"
         )}
       >
         {loading ? (
-          <Loader2 size={15} className="animate-spin" />
+          <Loader2 size={16} className="animate-spin" />
         ) : isPlaying ? (
-          <Pause size={15} />
+          <Pause size={16} />
         ) : (
-          <Play size={15} />
+          <Play size={16} className="translate-x-[1px]" />
         )}
       </button>
 
@@ -157,14 +377,6 @@ export function VoiceNoteBubble({
             className={cn("h-9 w-full transition-opacity", loading && "opacity-0")}
           />
         </div>
-        <span
-          className={cn(
-            "text-[10px] tabular-nums",
-            outbound ? "text-white/60" : "text-nada-secondary"
-          )}
-        >
-          {formatDur(Math.round(displayDuration))}
-        </span>
       </div>
     </div>
   );

@@ -3,46 +3,53 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════
-   NADA Design System — Next-Gen Encrypted Messaging
+   NADA Design System v2 — Aurora
+   Refined dark UI with sophisticated indigo / violet accents,
+   layered glassmorphism, and premium typography.
    ═══════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
-/* ── Design Tokens ──────────────── */
+/* ── Design Tokens ──────────────────────────────────────── */
 
 :root,
 .dark,
 [data-theme="dark"] {
-  /* ── Backgrounds ── */
-  --nada-bg:               10 14 26;      /* #0A0E1A — deep space navy */
-  --nada-surface:          16 22 40;      /* #101628 — elevated card */
-  --nada-surface-elevated: 22 30 54;      /* #161E36 */
-  --nada-surface-3:        30 40 72;      /* #1E2848 */
+  /* ── Backgrounds — deeper, cooler, more cinematic ── */
+  --nada-bg:               8  10  22;       /* #08 0A 16 — near-black blue */
+  --nada-surface:          14 18  36;       /* #0E 12 24 */
+  --nada-surface-elevated: 20 26  48;       /* #14 1A 30 */
+  --nada-surface-3:        28 36  64;       /* #1C 24 40 */
 
-  /* ── Text ── */
-  --nada-primary:          224 231 255;   /* #E0E7FF — soft indigo-white */
-  --nada-secondary:        99  115 167;   /* #6373A7 */
+  /* ── Text — softened indigo-white for less harshness ── */
+  --nada-primary:          228 232 248;     /* #E4 E8 F8 */
+  --nada-secondary:        134 144 178;     /* #86 90 B2 */
 
   /* ── UI Chrome ── */
-  --nada-muted:            18  26  50;
-  --nada-border:           45  57  100;   /* #2D3964 */
+  --nada-muted:            18  24  44;
+  --nada-border:           50  62  104;     /* #32 3E 68 */
 
-  /* ── Primary Accent (Electric Indigo) ── */
-  --nada-accent:           129 140 248;   /* #818CF8 — indigo-400 */
-  --nada-accent-soft:      129 140 248;
-  --nada-gold-dark:        67  56  202;   /* #4338CA — indigo-700 */
-  --nada-gold-glow:        129 140 248;
+  /* ── Primary Accent (Aurora indigo→violet) ── */
+  --nada-accent:           139 148 252;     /* #8B 94 FC */
+  --nada-accent-soft:      139 148 252;
+  --nada-accent-deep:      88  88  220;     /* #58 58 DC */
+  --nada-violet:           167 139 250;     /* #A7 8B FA */
+
+  /* ── Legacy aliases retained for compatibility ── */
+  --nada-gold-dark:        88  88  220;     /* re-mapped to deep indigo */
+  --nada-gold-glow:        139 148 252;
 
   /* ── Message Bubbles ── */
-  --nada-sent:             67  56  202;   /* #4338CA — indigo sent */
-  --nada-received:         16  22  40;    /* same as surface */
+  --nada-sent:             88  88  220;
+  --nada-received:         20  26  48;
 
   /* ── Semantic ── */
-  --nada-danger:           252 165 165;   /* red-300 */
-  --nada-success:          52  211 153;   /* emerald-400 */
-  --nada-overlay:          6   8   18;
+  --nada-danger:           248 113 113;     /* red-400 */
+  --nada-success:          52  211 153;     /* emerald-400 */
+  --nada-warning:          251 191 36;      /* amber-400 */
+  --nada-overlay:          4   6   16;
   --nada-shadow-color:     0   0   0;
-  --nada-input-bg:         14  20  42;
+  --nada-input-bg:         12  16  34;
 }
 
 /* ── Base Reset ─────────────────────────────────────────── */
@@ -61,22 +68,38 @@ html {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   scroll-behavior: smooth;
+  font-feature-settings: "cv11", "ss01", "ss03";
 }
 
 body {
   min-height: 100dvh;
   background: rgb(var(--nada-bg));
   color: rgb(var(--nada-primary));
-  font-family: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  line-height: 1.6;
-  letter-spacing: -0.3px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  line-height: 1.55;
+  letter-spacing: -0.011em;
   overflow-x: hidden;
+}
+
+/* Subtle ambient grain — adds richness without noise */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(ellipse 90% 60% at 12% -10%, rgba(139, 148, 252, 0.10) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 60% at 88% 110%, rgba(167, 139, 250, 0.08) 0%, transparent 60%);
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.022em;
 }
+
+h1 { letter-spacing: -0.032em; }
+h2 { letter-spacing: -0.026em; }
 
 button, input, textarea, select {
   font: inherit;
@@ -85,158 +108,202 @@ button, input, textarea, select {
 
 input::placeholder,
 textarea::placeholder {
-  color: rgb(var(--nada-secondary) / 0.45);
+  color: rgb(var(--nada-secondary) / 0.5);
 }
 
 ::selection {
-  background: rgb(var(--nada-accent) / 0.25);
+  background: rgb(var(--nada-accent) / 0.28);
   color: rgb(var(--nada-primary));
 }
 
-::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(129, 140, 248, 0.12);
-  border-radius: 10px;
+  background: rgba(139, 148, 252, 0.14);
+  border-radius: 12px;
+  transition: background 0.2s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(129, 140, 248, 0.25);
+  background: rgba(139, 148, 252, 0.32);
 }
 
 /* ── Component Layer ────────────────────────────────────── */
 
 @layer components {
 
-  /* App shell */
+  /* ── App shell ── */
   .nada-shell {
     background: rgb(var(--nada-bg));
     min-height: 100dvh;
+    position: relative;
   }
 
-  /* Glass surface */
+  /* ── Glass surfaces ── */
   .nada-surface {
-    background: rgb(var(--nada-surface) / 0.85);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgb(var(--nada-border) / 0.18);
-    border-radius: 12px;
+    background: rgb(var(--nada-surface) / 0.78);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid rgb(var(--nada-border) / 0.20);
+    border-radius: 16px;
   }
 
   .nada-surface-elevated {
-    background: rgb(var(--nada-surface-elevated) / 0.92);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgb(var(--nada-border) / 0.22);
-    border-radius: 12px;
+    background: linear-gradient(
+      155deg,
+      rgb(var(--nada-surface-elevated) / 0.92) 0%,
+      rgb(var(--nada-surface) / 0.92) 100%
+    );
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    border: 1px solid rgb(var(--nada-border) / 0.24);
+    border-radius: 16px;
     box-shadow:
-      0 0 1px rgb(255 255 255 / 0.04),
-      0 2px 8px rgb(0 0 0 / 0.35),
-      0 8px 24px rgb(0 0 0 / 0.2);
+      inset 0 1px 0 rgb(255 255 255 / 0.04),
+      0 1px 2px rgb(0 0 0 / 0.40),
+      0 8px 24px rgb(0 0 0 / 0.30);
   }
 
-  /* Sidebar */
+  /* ── Sidebar ── */
   .nada-sidebar {
-    background: rgb(var(--nada-surface) / 0.75);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-right: 1px solid rgb(var(--nada-border) / 0.12);
+    background: linear-gradient(
+      180deg,
+      rgb(var(--nada-surface) / 0.82) 0%,
+      rgb(var(--nada-bg) / 0.92) 100%
+    );
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    border-right: 1px solid rgb(var(--nada-border) / 0.18);
   }
 
-  /* Chat area background — subtle grid pattern */
+  /* ── Chat area background ── */
   .nada-chat-bg {
     background-color: rgb(var(--nada-bg));
     background-image:
-      radial-gradient(circle at 15% 40%, rgba(129, 140, 248, 0.06) 0%, transparent 55%),
-      radial-gradient(circle at 85% 75%, rgba(67, 56, 202, 0.04) 0%, transparent 55%),
-      url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23818cf8' fill-opacity='0.018'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+      radial-gradient(circle at 18% 32%, rgba(139, 148, 252, 0.08) 0%, transparent 52%),
+      radial-gradient(circle at 82% 78%, rgba(167, 139, 250, 0.06) 0%, transparent 52%),
+      radial-gradient(circle at 50% 110%, rgba(88, 88, 220, 0.05) 0%, transparent 50%);
   }
 
-  /* ── Message Bubbles ────────────────────────── */
+  /* ── Aurora background — for hero / onboarding ── */
+  .nada-aurora-bg {
+    background:
+      radial-gradient(ellipse 70% 50% at 25% 25%, rgba(139, 148, 252, 0.18) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 50% at 80% 30%, rgba(167, 139, 250, 0.14) 0%, transparent 55%),
+      radial-gradient(ellipse 80% 60% at 50% 110%, rgba(88, 88, 220, 0.20) 0%, transparent 60%),
+      rgb(var(--nada-bg));
+  }
 
+  /* ── Mesh gradient panel — for premium cards ── */
+  .nada-mesh-card {
+    background:
+      radial-gradient(at 0% 0%, rgba(139, 148, 252, 0.18) 0%, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(167, 139, 250, 0.14) 0%, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(88, 88, 220, 0.16) 0%, transparent 50%),
+      rgb(var(--nada-surface));
+  }
+
+  /* ── Message Bubbles ── */
   .nada-bubble-sent {
-    background: linear-gradient(145deg,
-      rgb(99 102 241) 0%,
-      rgb(79 70 229) 60%,
-      rgb(67 56 202) 100%
+    background: linear-gradient(
+      135deg,
+      rgb(139 148 252) 0%,
+      rgb(110 110 240) 50%,
+      rgb(88 88 220) 100%
     );
     color: #ffffff;
-    border-radius: 20px 20px 5px 20px;
+    border-radius: 22px 22px 6px 22px;
     box-shadow:
-      0 1px 2px rgba(0,0,0,0.3),
-      0 4px 16px rgba(79, 70, 229, 0.35),
-      inset 0 1px 0 rgba(255,255,255,0.12);
+      0 1px 2px rgba(0, 0, 0, 0.30),
+      0 6px 18px rgba(88, 88, 220, 0.32),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(167, 139, 250, 0.22);
     position: relative;
-    border: 1px solid rgba(129, 140, 248, 0.2);
   }
 
   .nada-bubble-received {
-    background: rgb(var(--nada-surface-elevated) / 0.9);
+    background: rgb(var(--nada-surface-elevated) / 0.92);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     color: rgb(var(--nada-primary));
-    border-radius: 20px 20px 20px 5px;
-    border: 1px solid rgb(var(--nada-border) / 0.18);
+    border-radius: 22px 22px 22px 6px;
+    border: 1px solid rgb(var(--nada-border) / 0.22);
     box-shadow:
-      0 1px 2px rgba(0,0,0,0.25),
-      0 4px 12px rgba(0,0,0,0.2);
+      inset 0 1px 0 rgba(255, 255, 255, 0.03),
+      0 1px 2px rgba(0, 0, 0, 0.30),
+      0 4px 12px rgba(0, 0, 0, 0.18);
     position: relative;
   }
 
-  /* Input field */
+  /* ── Inputs ── */
   .nada-input {
-    background: rgb(var(--nada-input-bg) / 0.7);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgb(var(--nada-border) / 0.22);
-    border-radius: 12px;
+    background: rgb(var(--nada-input-bg) / 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgb(var(--nada-border) / 0.28);
+    border-radius: 14px;
     outline: none;
     color: rgb(var(--nada-primary));
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    padding: 11px 14px;
+    padding: 12px 16px;
     font-size: 14px;
   }
 
   .nada-input:focus {
-    background: rgb(var(--nada-input-bg) / 0.9);
-    border-color: rgb(var(--nada-accent) / 0.45);
+    background: rgb(var(--nada-input-bg) / 0.92);
+    border-color: rgb(var(--nada-accent) / 0.55);
     box-shadow:
-      0 0 0 3px rgb(var(--nada-accent) / 0.08),
-      0 4px 12px rgb(var(--nada-accent) / 0.12);
+      0 0 0 4px rgb(var(--nada-accent) / 0.10),
+      0 4px 16px rgb(var(--nada-accent) / 0.14);
   }
 
   .nada-input:disabled {
-    opacity: 0.45;
+    opacity: 0.5;
     cursor: not-allowed;
   }
 
-  /* Buttons */
+  /* ── Buttons ── */
   .btn-primary {
-    background: linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)));
+    background: linear-gradient(
+      135deg,
+      rgb(var(--nada-accent)) 0%,
+      rgb(var(--nada-accent-deep)) 100%
+    );
     color: white;
-    border: none;
-    border-radius: 12px;
+    border: 1px solid rgb(var(--nada-accent) / 0.5);
+    border-radius: 14px;
     font-weight: 600;
     font-size: 14px;
     padding: 12px 22px;
     cursor: pointer;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 16px rgba(129, 140, 248, 0.3);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 6px 18px rgba(88, 88, 220, 0.34),
+      0 1px 3px rgba(0, 0, 0, 0.30);
+    letter-spacing: -0.011em;
   }
 
   .btn-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 28px rgba(129, 140, 248, 0.4);
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.20),
+      0 10px 28px rgba(88, 88, 220, 0.46),
+      0 1px 3px rgba(0, 0, 0, 0.30);
   }
 
   .btn-primary:active {
     transform: translateY(0);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.10),
+      0 2px 8px rgba(88, 88, 220, 0.30);
   }
 
   .btn-secondary {
-    background: rgb(var(--nada-surface-elevated));
+    background: rgb(var(--nada-surface-elevated) / 0.7);
+    backdrop-filter: blur(12px);
     color: rgb(var(--nada-primary));
-    border: 1px solid rgb(var(--nada-border) / 0.25);
-    border-radius: 12px;
+    border: 1px solid rgb(var(--nada-border) / 0.32);
+    border-radius: 14px;
     font-weight: 600;
     font-size: 14px;
     padding: 12px 22px;
@@ -245,42 +312,49 @@ textarea::placeholder {
   }
 
   .btn-secondary:hover {
-    background: rgb(var(--nada-surface-3));
-    border-color: rgb(var(--nada-border) / 0.4);
+    background: rgb(var(--nada-surface-3) / 0.9);
+    border-color: rgb(var(--nada-border) / 0.5);
     transform: translateY(-1px);
   }
 
-  /* Accent badge */
+  /* ── Accent badge ── */
   .badge-accent {
     background: rgb(var(--nada-accent));
-    color: rgb(10 14 26);
+    color: rgb(8 10 22);
     font-weight: 700;
     font-size: 11px;
     padding: 3px 8px;
     border-radius: 6px;
-    box-shadow: 0 2px 8px rgba(129, 140, 248, 0.35);
+    box-shadow: 0 2px 10px rgba(139, 148, 252, 0.35);
+    letter-spacing: -0.01em;
   }
 
-  /* Card */
+  /* ── Card ── */
   .nada-card {
-    background: rgb(var(--nada-surface-elevated) / 0.92);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgb(var(--nada-border) / 0.2);
-    border-radius: 18px;
-    padding: 18px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.28);
+    background: linear-gradient(
+      155deg,
+      rgb(var(--nada-surface-elevated) / 0.92) 0%,
+      rgb(var(--nada-surface) / 0.94) 100%
+    );
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid rgb(var(--nada-border) / 0.22);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 4px 24px rgba(0, 0, 0, 0.30);
   }
 
-  /* Divider */
+  /* ── Divider ── */
   .nada-divider {
     border-color: rgb(var(--nada-border) / 0.18);
   }
 
-  /* Unread badge */
+  /* ── Unread badge ── */
   .nada-badge {
-    background: rgb(var(--nada-accent));
-    color: rgb(8 10 20);
+    background: linear-gradient(135deg, rgb(var(--nada-accent)) 0%, rgb(var(--nada-violet)) 100%);
+    color: rgb(8 10 22);
     font-size: 10px;
     font-weight: 800;
     line-height: 1;
@@ -292,7 +366,9 @@ textarea::placeholder {
     align-items: center;
     justify-content: center;
     text-align: center;
-    box-shadow: 0 2px 10px rgba(129, 140, 248, 0.45);
+    box-shadow:
+      0 0 0 2px rgb(var(--nada-bg)),
+      0 2px 12px rgba(139, 148, 252, 0.5);
     letter-spacing: -0.3px;
   }
 
@@ -305,93 +381,102 @@ textarea::placeholder {
     pointer-events: none;
   }
 
-  /* Overlay */
+  /* ── Overlay ── */
   .nada-overlay {
-    background: rgba(6, 8, 18, 0.88);
-    backdrop-filter: blur(28px);
-    -webkit-backdrop-filter: blur(28px);
+    background: rgba(4, 6, 16, 0.84);
+    backdrop-filter: blur(28px) saturate(120%);
+    -webkit-backdrop-filter: blur(28px) saturate(120%);
   }
 
-  /* Input bar */
+  /* ── Input bar (chat composer) ── */
   .nada-input-bar {
-    background: linear-gradient(to top,
-      rgba(10, 14, 26, 0.97) 0%,
-      rgba(10, 14, 26, 0.8) 100%
+    background: linear-gradient(
+      to top,
+      rgba(8, 10, 22, 0.98) 0%,
+      rgba(8, 10, 22, 0.84) 100%
     );
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
     border-top: 1px solid rgba(255, 255, 255, 0.04);
   }
 
-  /* Transitions */
+  /* ── Transitions ── */
   .transition-smooth {
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  /* Focus */
+  /* ── Focus ── */
   :focus-visible {
-    outline: 2px solid rgb(var(--nada-accent) / 0.6);
+    outline: 2px solid rgb(var(--nada-accent) / 0.65);
     outline-offset: 2px;
+    border-radius: 8px;
   }
 
-  /* Sheet / modal */
+  /* ── Sheet / modal ── */
   .nada-sheet {
-    background: rgb(var(--nada-surface));
-    border: 1px solid rgb(var(--nada-border) / 0.18);
-    border-radius: 20px;
+    background: linear-gradient(
+      155deg,
+      rgb(var(--nada-surface-elevated)) 0%,
+      rgb(var(--nada-surface)) 100%
+    );
+    border: 1px solid rgb(var(--nada-border) / 0.24);
+    border-radius: 22px;
     box-shadow:
-      0 20px 80px rgb(var(--nada-shadow-color) / 0.55),
-      0 4px 20px rgb(var(--nada-shadow-color) / 0.3);
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 24px 80px rgb(var(--nada-shadow-color) / 0.6),
+      0 4px 20px rgb(var(--nada-shadow-color) / 0.4);
   }
 
-  /* Online status dots */
+  /* ── Online status dots ── */
   .nada-status-online {
     width: 10px;
     height: 10px;
     border-radius: 999px;
     background: rgb(var(--nada-success));
-    box-shadow: 0 0 0 2px rgb(var(--nada-bg)), 0 0 8px rgba(52, 211, 153, 0.5);
+    box-shadow:
+      0 0 0 2px rgb(var(--nada-bg)),
+      0 0 10px rgba(52, 211, 153, 0.55);
   }
 
   .nada-status-offline {
     width: 10px;
     height: 10px;
     border-radius: 999px;
-    background: rgb(var(--nada-secondary) / 0.28);
-    box-shadow: 0 0 0 2px rgb(var(--nada-surface));
+    background: rgb(var(--nada-secondary) / 0.32);
+    box-shadow: 0 0 0 2px rgb(var(--nada-bg));
   }
 
-  /* Skeleton */
+  /* ── Skeleton ── */
   .nada-skeleton {
     background: linear-gradient(
       90deg,
-      rgb(var(--nada-surface-elevated)) 0%,
-      rgb(var(--nada-surface-elevated) / 0.4) 50%,
-      rgb(var(--nada-surface-elevated)) 100%
+      rgb(var(--nada-surface-elevated) / 0.7) 0%,
+      rgb(var(--nada-surface-elevated) / 0.3) 50%,
+      rgb(var(--nada-surface-elevated) / 0.7) 100%
     );
     background-size: 200% 100%;
     animation: nada-shimmer 1.8s ease-in-out infinite;
-    border-radius: 8px;
+    border-radius: 10px;
   }
 
-  /* Typing dots */
+  /* ── Typing dots ── */
   .nada-typing-dot {
-    width: 5px;
-    height: 5px;
+    width: 6px;
+    height: 6px;
     border-radius: 999px;
     background: rgb(var(--nada-accent));
     animation: nada-typing 1.4s ease-in-out infinite;
   }
 
-  .nada-typing-dot:nth-child(2) { animation-delay: 0.2s; }
-  .nada-typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  .nada-typing-dot:nth-child(2) { animation-delay: 0.18s; }
+  .nada-typing-dot:nth-child(3) { animation-delay: 0.36s; }
 
-  /* Privacy Blur Shield */
+  /* ── Privacy Blur Shield ── */
   .nada-blur-shield {
     position: absolute;
     inset: 0;
-    backdrop-filter: blur(28px) saturate(130%);
-    -webkit-backdrop-filter: blur(28px) saturate(130%);
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
     background: rgb(var(--nada-bg) / 0.65);
     z-index: 5;
     display: flex;
@@ -401,10 +486,15 @@ textarea::placeholder {
     user-select: none;
   }
 
-  /* Vanish mode banner */
+  /* ── Vanish mode banner ── */
   .nada-vanish-banner {
-    background: linear-gradient(90deg, rgb(var(--nada-accent) / 0.08), transparent);
-    border-bottom: 1px solid rgb(var(--nada-accent) / 0.16);
+    background: linear-gradient(
+      90deg,
+      rgb(var(--nada-accent) / 0.12) 0%,
+      rgb(var(--nada-violet) / 0.06) 50%,
+      transparent 100%
+    );
+    border-bottom: 1px solid rgb(var(--nada-accent) / 0.20);
     color: rgb(var(--nada-accent));
   }
 
@@ -417,75 +507,81 @@ textarea::placeholder {
     flex-shrink: 0;
   }
 
-  /* Mood pill */
+  /* ── Mood pill ── */
   .nada-mood-pill {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 8px;
+    padding: 3px 10px;
     border-radius: 999px;
     font-size: 11px;
     font-family: 'Space Grotesk', monospace;
     font-weight: 500;
-    background: rgb(var(--nada-surface-elevated));
+    background: rgb(var(--nada-surface-elevated) / 0.8);
+    backdrop-filter: blur(8px);
     color: rgb(var(--nada-secondary));
-    border: 1px solid rgb(var(--nada-border) / 0.18);
+    border: 1px solid rgb(var(--nada-border) / 0.22);
   }
 
-  /* Reaction chips */
+  /* ── Reaction chips ── */
   .nada-reaction-chip {
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    padding: 2px 7px;
+    padding: 3px 9px;
     border-radius: 999px;
     font-size: 12px;
-    background: rgb(var(--nada-surface-elevated));
-    border: 1px solid rgb(var(--nada-border) / 0.18);
+    background: rgb(var(--nada-surface-elevated) / 0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgb(var(--nada-border) / 0.22);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.16s ease;
     user-select: none;
     line-height: 1.4;
   }
 
   .nada-reaction-chip:hover {
     background: rgb(var(--nada-muted));
-    border-color: rgb(var(--nada-accent) / 0.4);
-    box-shadow: 0 0 10px rgb(var(--nada-accent) / 0.18);
-    transform: scale(1.08);
+    border-color: rgb(var(--nada-accent) / 0.45);
+    box-shadow: 0 0 16px rgb(var(--nada-accent) / 0.20);
+    transform: scale(1.06);
   }
 
   .nada-reaction-chip.nada-reaction-mine {
-    background: rgb(var(--nada-accent) / 0.14);
-    border-color: rgb(var(--nada-accent) / 0.45);
+    background: rgb(var(--nada-accent) / 0.18);
+    border-color: rgb(var(--nada-accent) / 0.55);
     color: rgb(var(--nada-accent));
   }
 
-  /* Pinned message banner */
+  /* ── Pinned message banner ── */
   .nada-pinned-banner {
-    background: rgb(var(--nada-surface));
-    border-bottom: 1px solid rgb(var(--nada-border) / 0.15);
+    background: linear-gradient(
+      90deg,
+      rgb(var(--nada-accent) / 0.06),
+      transparent
+    );
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.18);
     cursor: pointer;
     transition: background 0.15s ease;
   }
 
   .nada-pinned-banner:hover {
-    background: rgb(var(--nada-surface-elevated));
+    background: rgb(var(--nada-accent) / 0.10);
   }
 
-  /* Ghost badge */
+  /* ── Ghost badge ── */
   .nada-ghost-badge {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 8px;
+    padding: 3px 10px;
     border-radius: 999px;
     font-size: 11px;
     font-family: 'Space Grotesk', monospace;
     font-weight: 500;
-    background: rgb(var(--nada-surface-elevated));
+    background: rgb(var(--nada-surface-elevated) / 0.85);
     color: rgb(var(--nada-secondary));
-    border: 1px solid rgb(var(--nada-border) / 0.18);
+    border: 1px solid rgb(var(--nada-border) / 0.22);
   }
 
   /* Virtualized message viewport */
@@ -515,87 +611,100 @@ textarea::placeholder {
   .nada-quick-reply {
     display: inline-flex;
     align-items: center;
-    padding: 6px 14px;
+    padding: 7px 16px;
     border-radius: 999px;
     font-size: 13px;
     font-weight: 500;
-    background: rgb(var(--nada-surface-elevated));
-    border: 1px solid rgb(var(--nada-border) / 0.18);
+    background: rgb(var(--nada-surface-elevated) / 0.85);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgb(var(--nada-border) / 0.22);
     color: rgb(var(--nada-primary));
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.16s ease;
     white-space: nowrap;
     user-select: none;
     flex-shrink: 0;
   }
 
   .nada-quick-reply:hover {
-    background: rgb(var(--nada-accent) / 0.12);
-    border-color: rgb(var(--nada-accent) / 0.5);
+    background: rgb(var(--nada-accent) / 0.14);
+    border-color: rgb(var(--nada-accent) / 0.55);
     color: rgb(var(--nada-accent));
-    box-shadow: 0 0 12px rgb(var(--nada-accent) / 0.18);
+    box-shadow: 0 0 18px rgb(var(--nada-accent) / 0.20);
     transform: translateY(-1px);
   }
 
   .nada-quick-reply:active { transform: scale(0.97); }
 
-  /* Accent button */
+  /* ── Premium accent button (legacy alias: nada-btn-gold) ── */
   .nada-btn-gold {
-    background: linear-gradient(135deg,
+    background: linear-gradient(
+      135deg,
       rgb(var(--nada-accent)) 0%,
-      rgb(var(--nada-gold-dark)) 100%
+      rgb(var(--nada-violet)) 50%,
+      rgb(var(--nada-accent-deep)) 100%
     );
     color: #ffffff;
     font-weight: 600;
-    border-radius: 12px;
+    border: 1px solid rgb(var(--nada-accent) / 0.45);
+    border-radius: 14px;
     transition: all 0.22s ease;
-    box-shadow: 0 4px 16px rgba(129, 140, 248, 0.28);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 8px 24px rgba(88, 88, 220, 0.36),
+      0 1px 3px rgba(0, 0, 0, 0.3);
+    letter-spacing: -0.011em;
   }
 
   .nada-btn-gold:hover {
-    box-shadow: 0 8px 28px rgba(129, 140, 248, 0.42);
-    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 12px 32px rgba(88, 88, 220, 0.48),
+      0 1px 3px rgba(0, 0, 0, 0.3);
+    transform: translateY(-1px);
   }
 
   .nada-btn-gold:active {
-    transform: scale(0.97);
-    box-shadow: none;
+    transform: scale(0.98);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.10),
+      0 2px 8px rgba(88, 88, 220, 0.28);
   }
 
-  /* Dark input */
+  /* ── Dark input ── */
   .nada-input-dark {
-    background: rgb(var(--nada-input-bg));
-    border: 1px solid rgb(var(--nada-border) / 0.28);
-    border-radius: 12px;
+    background: rgb(var(--nada-input-bg) / 0.85);
+    border: 1px solid rgb(var(--nada-border) / 0.32);
+    border-radius: 14px;
     outline: none;
     color: rgb(var(--nada-primary));
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    padding: 12px 16px;
   }
 
   .nada-input-dark:focus {
+    background: rgb(var(--nada-input-bg));
     border-color: rgb(var(--nada-accent) / 0.55);
-    box-shadow: 0 0 0 3px rgb(var(--nada-accent) / 0.08);
+    box-shadow: 0 0 0 4px rgb(var(--nada-accent) / 0.10);
   }
 
   .nada-input-dark::placeholder {
     color: rgb(var(--nada-secondary) / 0.5);
   }
 
-  /* No scrollbar */
+  /* ── No scrollbar ── */
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
   .no-scrollbar::-webkit-scrollbar { display: none; }
 
-  /* ── Premium Hero gradient for onboarding ── */
+  /* ── Premium hero gradient ── */
   .nada-hero-gradient {
-    background: radial-gradient(
-      ellipse 120% 80% at 50% -10%,
-      rgba(99, 102, 241, 0.28) 0%,
-      rgba(67, 56, 202, 0.14) 40%,
-      transparent 70%
-    );
+    background:
+      radial-gradient(ellipse 100% 70% at 50% -10%, rgba(139, 148, 252, 0.30) 0%, transparent 60%),
+      radial-gradient(ellipse 90% 60% at 80% 20%, rgba(167, 139, 250, 0.18) 0%, transparent 55%),
+      radial-gradient(ellipse 70% 50% at 20% 100%, rgba(88, 88, 220, 0.18) 0%, transparent 55%);
     pointer-events: none;
   }
 
@@ -603,23 +712,158 @@ textarea::placeholder {
   .nada-date-pill {
     display: inline-flex;
     align-items: center;
-    padding: 3px 14px;
+    padding: 4px 14px;
     border-radius: 999px;
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.02em;
-    color: rgb(var(--nada-secondary) / 0.75);
-    background: rgb(var(--nada-surface-elevated) / 0.7);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgb(var(--nada-border) / 0.15);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgb(var(--nada-secondary) / 0.85);
+    background: rgb(var(--nada-surface-elevated) / 0.72);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgb(var(--nada-border) / 0.22);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.20);
+  }
+
+  /* ── Glassmorphic context menu ── */
+  .nada-context-menu {
+    background: linear-gradient(
+      155deg,
+      rgba(28, 38, 70, 0.78) 0%,
+      rgba(20, 28, 54, 0.82) 100%
+    );
+    backdrop-filter: blur(32px) saturate(160%);
+    -webkit-backdrop-filter: blur(32px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 20px;
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.4),
+      0 4px 24px rgba(0, 0, 0, 0.45),
+      0 20px 56px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    color: rgb(var(--nada-primary));
+  }
+
+  .nada-context-menu-reactions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .nada-context-menu-reaction {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    font-size: 18px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.15s ease;
+  }
+
+  .nada-context-menu-reaction:hover {
+    background: rgba(255, 255, 255, 0.12);
+    transform: scale(1.08);
+  }
+
+  .nada-context-menu-actions {
+    display: flex;
+    flex-direction: column;
+    padding: 6px;
+    gap: 1px;
+  }
+
+  .nada-context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: rgb(var(--nada-primary));
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+    text-align: left;
+  }
+
+  .nada-context-menu-item:hover {
+    background: rgba(139, 148, 252, 0.16);
+    color: rgb(var(--nada-accent));
+  }
+
+  .nada-context-menu-item:active {
+    background: rgba(139, 148, 252, 0.24);
+  }
+
+  .nada-context-menu-item-danger {
+    color: rgb(var(--nada-danger));
+  }
+
+  .nada-context-menu-item-danger:hover {
+    background: rgba(248, 113, 113, 0.14);
+    color: rgb(var(--nada-danger));
+  }
+
+  .nada-context-menu-icon {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    color: inherit;
+    opacity: 0.85;
   }
 
   /* ── Glow ring (avatar / status) ── */
   .nada-glow-ring {
     box-shadow:
       0 0 0 2px rgb(var(--nada-bg)),
-      0 0 0 4px rgb(var(--nada-accent) / 0.4),
-      0 0 16px rgb(var(--nada-accent) / 0.2);
+      0 0 0 4px rgb(var(--nada-accent) / 0.45),
+      0 0 20px rgb(var(--nada-accent) / 0.25);
+  }
+
+  /* ── Premium accent text gradient ── */
+  .nada-accent-text {
+    background: linear-gradient(
+      135deg,
+      rgb(var(--nada-accent)) 0%,
+      rgb(var(--nada-violet)) 50%,
+      rgb(var(--nada-accent)) 100%
+    );
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: nada-gradient-shift 6s ease infinite;
+  }
+
+  /* ── Logo aura ── */
+  .nada-logo-aura {
+    background: linear-gradient(
+      145deg,
+      rgb(var(--nada-accent)) 0%,
+      rgb(var(--nada-violet)) 50%,
+      rgb(var(--nada-accent-deep)) 100%
+    );
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.20),
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 8px 32px rgba(139, 148, 252, 0.40);
+  }
+
+  /* ── Section / list section ── */
+  .nada-section-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgb(var(--nada-secondary) / 0.65);
   }
 }
 
@@ -631,7 +875,7 @@ textarea::placeholder {
 }
 
 @keyframes nada-typing {
-  0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
+  0%, 60%, 100% { opacity: 0.30; transform: translateY(0); }
   30%            { opacity: 1;    transform: translateY(-5px); }
 }
 
@@ -651,14 +895,14 @@ textarea::placeholder {
 }
 
 @keyframes nada-pulse-ring {
-  0%   { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.45); }
-  70%  { box-shadow: 0 0 0 10px rgb(var(--nada-accent) / 0); }
+  0%   { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.50); }
+  70%  { box-shadow: 0 0 0 12px rgb(var(--nada-accent) / 0); }
   100% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0); }
 }
 
 @keyframes nada-gold-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.4); }
-  50%       { box-shadow: 0 0 0 14px rgb(var(--nada-accent) / 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.45); }
+  50%       { box-shadow: 0 0 0 16px rgb(var(--nada-accent) / 0); }
 }
 
 @keyframes nada-waveform {
@@ -666,31 +910,52 @@ textarea::placeholder {
   50%       { transform: scaleY(1); }
 }
 
+@keyframes nada-wave-head-pulse {
+  0%, 100% { transform: scaleY(1.06); opacity: 1; }
+  50%       { transform: scaleY(1.18); opacity: 0.92; }
+}
+
+.nada-wave-head {
+  animation: nada-wave-head-pulse 0.75s ease-in-out infinite;
+}
+
 @keyframes nada-logo-glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(129, 140, 248, 0.3), 0 0 40px rgba(67, 56, 202, 0.15); }
-  50%       { box-shadow: 0 0 40px rgba(129, 140, 248, 0.5), 0 0 80px rgba(67, 56, 202, 0.25); }
+  0%, 100% { box-shadow: 0 0 22px rgba(139, 148, 252, 0.36), 0 0 44px rgba(88, 88, 220, 0.18); }
+  50%       { box-shadow: 0 0 44px rgba(139, 148, 252, 0.56), 0 0 88px rgba(88, 88, 220, 0.30); }
 }
 
 @keyframes nada-float {
   0%, 100% { transform: translateY(0); }
-  50%       { transform: translateY(-6px); }
+  50%       { transform: translateY(-8px); }
+}
+
+@keyframes nada-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%       { background-position: 100% 50%; }
+}
+
+@keyframes nada-aurora-drift {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50%  { transform: translate3d(2%, -1%, 0) rotate(2deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(0deg); }
 }
 
 /* ── Utility Layer ──────────────────────────────────────── */
 
 @layer utilities {
-  .animate-fade-in   { animation: nada-fade-in  0.3s ease-out both; }
-  .animate-scale-in  { animation: nada-scale-in 0.22s ease-out both; }
-  .animate-slide-up  { animation: nada-slide-up 0.38s cubic-bezier(0.16, 1, 0.3, 1) both; }
-  .animate-pulse-ring{ animation: nada-pulse-ring 2.2s ease-out infinite; }
-  .animate-gold-pulse{ animation: nada-gold-pulse 2.5s ease-in-out infinite; }
-  .animate-logo-glow { animation: nada-logo-glow 3s ease-in-out infinite; }
-  .animate-float     { animation: nada-float 4s ease-in-out infinite; }
+  .animate-fade-in     { animation: nada-fade-in  0.36s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-scale-in    { animation: nada-scale-in 0.26s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-slide-up    { animation: nada-slide-up 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-pulse-ring  { animation: nada-pulse-ring 2.4s ease-out infinite; }
+  .animate-gold-pulse  { animation: nada-gold-pulse 2.6s ease-in-out infinite; }
+  .animate-logo-glow   { animation: nada-logo-glow 3.2s ease-in-out infinite; }
+  .animate-float       { animation: nada-float 5s ease-in-out infinite; }
+  .animate-aurora      { animation: nada-aurora-drift 18s ease-in-out infinite; }
 
-  .text-accent    { color: rgb(var(--nada-accent)); }
-  .bg-accent      { background-color: rgb(var(--nada-accent)); }
-  .bg-accent-soft { background-color: rgb(var(--nada-accent) / 0.12); }
-  .border-accent  { border-color: rgb(var(--nada-accent)); }
+  .text-accent       { color: rgb(var(--nada-accent)); }
+  .bg-accent         { background-color: rgb(var(--nada-accent)); }
+  .bg-accent-soft    { background-color: rgb(var(--nada-accent) / 0.12); }
+  .border-accent     { border-color: rgb(var(--nada-accent)); }
 
   .pt-safe-area { padding-top: env(safe-area-inset-top); }
   .pb-safe-area { padding-bottom: env(safe-area-inset-bottom); }
@@ -698,4 +963,9 @@ textarea::placeholder {
   .pr-safe-area { padding-right: env(safe-area-inset-right); }
 
   .text-balance { text-wrap: balance; }
+  .text-pretty  { text-wrap: pretty; }
+
+  /* Premium hairline borders */
+  .ring-hairline       { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06); }
+  .ring-hairline-strong { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.10); }
 }
