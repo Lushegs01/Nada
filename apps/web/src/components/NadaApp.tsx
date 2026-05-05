@@ -69,8 +69,6 @@ import {
   isInlineFileMessage,
   parseInlineFileMessage
 } from "@/components/VoiceNote";
-import { MessageContextMenu, type ContextMenuAction } from "@/components/MessageContextMenu";
-import { VirtualMessageList } from "@/components/VirtualMessageList";
 import { useCallStore } from "@/stores/useCallStore";
 import { QRCodeSVG } from "qrcode.react";
 import { 
@@ -2856,76 +2854,6 @@ function RelayStatus({ status }: { status: string }): JSX.Element {
 
 
 
-function buildContextMenuActions(
-  message: MessageRecord,
-  handlers: {
-    onReply: (m: MessageRecord) => void;
-    onForward: (id: string) => void;
-    onPin: (m: MessageRecord) => void;
-    onEditMessage: (m: MessageRecord) => void;
-    onCopy: (text: string) => void;
-    onDelete: (id: string) => void;
-    isPinned: boolean;
-  }
-): ContextMenuAction[] {
-  const isOutbound = message.direction === "outbound";
-  const canCopy = !message.deletedAt && !isVoiceNoteMessage(message.body) && !isInlineFileMessage(message.body);
-  const canEdit = isOutbound && !message.deletedAt && messageKindFromRecord(message) === "text";
-
-  const actions: ContextMenuAction[] = [
-    {
-      id: "reply",
-      label: "Reply",
-      icon: <Reply size={16} />,
-      onSelect: () => handlers.onReply(message)
-    }
-  ];
-
-  if (canCopy) {
-    actions.push({
-      id: "copy",
-      label: "Copy",
-      icon: <Copy size={16} />,
-      onSelect: () => handlers.onCopy(previewForMessage(message))
-    });
-  }
-
-  actions.push({
-    id: "forward",
-    label: "Forward",
-    icon: <Share2 size={16} />,
-    onSelect: () => handlers.onForward(message.id)
-  });
-
-  actions.push({
-    id: "pin",
-    label: handlers.isPinned ? "Unpin" : "Pin",
-    icon: <Pin size={16} />,
-    onSelect: () => handlers.onPin(message)
-  });
-
-  if (canEdit) {
-    actions.push({
-      id: "edit",
-      label: "Edit",
-      icon: <Edit3 size={16} />,
-      onSelect: () => handlers.onEditMessage(message)
-    });
-  }
-
-  if (!message.deletedAt) {
-    actions.push({
-      id: "delete",
-      label: isOutbound ? "Delete" : "Delete for me",
-      icon: <Trash2 size={16} />,
-      destructive: true,
-      onSelect: () => handlers.onDelete(message.id)
-    });
-  }
-
-  return actions;
-}
-
 function ChatPanel({
   canAttachFile,
   canCopyGroupInvite,
@@ -3234,26 +3162,6 @@ function ChatPanel({
       behavior: "smooth"
     });
   }, [messages.length]);
-
-  // Scroll to a message by id and play a highlight pulse once it's rendered.
-  const scrollToMessage = useCallback((id: string, highlight = true): void => {
-    virtualListRef.current?.scrollToKey(id, { align: "center", behavior: "smooth" });
-    if (!highlight) return;
-    let attempts = 0;
-    const tryHighlight = (): void => {
-      const el = messageRefs.current[id];
-      if (el) {
-        el.animate([
-          { backgroundColor: "rgba(139, 148, 252, 0.30)" },
-          { backgroundColor: "transparent" }
-        ], { duration: 1600, easing: "ease-out" });
-      } else if (attempts < 12) {
-        attempts++;
-        requestAnimationFrame(tryHighlight);
-      }
-    };
-    requestAnimationFrame(tryHighlight);
-  }, []);
 
   // Handle chat search scrolling
   useEffect(() => {
@@ -4296,7 +4204,7 @@ function ChatPanel({
           itemContent={(index, message) => {
           const prevMessage = messages[index - 1];
           const showDateSep = !prevMessage || new Date(message.createdAt).toDateString() !== new Date(prevMessage.createdAt).toDateString();
-          const isMenuOpen = contextMenu?.message.id === message.id;
+          const isMenuOpen = activeMessageMenu === message.id;
 
           const reactions = message.reactions ?? {};
           const hasReactions = Object.keys(reactions).length > 0;
