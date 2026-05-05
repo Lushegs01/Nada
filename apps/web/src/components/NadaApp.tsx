@@ -1350,6 +1350,10 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       return;
     }
 
+    if (!selectedGroup && !selectedContact) {
+      return;
+    }
+
     const id = crypto.randomUUID();
     const timestamp = Date.now();
     const expiresAt =
@@ -1360,12 +1364,45 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       ...(replySnapshot ? { replyTo: replySnapshot } : {})
     });
     const body = encodeMessagePayload(payload);
+    const recipientHash =
+      selectedGroup?.id ?? selectedContact?.pubkeyHash ?? identity.pubkeyHash;
+    const statusFallback = selectedGroup ? "local" : "queued";
+    const record: MessageRecord = {
+      id,
+      chatId: selectedChatId,
+      senderPubkeyHash: identity.pubkeyHash,
+      recipientPubkeyHash: recipientHash,
+      direction: "outbound",
+      kind: "text",
+      body,
+      encryptedPayload: "",
+      status: statusFallback,
+      createdAt: timestamp,
+      ...(expiresAt ? { expiresAt } : {}),
+      ...(mentions.length > 0 ? { mentions } : {}),
+      ...(replyToId ? { replyToId } : {}),
+      ...(replySnapshot ? { replyTo: replySnapshot } : {})
+    };
+
+    setMessages((current) => mergeMessageRecords(current, [record]));
+    setMessageText("");
+    setReplyToId(null);
+    if ("vibrate" in navigator) {
+      navigator.vibrate(8);
+    }
+    if (selectedGroup) {
+      setChats((current) =>
+        current.map((chat) =>
+          chat.id === selectedGroup.id ? { ...chat, updatedAt: timestamp } : chat
+        )
+      );
+    }
+
     const ciphertext = selectedGroup?.groupSenderKey
       ? JSON.stringify(
           await encryptGroupMessage(body, selectedGroup.groupSenderKey)
         )
       : await mockEncryptMessage(body);
-    const statusFallback = selectedGroup ? "local" : "queued";
     let sent = false;
 
     if (selectedGroup) {
@@ -1417,43 +1454,16 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       sent = sendEnvelope(envelope);
     }
 
-    if (!selectedGroup && !selectedContact) {
-      return;
-    }
-
-    const recipientHash =
-      selectedGroup?.id ?? selectedContact?.pubkeyHash ?? identity.pubkeyHash;
-    const record: MessageRecord = {
-      id,
-      chatId: selectedChatId,
-      senderPubkeyHash: identity.pubkeyHash,
-      recipientPubkeyHash: recipientHash,
-      direction: "outbound",
-      kind: "text",
-      body,
-      encryptedPayload: ciphertext,
-      status: sent ? "sent" : statusFallback,
-      createdAt: timestamp,
-      ...(expiresAt ? { expiresAt } : {}),
-      ...(mentions.length > 0 ? { mentions } : {}),
-      ...(replyToId ? { replyToId } : {}),
-      ...(replySnapshot ? { replyTo: replySnapshot } : {})
-    };
-
-    setMessages((current) => mergeMessageRecords(current, [record]));
-    setMessageText("");
-    setReplyToId(null);
-    if ("vibrate" in navigator) {
-      navigator.vibrate(8);
-    }
-
-    if (selectedGroup) {
-      setChats((current) =>
-        current.map((chat) =>
-          chat.id === selectedGroup.id ? { ...chat, updatedAt: timestamp } : chat
-        )
-      );
-    }
+    const finalStatus = sent ? "sent" : statusFallback;
+    record.encryptedPayload = ciphertext;
+    record.status = finalStatus;
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === id
+          ? { ...message, encryptedPayload: ciphertext, status: finalStatus }
+          : message
+      )
+    );
 
     try {
       await nadaDb.messages.put(record);
