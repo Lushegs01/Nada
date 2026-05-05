@@ -4426,6 +4426,7 @@ function ChatPanel({
                   }
                 }}
                 initial={shouldAnimateIn ? { opacity: 0, y: 8, scale: 0.98 } : false}
+                animate={shouldAnimateIn ? { opacity: 1, y: 0, scale: 1 } : false}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
