@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
   type ReactNode
 } from "react";
 import Dexie from "dexie";
@@ -513,7 +512,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [displayName, setDisplayName] = useState("NADA");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
-  const [messageText, setMessageText] = useState("");
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [panel, setPanel] = useState<Panel>(null);
   const [replyToId, setReplyToId] = useState<string | null>(null);
@@ -1320,9 +1318,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     });
   }, [selectedContact, selectedChatId, identity.pubkeyHash, sendTyping]);
 
-  const sendMessage = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    const trimmed = messageText.trim();
+  const sendMessage = async (text: string): Promise<void> => {
+    const trimmed = text.trim();
     if (!trimmed || !selectedChatId) {
       return;
     }
@@ -1346,7 +1343,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         )
       );
       setEditingMessageId(null);
-      setMessageText("");
       return;
     }
 
@@ -1385,7 +1381,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     };
 
     setMessages((current) => mergeMessageRecords(current, [record]));
-    setMessageText("");
     setReplyToId(null);
     if ("vibrate" in navigator) {
       navigator.vibrate(8);
@@ -2365,7 +2360,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         editingMessage={editingMessage}
         isGroup={Boolean(selectedGroup)}
         messageSearchQuery={messageSearchQuery}
-        messageText={messageText}
         messages={chatMessages}
         onBack={() => {
           setSelectedContactHash(null);
@@ -2375,7 +2369,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         onAttachFile={attachFile}
         onCancelEdit={() => {
           setEditingMessageId(null);
-          setMessageText("");
         }}
         onCancelReply={() => {
           setReplyToId(null);
@@ -2391,15 +2384,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         }}
         onEditMessage={(message) => {
           setEditingMessageId(message.id);
-          setMessageText(message.body);
         }}
         onMessageSearchChange={setMessageSearchQuery}
-        onMessageTextChange={setMessageText}
         onReply={(message) => {
           setReplyToId(message.id);
         }}
-        onSend={(event) => {
-          void sendMessage(event);
+        onSend={(text) => {
+          void sendMessage(text);
         }}
         onSendVoiceNote={(body) => {
           void sendVoiceNote(body);
@@ -2927,7 +2918,6 @@ function ChatPanel({
   editingMessage,
   isGroup,
   messageSearchQuery,
-  messageText,
   messages,
   onBack,
   onAttachFile,
@@ -2937,7 +2927,6 @@ function ChatPanel({
   onDisappearingTimerChange,
   onEditMessage,
   onMessageSearchChange,
-  onMessageTextChange,
   onReply,
   onSend,
   onSendVoiceNote,
@@ -2980,7 +2969,6 @@ function ChatPanel({
   editingMessage: MessageRecord | null;
   isGroup: boolean;
   messageSearchQuery: string;
-  messageText: string;
   messages: MessageRecord[];
   onBack: () => void;
   onAttachFile: (file: File) => Promise<boolean>;
@@ -2990,9 +2978,8 @@ function ChatPanel({
   onDisappearingTimerChange: (value: number) => void;
   onEditMessage: (message: MessageRecord) => void;
   onMessageSearchChange: (value: string) => void;
-  onMessageTextChange: (value: string) => void;
   onReply: (message: MessageRecord) => void;
-  onSend: (event: FormEvent<HTMLFormElement>) => void;
+  onSend: (text: string) => void;
   onSendVoiceNote: (body: string) => void;
   onStartCall: (mode: CallMode) => void;
   onUnsend: (messageId: string) => void;
@@ -3039,6 +3026,30 @@ function ChatPanel({
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [deleteSheetMessageId, setDeleteSheetMessageId] = useState<string | null>(null);
+  const [messageText, setMessageText] = useState("");
+
+  // Sync local input with the message being edited.
+  const editingMessageId = editingMessage?.id ?? null;
+  const editingMessageBody = editingMessage?.body ?? "";
+  useEffect(() => {
+    if (editingMessageId) {
+      setMessageText(editingMessageBody);
+    } else {
+      setMessageText("");
+    }
+  }, [editingMessageId, editingMessageBody]);
+
+  const submitMessage = useCallback((): void => {
+    const trimmed = messageText.trim();
+    if (!trimmed) return;
+    onSend(trimmed);
+    setMessageText("");
+  }, [messageText, onSend]);
+
+  const handleCancelEdit = useCallback((): void => {
+    setMessageText("");
+    onCancelEdit();
+  }, [onCancelEdit]);
 
   useEffect(() => {
     const anyOpen =
@@ -4615,7 +4626,10 @@ function ChatPanel({
           "nada-input-bar relative sticky bottom-0 z-header px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]",
           peerIsBlocked && "pointer-events-none opacity-40"
         )}
-        onSubmit={onSend}
+        onSubmit={(event) => {
+          event.preventDefault();
+          submitMessage();
+        }}
       >
         {/* Message reply preview */}
 
@@ -4644,7 +4658,7 @@ function ChatPanel({
             style={{ background: "rgb(var(--nada-accent) / 0.08)" }}
           >
             <span className="font-medium">Editing message</span>
-            <button className="ml-2 shrink-0 rounded-lg p-1 hover:bg-nada-accent/10 transition-colors" onClick={onCancelEdit} type="button">
+            <button className="ml-2 shrink-0 rounded-lg p-1 hover:bg-nada-accent/10 transition-colors" onClick={handleCancelEdit} type="button">
               <X size={14} />
             </button>
           </div>
@@ -4718,8 +4732,8 @@ function ChatPanel({
                 disabled={peerIsBlocked}
                 onChange={(event) => {
                   const val = event.target.value;
-                  onMessageTextChange(val);
-                  
+                  setMessageText(val);
+
                   if (val.trim() === "") {
                     wasTyping.current = false;
                     if (typingTimeout.current) clearTimeout(typingTimeout.current);
@@ -4744,8 +4758,7 @@ function ChatPanel({
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    const syntheticEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
-                    onSend(syntheticEvent);
+                    submitMessage();
                   }
                 }}
                 placeholder="Type a message..."
