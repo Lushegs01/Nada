@@ -6039,14 +6039,14 @@ function Sheet({
   return (
     <motion.div
       animate={{ opacity: 1 }}
-      className="nada-overlay fixed inset-0 z-overlay p-0 md:p-3"
+      className="nada-overlay fixed inset-0 z-overlay overflow-hidden p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pl-[calc(env(safe-area-inset-left)+0.75rem)] md:p-3"
       exit={{ opacity: 0 }}
       initial={{ opacity: 0 }}
       onClick={onClose}
     >
       <motion.div
         animate={{ y: 0, opacity: 1 }}
-        className="nada-sheet ml-auto flex h-full w-full max-w-md flex-col overflow-y-auto rounded-none md:rounded-2xl p-5 pt-safe-area pb-safe-area pl-safe-area pr-safe-area"
+        className="nada-sheet mx-auto flex h-full w-full max-w-none flex-col overflow-y-auto rounded-2xl p-4 sm:max-w-md sm:p-5 md:ml-auto"
         exit={{ y: 32, opacity: 0 }}
         initial={{ y: 32, opacity: 0 }}
         onClick={(event) => {
