@@ -2163,14 +2163,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   return (
     <div className="flex h-dvh w-full items-center justify-center overflow-hidden bg-nada-bg pl-safe-area pr-safe-area">
       <section
-        className="flex h-full w-full max-w-[1600px] bg-nada-surface md:h-[calc(100dvh-2rem)] md:overflow-hidden md:rounded-[28px] md:border md:border-nada-border/22"
+        className="flex h-full w-full max-w-[1600px] bg-nada-surface md:h-[calc(100dvh-2rem)] md:overflow-hidden md:rounded-[28px]"
         style={{
-          boxShadow: "0 28px 80px rgba(0,0,0,0.55), 0 8px 24px rgba(88,88,220,0.10), inset 0 1px 0 rgba(255,255,255,0.04)"
+          boxShadow: "0 28px 80px rgba(0,0,0,0.55), 0 8px 24px rgba(88,88,220,0.10)"
         }}
       >
         <aside
           className={cn(
-            "nada-sidebar relative flex w-full flex-col overflow-hidden md:w-[360px] lg:w-[400px] md:border-r md:border-nada-border/18 bg-nada-surface",
+            "nada-sidebar relative flex w-full flex-col overflow-hidden md:w-[360px] lg:w-[400px] bg-nada-surface",
             selectedContact || selectedGroup ? "hidden md:flex" : "flex"
           )}
         >
@@ -3456,7 +3456,7 @@ function ChatPanel({
       
       {/* Chat Header */}
       <header
-        className="z-header relative flex h-[64px] shrink-0 items-center gap-2.5 border-b border-white/[0.04] px-3 pl-safe-area pr-safe-area"
+        className="z-header relative flex h-[64px] shrink-0 items-center gap-2.5 border-b border-nada-border/[0.06] px-3 pl-safe-area pr-safe-area"
         style={{
           background: "rgba(8,10,22,0.88)",
           backdropFilter: "blur(28px) saturate(150%)",
@@ -3534,7 +3534,7 @@ function ChatPanel({
                     style={{
                       background: "linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.95), rgb(var(--nada-surface) / 0.95))",
                       backdropFilter: "blur(28px) saturate(150%)",
-                      boxShadow: "0 20px 56px rgba(0,0,0,0.55), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)"
+                      boxShadow: "0 20px 56px rgba(0,0,0,0.55), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgb(var(--nada-border) / 0.10)"
                     }}
                   >
                     <button
@@ -3753,7 +3753,7 @@ function ChatPanel({
             className="absolute left-1/2 top-20 z-[100] -translate-x-1/2 rounded-2xl border border-nada-border/30 px-4 py-2.5 text-[13.5px] font-medium text-nada-primary shadow-2xl backdrop-blur-xl"
             style={{
               background: "linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.95), rgb(var(--nada-surface) / 0.95))",
-              boxShadow: "0 16px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)"
+              boxShadow: "0 16px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgb(var(--nada-border) / 0.10)"
             }}
             initial={{ opacity: 0, y: -10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -4349,7 +4349,7 @@ function ChatPanel({
                       ? cn("nada-bubble-sent", isLastInCluster && "has-tail")
                       : cn("nada-bubble-received", isLastInCluster && "has-tail"),
                     isPinned && "ring-1 ring-nada-accent/40",
-                    isMenuOpen && "ring-1 ring-white/30"
+                    isMenuOpen && "ring-1 ring-nada-accent/25"
                   )}
                 >
                   {message.replyToId ? (
@@ -4614,7 +4614,7 @@ function ChatPanel({
               />
               <button
                 aria-label="Attach file"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-nada-border/22 text-nada-secondary/65 transition-all duration-150 hover:border-nada-accent/45 hover:text-nada-accent hover:scale-105 active:scale-90"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-nada-border/12 text-nada-secondary/65 transition-all duration-150 hover:border-nada-accent/35 hover:text-nada-accent hover:scale-105 active:scale-90"
                 style={{
                   background: "rgb(var(--nada-surface-elevated) / 0.7)",
                   backdropFilter: "blur(12px)"
@@ -4645,7 +4645,7 @@ function ChatPanel({
                 />
               ) : null}
               <input
-                className="h-11 min-w-0 flex-1 rounded-2xl border border-nada-border/22 px-4 text-[14.5px] text-nada-primary outline-none transition-all duration-200 placeholder:text-nada-secondary/45 focus:border-nada-accent/45 focus:ring-4 focus:ring-nada-accent/10 disabled:opacity-40"
+                className="h-11 min-w-0 flex-1 rounded-2xl border border-nada-border/12 px-4 text-[14.5px] text-nada-primary outline-none transition-all duration-200 placeholder:text-nada-secondary/45 focus:border-nada-accent/35 focus:ring-4 focus:ring-nada-accent/10 disabled:opacity-40"
                 style={{
                   background: "rgb(var(--nada-input-bg) / 0.78)",
                   backdropFilter: "blur(12px) saturate(140%)"
@@ -5166,7 +5166,7 @@ function AttachmentMenu({
       style={{
         background: "linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.95), rgb(var(--nada-surface) / 0.95))",
         backdropFilter: "blur(28px) saturate(150%)",
-        boxShadow: "0 20px 56px rgba(0,0,0,0.55), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)"
+        boxShadow: "0 20px 56px rgba(0,0,0,0.55), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgb(var(--nada-border) / 0.10)"
       }}
     >
       {options.map((option) => (
@@ -5206,7 +5206,7 @@ function AttachmentPreview({
       style={{
         background: "linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.85), rgb(var(--nada-surface) / 0.85))",
         backdropFilter: "blur(16px)",
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04), 0 4px 16px rgba(0,0,0,0.30)"
+        boxShadow: "inset 0 1px 0 rgb(var(--nada-border) / 0.08), 0 4px 16px rgba(0,0,0,0.30)"
       }}
     >
       <div className="flex gap-3">

@@ -27,7 +27,7 @@
 
   /* ── UI Chrome ── */
   --nada-muted:            18  24  44;
-  --nada-border:           50  62  104;     /* #32 3E 68 */
+  --nada-border:           28  34  58;      /* #1C 22 3A */
 
   /* ── Primary Accent (Aurora indigo→violet) ── */
   --nada-accent:           139 148 252;     /* #8B 94 FC */
@@ -143,7 +143,7 @@ textarea::placeholder {
     background: rgb(var(--nada-surface) / 0.78);
     backdrop-filter: blur(20px) saturate(140%);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
-    border: 1px solid rgb(var(--nada-border) / 0.20);
+    border: 1px solid rgb(var(--nada-border) / 0.12);
     border-radius: 16px;
   }
 
@@ -155,10 +155,10 @@ textarea::placeholder {
     );
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
-    border: 1px solid rgb(var(--nada-border) / 0.24);
+    border: 1px solid rgb(var(--nada-border) / 0.14);
     border-radius: 16px;
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.04),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
       0 1px 2px rgb(0 0 0 / 0.40),
       0 8px 24px rgb(0 0 0 / 0.30);
   }
@@ -172,7 +172,7 @@ textarea::placeholder {
     );
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
-    border-right: 1px solid rgb(var(--nada-border) / 0.18);
+    border-right: 0;
   }
 
   /* ── Chat area background ── */
@@ -215,7 +215,7 @@ textarea::placeholder {
     box-shadow:
       0 1px 2px rgba(0, 0, 0, 0.30),
       0 6px 18px rgba(88, 88, 220, 0.32),
-      inset 0 1px 0 rgba(255, 255, 255, 0.16);
+      inset 0 1px 0 rgb(var(--nada-border) / 0.10);
     border: 1px solid rgba(167, 139, 250, 0.22);
     position: relative;
   }
@@ -228,7 +228,7 @@ textarea::placeholder {
     border-radius: 22px 22px 22px 6px;
     border: 1px solid rgb(var(--nada-border) / 0.22);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.03),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
       0 1px 2px rgba(0, 0, 0, 0.30),
       0 4px 12px rgba(0, 0, 0, 0.18);
     position: relative;
@@ -277,7 +277,7 @@ textarea::placeholder {
     cursor: pointer;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.10),
       0 6px 18px rgba(88, 88, 220, 0.34),
       0 1px 3px rgba(0, 0, 0, 0.30);
     letter-spacing: -0.011em;
@@ -286,7 +286,7 @@ textarea::placeholder {
   .btn-primary:hover {
     transform: translateY(-1px);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.20),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.12),
       0 10px 28px rgba(88, 88, 220, 0.46),
       0 1px 3px rgba(0, 0, 0, 0.30);
   }
@@ -294,7 +294,7 @@ textarea::placeholder {
   .btn-primary:active {
     transform: translateY(0);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.10),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
       0 2px 8px rgba(88, 88, 220, 0.30);
   }
 
@@ -342,7 +342,7 @@ textarea::placeholder {
     border-radius: 20px;
     padding: 20px;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
       0 4px 24px rgba(0, 0, 0, 0.30);
   }
 
@@ -397,7 +397,7 @@ textarea::placeholder {
     );
     backdrop-filter: blur(28px) saturate(140%);
     -webkit-backdrop-filter: blur(28px) saturate(140%);
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-top: 1px solid rgb(var(--nada-border) / 0.06);
   }
 
   /* ── Transitions ── */
@@ -419,10 +419,10 @@ textarea::placeholder {
       rgb(var(--nada-surface-elevated)) 0%,
       rgb(var(--nada-surface)) 100%
     );
-    border: 1px solid rgb(var(--nada-border) / 0.24);
+    border: 1px solid rgb(var(--nada-border) / 0.12);
     border-radius: 22px;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
       0 24px 80px rgb(var(--nada-shadow-color) / 0.6),
       0 4px 20px rgb(var(--nada-shadow-color) / 0.4);
   }
@@ -594,12 +594,12 @@ textarea::placeholder {
     background:
       linear-gradient(145deg, rgb(var(--nada-surface-elevated) / 0.82), rgb(var(--nada-surface) / 0.76)),
       rgb(var(--nada-surface) / 0.88);
-    border: 1px solid rgb(255 255 255 / 0.11);
+    border: 1px solid rgb(var(--nada-border) / 0.16);
     backdrop-filter: blur(26px) saturate(145%);
     -webkit-backdrop-filter: blur(26px) saturate(145%);
     box-shadow:
       0 18px 60px rgb(0 0 0 / 0.46),
-      0 1px 0 rgb(255 255 255 / 0.07) inset,
+      0 1px 0 rgb(var(--nada-border) / 0.10) inset,
       0 0 0 1px rgb(var(--nada-accent) / 0.08);
   }
 
@@ -650,7 +650,7 @@ textarea::placeholder {
     border-radius: 14px;
     transition: all 0.22s ease;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.10),
       0 8px 24px rgba(88, 88, 220, 0.36),
       0 1px 3px rgba(0, 0, 0, 0.3);
     letter-spacing: -0.011em;
@@ -658,7 +658,7 @@ textarea::placeholder {
 
   .nada-btn-gold:hover {
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.12),
       0 12px 32px rgba(88, 88, 220, 0.48),
       0 1px 3px rgba(0, 0, 0, 0.3);
     transform: translateY(-1px);
@@ -667,7 +667,7 @@ textarea::placeholder {
   .nada-btn-gold:active {
     transform: scale(0.98);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.10),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
       0 2px 8px rgba(88, 88, 220, 0.28);
   }
 
@@ -734,13 +734,13 @@ textarea::placeholder {
     );
     backdrop-filter: blur(32px) saturate(160%);
     -webkit-backdrop-filter: blur(32px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    border: 1px solid rgb(var(--nada-border) / 0.16);
     border-radius: 20px;
     box-shadow:
       0 0 0 1px rgba(0, 0, 0, 0.4),
       0 4px 24px rgba(0, 0, 0, 0.45),
       0 20px 56px rgba(0, 0, 0, 0.55),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      inset 0 1px 0 rgb(var(--nada-border) / 0.10);
     color: rgb(var(--nada-primary));
   }
 
@@ -750,7 +750,7 @@ textarea::placeholder {
     justify-content: space-between;
     gap: 4px;
     padding: 8px 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.12);
   }
 
   .nada-context-menu-reaction {
@@ -852,8 +852,8 @@ textarea::placeholder {
       rgb(var(--nada-accent-deep)) 100%
     );
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.20),
-      0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.12),
+      0 0 0 1px rgb(var(--nada-border) / 0.12),
       0 8px 32px rgba(139, 148, 252, 0.40);
   }
 
@@ -966,6 +966,6 @@ textarea::placeholder {
   .text-pretty  { text-wrap: pretty; }
 
   /* Premium hairline borders */
-  .ring-hairline       { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06); }
-  .ring-hairline-strong { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.10); }
+  .ring-hairline       { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.10); }
+  .ring-hairline-strong { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.16); }
 }
