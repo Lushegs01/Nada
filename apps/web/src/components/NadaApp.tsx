@@ -1394,7 +1394,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     };
 
     setMessages((current) => mergeMessageRecords(current, [optimisticRecord]));
-    setMessageText("");
     setReplyToId(null);
     if ("vibrate" in navigator) {
       navigator.vibrate(8);
