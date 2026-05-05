@@ -178,6 +178,8 @@ type MessageContextMenuState = {
   y: number;
 };
 
+const PENDING_ENCRYPTED_PAYLOAD = "__pending_encryption__";
+
 function mergeMessageRecords(...groups: MessageRecord[][]): MessageRecord[] {
   const byId = new Map<string, MessageRecord>();
   for (const group of groups) {
@@ -1226,10 +1228,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         .where("status")
         .equals("queued")
         .toArray();
+      const sendableQueuedMessages = queuedMessages.filter(
+        (message) => message.encryptedPayload !== PENDING_ENCRYPTED_PAYLOAD
+      );
 
       if (!isSubscribed) return;
 
-      for (const msg of queuedMessages) {
+      for (const msg of sendableQueuedMessages) {
         if (!isSubscribed || relayStatus !== "connected") break;
 
         const envelope: MessageEnvelope = {
@@ -1261,7 +1266,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         .equals("local")
         .toArray();
       
-      const outboundGroupMessages = localMessages.filter(m => m.direction === "outbound");
+      const outboundGroupMessages = localMessages.filter(
+        (message) =>
+          message.direction === "outbound" &&
+          message.encryptedPayload !== PENDING_ENCRYPTED_PAYLOAD
+      );
       
       for (const msg of outboundGroupMessages) {
         if (!isSubscribed || relayStatus !== "connected") break;
@@ -1350,6 +1359,12 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       return;
     }
 
+    const activeGroup = selectedGroup;
+    const activeContact = selectedContact;
+    if (!activeGroup && !activeContact) {
+      return;
+    }
+
     const id = crypto.randomUUID();
     const timestamp = Date.now();
     const expiresAt =
@@ -1360,19 +1375,17 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       ...(replySnapshot ? { replyTo: replySnapshot } : {})
     });
     const body = encodeMessagePayload(payload);
-    const recipientHash =
-      selectedGroup?.id ?? selectedContact?.pubkeyHash ?? identity.pubkeyHash;
-    const statusFallback = selectedGroup ? "local" : "queued";
-    const record: MessageRecord = {
+    const optimisticRecord: MessageRecord = {
       id,
       chatId: selectedChatId,
       senderPubkeyHash: identity.pubkeyHash,
-      recipientPubkeyHash: recipientHash,
+      recipientPubkeyHash:
+        activeGroup?.id ?? activeContact?.pubkeyHash ?? identity.pubkeyHash,
       direction: "outbound",
       kind: "text",
       body,
-      encryptedPayload: "",
-      status: statusFallback,
+      encryptedPayload: PENDING_ENCRYPTED_PAYLOAD,
+      status: "local",
       createdAt: timestamp,
       ...(expiresAt ? { expiresAt } : {}),
       ...(mentions.length > 0 ? { mentions } : {}),
@@ -1380,34 +1393,56 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       ...(replySnapshot ? { replyTo: replySnapshot } : {})
     };
 
-    setMessages((current) => mergeMessageRecords(current, [record]));
+    setMessages((current) => mergeMessageRecords(current, [optimisticRecord]));
+    setMessageText("");
     setReplyToId(null);
     if ("vibrate" in navigator) {
       navigator.vibrate(8);
     }
-    if (selectedGroup) {
+
+    if (activeGroup) {
       setChats((current) =>
         current.map((chat) =>
-          chat.id === selectedGroup.id ? { ...chat, updatedAt: timestamp } : chat
+          chat.id === activeGroup.id ? { ...chat, updatedAt: timestamp } : chat
         )
       );
     }
 
-    const ciphertext = selectedGroup?.groupSenderKey
-      ? JSON.stringify(
-          await encryptGroupMessage(body, selectedGroup.groupSenderKey)
+    try {
+      await nadaDb.messages.put(optimisticRecord);
+    } catch {
+      // The bubble is already on screen; the final save below gets another chance.
+    }
+
+    let ciphertext: string;
+    try {
+      ciphertext = activeGroup?.groupSenderKey
+        ? JSON.stringify(
+            await encryptGroupMessage(body, activeGroup.groupSenderKey)
+          )
+        : await mockEncryptMessage(body);
+    } catch {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === optimisticRecord.id
+            ? { ...message, status: "failed" }
+            : message
         )
-      : await mockEncryptMessage(body);
+      );
+      showToast("Message is visible, but encryption failed.");
+      return;
+    }
+    const statusFallback = activeGroup ? "local" : "queued";
     let sent = false;
 
-    if (selectedGroup) {
-      const recipients = selectedGroup.memberPubkeyHashes.filter(
+    if (activeGroup) {
+      const recipients = activeGroup.memberPubkeyHashes.filter(
         (member) => member !== identity.pubkeyHash
       );
       const baseEnvelope = {
         type: "group-message" as const,
         id,
-        groupId: selectedGroup.id,
+        groupId: activeGroup.id,
         recipients,
         sender: identity.pubkeyHash,
         timestamp,
@@ -1427,11 +1462,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
               devPlaintext: body
             };
       sent = sendGroupEnvelope(groupEnvelope);
-    } else if (selectedContact) {
+    } else if (activeContact) {
       const baseEnvelope = {
         type: "message" as const,
         id,
-        recipient: selectedContact.pubkeyHash,
+        recipient: activeContact.pubkeyHash,
         sender: identity.pubkeyHash,
         timestamp,
         ciphertext,
@@ -1449,21 +1484,33 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       sent = sendEnvelope(envelope);
     }
 
-    const finalStatus = sent ? "sent" : statusFallback;
-    record.encryptedPayload = ciphertext;
-    record.status = finalStatus;
+    const recipientHash =
+      activeGroup?.id ?? activeContact?.pubkeyHash ?? identity.pubkeyHash;
+    const record: MessageRecord = {
+      id,
+      chatId: selectedChatId,
+      senderPubkeyHash: identity.pubkeyHash,
+      recipientPubkeyHash: recipientHash,
+      direction: "outbound",
+      kind: "text",
+      body,
+      encryptedPayload: ciphertext,
+      status: sent ? "sent" : statusFallback,
+      createdAt: timestamp,
+      ...(expiresAt ? { expiresAt } : {}),
+      ...(mentions.length > 0 ? { mentions } : {}),
+      ...(replyToId ? { replyToId } : {}),
+      ...(replySnapshot ? { replyTo: replySnapshot } : {})
+    };
+
     setMessages((current) =>
-      current.map((message) =>
-        message.id === id
-          ? { ...message, encryptedPayload: ciphertext, status: finalStatus }
-          : message
-      )
+      current.map((message) => (message.id === record.id ? record : message))
     );
 
     try {
       await nadaDb.messages.put(record);
-      if (selectedGroup) {
-        await nadaDb.chats.update(selectedGroup.id, { updatedAt: timestamp });
+      if (activeGroup) {
+        await nadaDb.chats.update(activeGroup.id, { updatedAt: timestamp });
       }
     } catch {
       setMessages((current) =>
