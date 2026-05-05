@@ -16,21 +16,24 @@ const config = {
         xl: "20px",
         "2xl": "24px",
         "3xl": "28px",
-        bubble: "18px",
+        bubble: "20px",
         pill: "999px"
       },
       boxShadow: {
         xs: "0 1px 2px rgb(0 0 0 / 0.35)",
         sm: "0 1px 3px rgb(0 0 0 / 0.45), 0 1px 2px rgb(0 0 0 / 0.35)",
-        md: "0 4px 12px rgb(0 0 0 / 0.45), 0 1px 4px rgb(0 0 0 / 0.3)",
-        lg: "0 8px 24px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.3)",
-        xl: "0 12px 40px rgb(0 0 0 / 0.65), 0 4px 12px rgb(0 0 0 / 0.4)",
-        "2xl": "0 20px 60px rgb(0 0 0 / 0.7), 0 8px 20px rgb(0 0 0 / 0.45)",
-        /* Accent glow shadows */
-        "accent-glow":    "0 0 20px rgb(129 140 248 / 0.28)",
-        "accent-glow-lg": "0 0 40px rgb(129 140 248 / 0.22)",
-        "gold-glow":      "0 0 20px rgb(129 140 248 / 0.28)",
-        "gold-glow-lg":   "0 0 40px rgb(129 140 248 / 0.22)",
+        md: "0 4px 12px rgb(0 0 0 / 0.45), 0 1px 4px rgb(0 0 0 / 0.30)",
+        lg: "0 8px 24px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.30)",
+        xl: "0 12px 40px rgb(0 0 0 / 0.65), 0 4px 12px rgb(0 0 0 / 0.40)",
+        "2xl": "0 24px 70px rgb(0 0 0 / 0.70), 0 8px 24px rgb(0 0 0 / 0.45)",
+        /* Premium accent glows */
+        "accent-glow":    "0 0 22px rgb(139 148 252 / 0.32)",
+        "accent-glow-lg": "0 0 44px rgb(139 148 252 / 0.26)",
+        "gold-glow":      "0 0 22px rgb(139 148 252 / 0.32)",
+        "gold-glow-lg":   "0 0 44px rgb(139 148 252 / 0.26)",
+        /* Soft hairline */
+        hairline:    "inset 0 0 0 1px rgb(255 255 255 / 0.06)",
+        "hairline-strong": "inset 0 0 0 1px rgb(255 255 255 / 0.10)",
         /* Dark variants */
         "dark-sm": "0 1px 3px rgb(0 0 0 / 0.55)",
         "dark-md": "0 4px 12px rgb(0 0 0 / 0.55)",
@@ -48,12 +51,15 @@ const config = {
           border:            "rgb(var(--nada-border) / <alpha-value>)",
           accent:            "rgb(var(--nada-accent) / <alpha-value>)",
           "accent-soft":     "rgb(var(--nada-accent-soft) / 0.1)",
+          "accent-deep":     "rgb(var(--nada-accent-deep) / <alpha-value>)",
+          violet:            "rgb(var(--nada-violet) / <alpha-value>)",
           "gold-dark":       "rgb(var(--nada-gold-dark) / <alpha-value>)",
           "gold-glow":       "rgb(var(--nada-gold-glow) / <alpha-value>)",
           sent:              "rgb(var(--nada-sent) / <alpha-value>)",
           received:          "rgb(var(--nada-received) / <alpha-value>)",
           danger:            "rgb(var(--nada-danger) / <alpha-value>)",
           success:           "rgb(var(--nada-success) / <alpha-value>)",
+          warning:           "rgb(var(--nada-warning) / <alpha-value>)",
           overlay:           "rgb(var(--nada-overlay) / <alpha-value>)",
           input:             "rgb(var(--nada-input-bg) / <alpha-value>)"
         },
@@ -73,23 +79,26 @@ const config = {
         surface:          "rgb(var(--nada-surface) / <alpha-value>)"
       },
       fontFamily: {
-        sans: ["'Be Vietnam Pro'", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "system-ui", "sans-serif"]
+        sans: ["'Inter'", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "system-ui", "sans-serif"],
+        display: ["'Inter'", "system-ui", "sans-serif"],
+        mono: ["'Space Grotesk'", "ui-monospace", "monospace"]
       },
       fontSize: {
-        "2xs":   ["10px",  { lineHeight: "1.4" }],
-        xs:      ["12px",  { lineHeight: "1.4" }],
-        sm:      ["14px",  { lineHeight: "1.5" }],
-        base:    ["15px",  { lineHeight: "1.5" }],
-        md:      ["16px",  { lineHeight: "1.5" }],
-        lg:      ["18px",  { lineHeight: "1.4" }],
-        xl:      ["20px",  { lineHeight: "1.3" }],
-        "2xl":   ["24px",  { lineHeight: "1.2" }],
-        "3xl":   ["30px",  { lineHeight: "1.15" }],
-        "4xl":   ["36px",  { lineHeight: "1.1" }],
+        "2xs":   ["10px",  { lineHeight: "1.4", letterSpacing: "0.01em" }],
+        xs:      ["12px",  { lineHeight: "1.45", letterSpacing: "0" }],
+        sm:      ["14px",  { lineHeight: "1.5", letterSpacing: "-0.005em" }],
+        base:    ["15px",  { lineHeight: "1.55", letterSpacing: "-0.011em" }],
+        md:      ["16px",  { lineHeight: "1.55", letterSpacing: "-0.011em" }],
+        lg:      ["18px",  { lineHeight: "1.4", letterSpacing: "-0.014em" }],
+        xl:      ["20px",  { lineHeight: "1.3", letterSpacing: "-0.018em" }],
+        "2xl":   ["24px",  { lineHeight: "1.22", letterSpacing: "-0.022em" }],
+        "3xl":   ["30px",  { lineHeight: "1.15", letterSpacing: "-0.026em" }],
+        "4xl":   ["36px",  { lineHeight: "1.10", letterSpacing: "-0.030em" }],
+        "5xl":   ["48px",  { lineHeight: "1.05", letterSpacing: "-0.034em" }],
         caption: ["12px",  { lineHeight: "1.4" }],
-        body:    ["15px",  { lineHeight: "1.5" }],
-        title:   ["20px",  { fontWeight: "600", lineHeight: "1.3" }],
-        headline:["30px",  { fontWeight: "700", lineHeight: "1.15" }]
+        body:    ["15px",  { lineHeight: "1.55" }],
+        title:   ["20px",  { fontWeight: "600", lineHeight: "1.3", letterSpacing: "-0.018em" }],
+        headline:["32px",  { fontWeight: "700", lineHeight: "1.10", letterSpacing: "-0.030em" }]
       },
       keyframes: {
         "bubble-in": {
@@ -130,24 +139,28 @@ const config = {
           "100%": { transform: "scale(1)", opacity: "1" }
         },
         "glow-pulse": {
-          "0%, 100%": { boxShadow: "0 0 0 0 rgba(129,140,248,0.4)" },
-          "50%":       { boxShadow: "0 0 0 12px rgba(129,140,248,0)" }
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(139,148,252,0.45)" },
+          "50%":       { boxShadow: "0 0 0 14px rgba(139,148,252,0)" }
         }
       },
       animation: {
-        "bubble-in":      "bubble-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both",
-        "fade-in":        "fade-in 0.2s ease-out both",
-        "slide-in-right": "slide-in-right 0.28s ease-out both",
-        "slide-in-left":  "slide-in-left 0.28s ease-out both",
-        "slide-up":       "slide-up 0.38s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "bubble-in":      "bubble-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "fade-in":        "fade-in 0.22s ease-out both",
+        "slide-in-right": "slide-in-right 0.30s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "slide-in-left":  "slide-in-left 0.30s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "slide-up":       "slide-up 0.40s cubic-bezier(0.16, 1, 0.3, 1) both",
         "scale-in":       "scale-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both",
         "pulse-subtle":   "pulse-subtle 2.5s ease-in-out infinite",
         "shimmer":        "shimmer 2s infinite",
-        "badge-pop":      "badge-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1) both",
-        "glow-pulse":     "glow-pulse 2.5s ease-in-out infinite"
+        "badge-pop":      "badge-pop 0.32s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "glow-pulse":     "glow-pulse 2.6s ease-in-out infinite"
       },
       spacing: {
         "safe-bottom": "env(safe-area-inset-bottom)"
+      },
+      backgroundImage: {
+        "aurora": "radial-gradient(ellipse 70% 50% at 25% 25%, rgba(139, 148, 252, 0.18) 0%, transparent 55%), radial-gradient(ellipse 60% 50% at 80% 30%, rgba(167, 139, 250, 0.14) 0%, transparent 55%), radial-gradient(ellipse 80% 60% at 50% 110%, rgba(88, 88, 220, 0.20) 0%, transparent 60%)",
+        "accent-gradient": "linear-gradient(135deg, rgb(var(--nada-accent)) 0%, rgb(var(--nada-violet)) 50%, rgb(var(--nada-accent-deep)) 100%)"
       },
       zIndex: {
         shell:   "10",
