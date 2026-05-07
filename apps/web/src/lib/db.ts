@@ -43,6 +43,8 @@ export interface ChatPrefRecord {
   pinnedMessageBody: string | null;
   /** Per-chat custom wallpaper image URL */
   wallpaperUrl?: string;
+  /** Locally archive this chat when greater than 0. */
+  archivedAt?: number;
   updatedAt: number;
 }
 
@@ -127,6 +129,7 @@ export async function getChatPref(chatId: string): Promise<ChatPrefRecord> {
     blockedPubkeyHashes: [],
     pinnedMessageId: null,
     pinnedMessageBody: null,
+    archivedAt: 0,
     updatedAt: 0
   };
 }

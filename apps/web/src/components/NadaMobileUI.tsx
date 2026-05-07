@@ -10,6 +10,7 @@ import {
   Check,
   CheckCheck,
   Archive,
+  Trash2,
   VolumeX,
   Pin,
   ChevronRight,
@@ -52,8 +53,15 @@ export const SearchBar = ({
 /* ─────────────────────────────────────────────────────────────
    Archived Row
    ───────────────────────────────────────────────────────────── */
-export const ArchivedRow = ({ count = 0 }: { count?: number }) => (
+export const ArchivedRow = ({
+  count = 0,
+  onClick
+}: {
+  count?: number;
+  onClick?: () => void;
+}) => (
   <motion.button
+    onClick={onClick}
     whileTap={{ scale: 0.985 }}
     className="group flex w-full items-center justify-between border-b border-nada-border/[0.08] px-4 py-3.5 transition-colors duration-150 hover:bg-nada-surface-elevated/30"
   >
@@ -91,31 +99,60 @@ export const ChatListItem = ({
   isOnline,
   status,
   isSelected,
-  onClick
+  onClick,
+  onArchive,
+  onDelete,
+  archiveLabel = "Archive"
 }: {
   name: string;
   preview: string;
   timestamp: string;
   unreadCount: number;
-  avatar?: string;
+  avatar?: string | undefined;
   initials?: string;
   isPinned?: boolean;
   isMuted?: boolean;
-  isOnline?: boolean;
+  isOnline?: boolean | undefined;
   status?: "sent" | "delivered" | "read";
   isSelected?: boolean;
   onClick: () => void;
+  onArchive?: () => void;
+  onDelete?: () => void;
+  archiveLabel?: string;
 }) => (
-  <motion.button
-    onClick={onClick}
-    whileTap={{ scale: 0.985 }}
-    className={cn(
-      "relative flex w-full items-center gap-3 border-b border-nada-border/[0.06] px-4 py-3.5 text-left transition-all duration-150",
-      isSelected
-        ? "bg-gradient-to-r from-nada-accent/[0.08] via-nada-accent/[0.04] to-transparent"
-        : "hover:bg-nada-surface-elevated/30 active:bg-nada-surface-elevated/45"
-    )}
-  >
+  <div className="relative overflow-hidden border-b border-nada-border/[0.06]">
+    <div className="absolute inset-y-0 left-0 flex w-28 items-center justify-start bg-nada-accent/15 pl-4 text-nada-accent">
+      <div className="flex flex-col items-center gap-1 text-[10px] font-bold">
+        <Archive size={18} />
+        {archiveLabel}
+      </div>
+    </div>
+    <div className="absolute inset-y-0 right-0 flex w-28 items-center justify-end bg-red-500/15 pr-4 text-red-300">
+      <div className="flex flex-col items-center gap-1 text-[10px] font-bold">
+        <Trash2 size={18} />
+        Delete
+      </div>
+    </div>
+    <motion.button
+      drag={onArchive || onDelete ? "x" : false}
+      dragConstraints={{ left: onDelete ? -96 : 0, right: onArchive ? 96 : 0 }}
+      dragElastic={0.08}
+      onClick={onClick}
+      onDragEnd={(_event, info) => {
+        if (info.offset.x > 72) {
+          onArchive?.();
+        } else if (info.offset.x < -72) {
+          onDelete?.();
+        }
+      }}
+      whileTap={{ scale: 0.985 }}
+      className={cn(
+        "relative z-10 flex w-full items-center gap-3 px-4 py-3.5 text-left transition-all duration-150",
+        isSelected
+          ? "bg-gradient-to-r from-nada-accent/[0.08] via-nada-accent/[0.04] to-nada-surface"
+          : "bg-nada-surface hover:bg-nada-surface-elevated active:bg-nada-surface-elevated/90"
+      )}
+    >
     {/* Active rail */}
     {isSelected && (
       <span className="absolute inset-y-2 left-0 w-[3px] rounded-r-full"
@@ -218,7 +255,8 @@ export const ChatListItem = ({
         </div>
       </div>
     </div>
-  </motion.button>
+    </motion.button>
+  </div>
 );
 
 /* ─────────────────────────────────────────────────────────────
