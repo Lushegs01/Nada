@@ -16,37 +16,41 @@
 .dark,
 [data-theme="dark"] {
   /* ── Backgrounds — deeper, cooler, more cinematic ── */
-  --nada-bg:               8  10  22;       /* #08 0A 16 — near-black blue */
-  --nada-surface:          14 18  36;       /* #0E 12 24 */
-  --nada-surface-elevated: 20 26  48;       /* #14 1A 30 */
-  --nada-surface-3:        28 36  64;       /* #1C 24 40 */
+  --nada-bg:               7   10  20;      /* #070A14 */
+  --nada-surface:          13  18  36;      /* #0D1224 */
+  --nada-surface-elevated: 18  26  51;      /* #121A33 */
+  --nada-surface-3:        23  31  58;      /* #171F3A */
 
   /* ── Text — softened indigo-white for less harshness ── */
-  --nada-primary:          228 232 248;     /* #E4 E8 F8 */
-  --nada-secondary:        134 144 178;     /* #86 90 B2 */
+  --nada-primary:          245 247 255;     /* #F5F7FF */
+  --nada-secondary:        203 210 246;     /* #CBD2F6 */
+  --nada-text-muted:       139 147 183;     /* #8B93B7 */
+  --nada-text-faint:       95  102 136;     /* #5F6688 */
 
   /* ── UI Chrome ── */
-  --nada-muted:            18  24  44;
-  --nada-border:           28  34  58;      /* #1C 22 3A */
+  --nada-muted:            18  26  51;
+  --nada-border:           255 255 255;
 
   /* ── Primary Accent (Aurora indigo→violet) ── */
-  --nada-accent:           139 148 252;     /* #8B 94 FC */
-  --nada-accent-soft:      139 148 252;
-  --nada-accent-deep:      88  88  220;     /* #58 58 DC */
-  --nada-violet:           167 139 250;     /* #A7 8B FA */
+  --nada-accent:           139 124 255;     /* #8B7CFF */
+  --nada-accent-soft:      139 124 255;
+  --nada-accent-deep:      91  75  219;     /* #5B4BDB */
+  --nada-violet:           91  75  219;
+  --nada-gold:             245 182 66;      /* #F5B642 */
+  --nada-cyan:             34  211 238;     /* #22D3EE */
 
   /* ── Legacy aliases retained for compatibility ── */
-  --nada-gold-dark:        88  88  220;     /* re-mapped to deep indigo */
-  --nada-gold-glow:        139 148 252;
+  --nada-gold-dark:        166 112 38;
+  --nada-gold-glow:        245 182 66;
 
   /* ── Message Bubbles ── */
-  --nada-sent:             88  88  220;
-  --nada-received:         20  26  48;
+  --nada-sent:             91  75  219;
+  --nada-received:         18  26  51;
 
   /* ── Semantic ── */
-  --nada-danger:           248 113 113;     /* red-400 */
-  --nada-success:          52  211 153;     /* emerald-400 */
-  --nada-warning:          251 191 36;      /* amber-400 */
+  --nada-danger:           255 77  94;
+  --nada-success:          41  240 164;
+  --nada-warning:          245 182 66;
   --nada-overlay:          4   6   16;
   --nada-shadow-color:     0   0   0;
   --nada-input-bg:         12  16  34;
@@ -77,7 +81,7 @@ body {
   color: rgb(var(--nada-primary));
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   line-height: 1.55;
-  letter-spacing: -0.011em;
+  letter-spacing: 0;
   overflow-x: hidden;
 }
 
@@ -95,11 +99,11 @@ body::before {
 
 h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
-  letter-spacing: -0.022em;
+  letter-spacing: 0;
 }
 
-h1 { letter-spacing: -0.032em; }
-h2 { letter-spacing: -0.026em; }
+h1 { letter-spacing: 0; }
+h2 { letter-spacing: 0; }
 
 button, input, textarea, select {
   font: inherit;
@@ -862,8 +866,157 @@ textarea::placeholder {
     font-size: 10.5px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0;
     color: rgb(var(--nada-secondary) / 0.65);
+  }
+
+  .nada-app-frame {
+    background:
+      radial-gradient(circle at 14% 0%, rgb(var(--nada-accent) / 0.12), transparent 34%),
+      radial-gradient(circle at 86% 100%, rgb(var(--nada-gold) / 0.08), transparent 38%),
+      rgb(var(--nada-bg));
+  }
+
+  .nada-desktop-shell {
+    background:
+      linear-gradient(135deg, rgb(var(--nada-surface) / 0.92), rgb(var(--nada-bg) / 0.96)),
+      rgb(var(--nada-bg));
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    box-shadow:
+      0 28px 80px rgba(0, 0, 0, 0.56),
+      0 0 0 1px rgb(var(--nada-border) / 0.04) inset;
+  }
+
+  .nada-chat-header {
+    min-height: 76px;
+    background: rgb(var(--nada-bg) / 0.78);
+    backdrop-filter: blur(22px) saturate(145%);
+    -webkit-backdrop-filter: blur(22px) saturate(145%);
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.08);
+  }
+
+  .nada-security-pill,
+  .nada-privacy-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border-radius: 999px;
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    background: rgb(var(--nada-surface-elevated) / 0.62);
+    color: rgb(var(--nada-secondary) / 0.78);
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 6px 10px;
+  }
+
+  .nada-security-pill::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: rgb(var(--nada-cyan));
+    box-shadow: 0 0 12px rgb(var(--nada-cyan) / 0.52);
+  }
+
+  .nada-message-virtuoso {
+    height: 100%;
+    width: min(100%, 860px);
+    margin-inline: auto;
+    padding-inline: clamp(10px, 2vw, 24px);
+    scrollbar-gutter: stable;
+  }
+
+  .nada-message-lane {
+    max-width: 860px;
+    margin-inline: auto;
+  }
+
+  .nada-composer-input {
+    background: rgb(var(--nada-input-bg) / 0.78);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border: 1px solid rgb(var(--nada-border) / 0.10);
+    border-radius: 999px;
+    box-shadow: inset 0 1px 0 rgb(var(--nada-border) / 0.05);
+  }
+
+  .nada-composer-input:focus {
+    border-color: rgb(var(--nada-accent) / 0.55);
+    box-shadow:
+      0 0 0 4px rgb(var(--nada-accent) / 0.10),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.08);
+  }
+
+  .nada-empty-state {
+    background:
+      radial-gradient(circle at 50% 35%, rgb(var(--nada-accent) / 0.12), transparent 34%),
+      radial-gradient(circle at 50% 55%, rgb(var(--nada-gold) / 0.08), transparent 28%);
+  }
+
+  .nada-premium-card {
+    background: linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.82), rgb(var(--nada-surface) / 0.68));
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    border-radius: 22px;
+    box-shadow:
+      inset 0 1px 0 rgb(var(--nada-border) / 0.06),
+      0 14px 42px rgba(0, 0, 0, 0.22);
+  }
+
+  .nada-settings-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 18px 96px;
+  }
+
+  .nada-settings-card {
+    background: rgb(var(--nada-surface-elevated) / 0.56);
+    border: 1px solid rgb(var(--nada-border) / 0.07);
+    border-radius: 18px;
+    padding: 14px;
+    transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
+  }
+
+  .nada-settings-card:hover {
+    background: rgb(var(--nada-surface-elevated) / 0.72);
+    border-color: rgb(var(--nada-border) / 0.12);
+    transform: translateY(-1px);
+  }
+
+  .nada-floating-menu {
+    background:
+      linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.92), rgb(var(--nada-surface) / 0.88)),
+      rgb(var(--nada-surface));
+    border: 1px solid rgb(var(--nada-border) / 0.10);
+    backdrop-filter: blur(22px) saturate(145%);
+    -webkit-backdrop-filter: blur(22px) saturate(145%);
+    box-shadow:
+      0 20px 60px rgb(0 0 0 / 0.42),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.08);
+  }
+
+  .nada-call-screen {
+    background:
+      radial-gradient(circle at 50% 24%, rgb(var(--nada-accent) / 0.18), transparent 34%),
+      radial-gradient(circle at 50% 40%, rgb(var(--nada-gold) / 0.10), transparent 28%),
+      linear-gradient(180deg, #070a14 0%, #0d1224 52%, #050711 100%);
+  }
+
+  .nada-call-dock {
+    background: rgb(var(--nada-surface) / 0.74);
+    border: 1px solid rgb(var(--nada-border) / 0.10);
+    border-radius: 999px;
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    box-shadow: 0 22px 70px rgb(0 0 0 / 0.46);
+  }
+
+  .nada-call-avatar-ring {
+    box-shadow:
+      0 0 0 1px rgb(var(--nada-border) / 0.10),
+      0 0 0 10px rgb(var(--nada-accent) / 0.10),
+      0 0 60px rgb(var(--nada-accent) / 0.32),
+      0 0 90px rgb(var(--nada-gold) / 0.16);
   }
 }
 
@@ -968,4 +1121,8 @@ textarea::placeholder {
   /* Premium hairline borders */
   .ring-hairline       { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.10); }
   .ring-hairline-strong { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.16); }
+
+  [class*="tracking-"] {
+    letter-spacing: 0 !important;
+  }
 }

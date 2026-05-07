@@ -5,10 +5,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Mic,
   MicOff,
+  MoreHorizontal,
   Phone,
   PhoneIncoming,
   PhoneOff,
-  Plus,
+  RotateCcw,
+  Volume2,
   Video,
   VideoOff
 } from "lucide-react";
@@ -54,7 +56,7 @@ function CallTimer({ startedAt }: { startedAt: number | null }): JSX.Element | n
 
   if (!startedAt) return null;
   return (
-    <span className="text-sm tabular-nums text-white/70">{formatDur(elapsed)}</span>
+    <span className="text-sm tabular-nums text-white/78">{formatDur(elapsed)}</span>
   );
 }
 
@@ -74,22 +76,22 @@ function CallControl({
   variant: "neutral" | "danger";
 }): JSX.Element {
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-1.5">
       <button
         aria-label={label}
         onClick={onClick}
         className={cn(
-          "grid h-14 w-14 place-items-center rounded-full shadow-lg transition-all hover:scale-105 active:scale-95",
+          "grid h-12 w-12 place-items-center rounded-full shadow-lg transition-all hover:scale-105 active:scale-95 md:h-14 md:w-14",
           variant === "danger"
             ? "bg-red-500 hover:bg-red-400"
             : active
-              ? "bg-white/30 ring-2 ring-nada-accent/35"
-              : "bg-white/15 hover:bg-white/25"
+              ? "bg-nada-accent/28 ring-1 ring-nada-accent/45"
+              : "bg-white/10 ring-1 ring-white/8 hover:bg-white/18"
         )}
       >
         <Icon size={22} className="text-white" />
       </button>
-      <span className="text-xs text-white/50">{label}</span>
+      <span className="text-[10.5px] font-semibold text-white/55">{label}</span>
     </div>
   );
 }
@@ -116,10 +118,10 @@ export function IncomingCallModal({
         exit={{ opacity: 0 }}
       >
         {/* Backdrop */}
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
 
         <motion.div
-          className="relative z-10 w-full max-w-sm overflow-hidden rounded-3xl bg-gradient-to-b from-slate-800 to-slate-900 p-8 shadow-2xl"
+          className="nada-floating-menu relative z-10 w-full max-w-sm overflow-hidden rounded-[28px] p-8 shadow-2xl"
           initial={{ y: 60, scale: 0.95, opacity: 0 }}
           animate={{ y: 0, scale: 1, opacity: 1 }}
           exit={{ y: 60, opacity: 0 }}
@@ -128,8 +130,8 @@ export function IncomingCallModal({
           <div className="flex flex-col items-center gap-4">
             {/* Pulsing avatar */}
             <div className="relative">
-              <span className="absolute inset-0 animate-ping rounded-full bg-white/15" />
-              <div className="relative grid h-24 w-24 place-items-center rounded-full bg-nada-accent shadow-lg">
+              <span className="absolute inset-0 animate-ping rounded-full bg-nada-accent/20" />
+              <div className="nada-call-avatar-ring relative grid h-24 w-24 place-items-center rounded-full bg-nada-accent shadow-lg">
                 <Avatar label={call.peerName} size="lg" />
               </div>
             </div>
@@ -143,9 +145,12 @@ export function IncomingCallModal({
                   <Phone size={13} className="text-white/60" />
                 )}
                 <span className="text-sm text-white/60">
-                  Incoming {call.mode} call
+                  Incoming encrypted {call.mode} call
                 </span>
               </div>
+              <p className="mt-3 inline-flex rounded-full border border-nada-gold/20 bg-nada-gold/10 px-3 py-1 text-[11px] font-bold text-nada-gold">
+                End-to-end encrypted
+              </p>
             </div>
 
             <div className="mt-4 flex w-full items-center justify-around">
@@ -191,6 +196,7 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   // Track last attached stream so we don't re-assign unnecessarily
   const attachedStreamRef = useRef<MediaStream | null>(null);
+  const [speakerOn, setSpeakerOn] = useState(false);
   const remoteStream = call?.localSession?.remoteStream ?? null;
   const callPhase = call?.phase ?? "idle";
 
@@ -221,7 +227,7 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
     <AnimatePresence>
       <motion.div
         key="voice-overlay"
-        className="fixed inset-0 z-[800] flex flex-col items-center justify-between bg-gradient-to-b from-slate-800 via-slate-900 to-black pb-16 pt-20"
+        className="nada-call-screen fixed inset-0 z-[800] flex flex-col items-center justify-between pb-10 pt-16 md:pb-16 md:pt-20"
         initial={{ opacity: 0, scale: 1.04 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0 }}
@@ -240,22 +246,25 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
         />
 
         {/* Avatar + status */}
-        <div className="flex flex-col items-center gap-5">
+        <div className="flex flex-col items-center gap-5 px-6 text-center">
           <div className="relative">
             {(call.phase === "outgoing-ringing" || call.phase === "connecting") && (
-              <span className="absolute inset-0 animate-ping rounded-full bg-white/10" />
+              <span className="absolute inset-0 animate-ping rounded-full bg-nada-accent/18" />
             )}
-            <div className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl ring-4 ring-nada-border/20">
+            <div className="nada-call-avatar-ring relative grid h-32 w-32 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl">
               <Avatar label={call.peerName} size="lg" />
             </div>
           </div>
 
           <div className="text-center">
-            <p className="text-2xl font-semibold text-white">{call.peerName}</p>
+            <p className="text-[28px] font-bold text-white">{call.peerName}</p>
             <div className="mt-2 flex flex-col items-center gap-1">
               <PhaseLabel phase={call.phase} />
               <CallTimer startedAt={call.startedAt} />
             </div>
+            <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-nada-gold/20 bg-nada-gold/10 px-3 py-1.5 text-[11.5px] font-bold text-nada-gold">
+              Encrypted call
+            </p>
           </div>
 
           {call.failureReason && (
@@ -266,7 +275,7 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
         </div>
 
         {/* Controls */}
-        <div className="flex items-center gap-6">
+        <div className="nada-call-dock flex items-center gap-3 px-4 py-3 md:gap-5 md:px-6">
           <CallControl
             label={call.isMuted ? "Unmute" : "Mute"}
             icon={call.isMuted ? MicOff : Mic}
@@ -274,10 +283,24 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
             active={call.isMuted}
             variant="neutral"
           />
+          <CallControl
+            label="Speaker"
+            icon={Volume2}
+            onClick={() => setSpeakerOn((current) => !current)}
+            active={speakerOn}
+            variant="neutral"
+          />
+          <CallControl
+            label="Video"
+            icon={Video}
+            onClick={() => window.alert("Switching to video during an active voice call is coming soon.")}
+            active={false}
+            variant="neutral"
+          />
           <button
             aria-label="End call"
             onClick={onEnd}
-            className="grid h-20 w-20 place-items-center rounded-full bg-red-500 shadow-2xl transition-all hover:scale-105 hover:bg-red-400 active:scale-95"
+            className="grid h-16 w-16 place-items-center rounded-full bg-red-500 shadow-2xl transition-all hover:scale-105 hover:bg-red-400 active:scale-95 md:h-[72px] md:w-[72px]"
           >
             <PhoneOff size={30} className="text-white" />
           </button>
@@ -372,9 +395,9 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5">
             <div className="relative">
               {(call.phase === "outgoing-ringing" || call.phase === "connecting") && (
-                <span className="absolute inset-0 animate-ping rounded-full bg-white/20" />
+                <span className="absolute inset-0 animate-ping rounded-full bg-nada-accent/20" />
               )}
-              <div className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl ring-4 ring-nada-border/20">
+              <div className="nada-call-avatar-ring relative grid h-32 w-32 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl">
                 <Avatar label={call.peerName} size="lg" />
               </div>
             </div>
@@ -423,18 +446,20 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
 
         {/* Live call header info */}
         {isActive && (
-          <div className="absolute left-0 right-0 top-0 flex flex-col items-center justify-center pt-12 bg-gradient-to-b from-black/80 via-black/40 to-transparent pb-10 pointer-events-none z-[850]">
-             <div className="flex items-center gap-2 text-white/90 font-medium">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+          <div className="absolute left-0 right-0 top-0 z-[850] flex flex-col items-center justify-center bg-gradient-to-b from-black/80 via-black/35 to-transparent pb-12 pt-12 pointer-events-none">
+             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-1.5 text-[12px] font-bold text-white/90 backdrop-blur-xl">
+                <span className="h-2 w-2 rounded-full bg-nada-cyan animate-pulse shadow-[0_0_12px_rgba(34,211,238,0.75)]" />
+                Encrypted call
+                <span className="text-white/40">·</span>
                 <CallTimer startedAt={call.startedAt} />
              </div>
-             <span className="text-white text-lg font-semibold drop-shadow-md mt-1">{call.peerName}</span>
+             <span className="mt-2 text-lg font-semibold text-white drop-shadow-md">{call.peerName}</span>
           </div>
         )}
 
         {/* Controls bar (WhatsApp style floating pill) */}
         <div className="absolute inset-x-0 bottom-8 flex justify-center pointer-events-none z-[950]">
-          <div className="flex items-center gap-6 rounded-full bg-slate-900/60 backdrop-blur-xl px-6 py-4 shadow-2xl ring-1 ring-nada-border/20 pointer-events-auto">
+          <div className="nada-call-dock flex items-center gap-3 px-4 py-3 pointer-events-auto md:gap-5 md:px-6">
             <CallControl
               label={call.isCameraOff ? "Camera on" : "Camera off"}
               icon={call.isCameraOff ? VideoOff : Video}
@@ -449,20 +474,26 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
               active={call.isMuted}
               variant="neutral"
             />
+            <CallControl
+              label="Switch"
+              icon={RotateCcw}
+              onClick={() => window.alert("Camera switching is coming soon.")}
+              active={false}
+              variant="neutral"
+            />
             <button
-              aria-label="Add Participant"
+              aria-label="More call options"
               onClick={() => {
-                 // Open an alert letting them know group calls require SFU
-                 alert("Group calling requires a P2P Mesh or SFU backend upgrade. NADA's current WebRTC layer is strictly 1-on-1.");
+                 window.alert("More call options are coming soon.");
               }}
-              className="grid h-12 w-12 place-items-center rounded-full bg-white/10 transition-transform hover:scale-105 hover:bg-white/20 active:scale-95"
+              className="grid h-12 w-12 place-items-center rounded-full bg-white/10 ring-1 ring-white/8 transition-transform hover:scale-105 hover:bg-white/20 active:scale-95 md:h-14 md:w-14"
             >
-              <Plus size={22} className="text-white" />
+              <MoreHorizontal size={22} className="text-white" />
             </button>
             <button
               aria-label="End call"
               onClick={onEnd}
-              className="grid h-14 w-14 place-items-center rounded-full bg-red-500 shadow-lg transition-transform hover:scale-105 active:scale-95 ml-2"
+              className="ml-1 grid h-14 w-14 place-items-center rounded-full bg-red-500 shadow-lg transition-transform hover:scale-105 active:scale-95 md:h-16 md:w-16"
             >
               <PhoneOff size={24} className="text-white" />
             </button>

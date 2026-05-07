@@ -48,8 +48,8 @@ export function VoiceNoteBubble({
 
     const ws = WaveSurfer.create({
       container: containerRef.current,
-      waveColor: outbound ? "rgba(255, 255, 255, 0.35)" : "rgba(129, 140, 248, 0.35)",
-      progressColor: outbound ? "rgba(255, 255, 255, 0.95)" : "rgba(129, 140, 248, 1)",
+      waveColor: outbound ? "rgba(255, 255, 255, 0.34)" : "rgba(139, 124, 255, 0.34)",
+      progressColor: outbound ? "rgba(255, 255, 255, 0.96)" : "rgba(245, 182, 66, 0.95)",
       cursorColor: "transparent",
       barWidth: 2.5,
       barGap: 2,
@@ -117,8 +117,8 @@ export function VoiceNoteBubble({
         className={cn(
           "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
           outbound
-            ? "bg-white/25 hover:bg-white/35 active:scale-90 text-white"
-            : "bg-nada-accent/20 hover:bg-nada-accent/30 active:scale-90 text-nada-accent",
+            ? "bg-white/22 hover:bg-white/32 active:scale-90 text-white"
+            : "bg-nada-accent/16 hover:bg-nada-accent/26 active:scale-90 text-nada-accent",
           isPlaying && "shadow-[0_0_0_3px_rgba(255,255,255,0.12)]",
           loading && "opacity-50 cursor-wait"
         )}
@@ -233,7 +233,7 @@ function WaveformBars({
       const x = i * (barW + 2);
       const y = (H - h) / 2;
       // Red for recording, accent for idle
-      ctx.fillStyle = active ? "rgba(239,68,68,0.85)" : "rgba(107,114,128,0.5)";
+      ctx.fillStyle = active ? "rgba(255,77,94,0.88)" : "rgba(139,147,183,0.5)";
       ctx.beginPath();
       ctx.roundRect(x, y, barW, h, 2);
       ctx.fill();
@@ -274,7 +274,7 @@ export function VoiceRecorderBar({
   analyser?: AnalyserNode | null;
 }): JSX.Element {
   return (
-    <div className="flex items-center gap-3 rounded-xl bg-red-500/10 px-3 py-2 animate-fade-in border border-red-500/20">
+    <div className="flex items-center gap-3 rounded-full border border-nada-danger/25 bg-nada-danger/[0.08] px-3 py-2 animate-fade-in shadow-[0_0_30px_rgba(255,77,94,0.14)]">
       {/* Red blinking recording dot */}
       <span className="relative flex h-3 w-3 shrink-0">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
@@ -282,16 +282,21 @@ export function VoiceRecorderBar({
       </span>
 
       {/* Waveform visualization */}
-      <WaveformBars analyser={analyser ?? null} active={true} />
+      <div className="min-w-0 flex-1">
+        <div className="mb-0.5 text-[10.5px] font-semibold uppercase text-nada-danger/80">
+          Recording securely
+        </div>
+        <WaveformBars analyser={analyser ?? null} active={true} />
+      </div>
 
-      <span className="shrink-0 text-sm font-semibold text-red-400 tabular-nums tracking-wide min-w-[2.5rem] text-right">
+      <span className="shrink-0 min-w-[2.5rem] text-right text-sm font-bold tabular-nums text-nada-danger">
         {formatDur(seconds)}
       </span>
 
       <button
         aria-label="Cancel recording"
         onClick={onCancel}
-        className="rounded-lg px-2.5 py-1 text-xs font-medium text-nada-secondary hover:bg-nada-muted transition-colors"
+        className="rounded-full px-3 py-1.5 text-xs font-semibold text-nada-secondary hover:bg-white/8 transition-colors"
       >
         Cancel
       </button>
@@ -299,7 +304,7 @@ export function VoiceRecorderBar({
       <button
         aria-label="Send voice note"
         onClick={onStop}
-        className="rounded-lg bg-nada-accent px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:opacity-90 active:scale-95"
+        className="rounded-full bg-nada-accent px-4 py-1.5 text-xs font-bold text-white shadow-accent-glow transition-all hover:opacity-90 active:scale-95"
       >
         Send
       </button>
