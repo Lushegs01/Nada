@@ -13,6 +13,7 @@ import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
+  Archive,
   ArrowLeft,
   BarChart2,
   Bell,
@@ -179,6 +180,40 @@ type MessageContextMenuState = {
 };
 
 const PENDING_ENCRYPTED_PAYLOAD = "__pending_encryption__";
+const STATUS_COMMENT_PREFIX = "status-comments:";
+
+type ChatListModel = {
+  avatar?: string | undefined;
+  chatId: string;
+  contactHash?: string | undefined;
+  groupId?: string | undefined;
+  initials: string;
+  isArchived: boolean;
+  isGroup: boolean;
+  isOnline?: boolean | undefined;
+  isSelected: boolean;
+  preview: string;
+  sortTs: number;
+  timestamp: string;
+  title: string;
+  unread: number;
+};
+
+type PendingChatAction = {
+  action: "archive" | "unarchive" | "delete";
+  chatId: string;
+  contactHash?: string;
+  groupId?: string;
+  title: string;
+};
+
+type StatusCommentPayload = {
+  kind: "status-comment";
+  statusId: string;
+  statusOwnerPubkeyHash: string;
+  text: string;
+  version: 1;
+};
 
 function mergeMessageRecords(...groups: MessageRecord[][]): MessageRecord[] {
   const byId = new Map<string, MessageRecord>();
@@ -194,6 +229,58 @@ function mergeMessageRecords(...groups: MessageRecord[][]): MessageRecord[] {
     }
     return a.id.localeCompare(b.id);
   });
+}
+
+function statusCommentChatId(statusId: string): string {
+  return `${STATUS_COMMENT_PREFIX}${statusId}`;
+}
+
+function parseStatusCommentPayload(body: string): StatusCommentPayload | null {
+  try {
+    const parsed = JSON.parse(body) as Partial<StatusCommentPayload>;
+    return parsed.kind === "status-comment" &&
+      parsed.version === 1 &&
+      typeof parsed.statusId === "string" &&
+      typeof parsed.statusOwnerPubkeyHash === "string" &&
+      typeof parsed.text === "string"
+      ? {
+          kind: "status-comment",
+          statusId: parsed.statusId,
+          statusOwnerPubkeyHash: parsed.statusOwnerPubkeyHash,
+          text: parsed.text,
+          version: 1
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadStatusComments(statusId: string): Promise<MessageRecord[]> {
+  return loadMessagesForChat(statusCommentChatId(statusId));
+}
+
+function generateRandomUsername(seed = crypto.randomUUID()): string {
+  const adjectives = [
+    "Solar", "Velvet", "Neon", "Silent", "Lucky", "Nova", "Cosmic", "Bright",
+    "Midnight", "Echo", "Pixel", "Azure", "Golden", "Rapid", "Orbit", "Wild"
+  ];
+  const nouns = [
+    "Comet", "Cipher", "Bloom", "Signal", "Quest", "Drift", "Pulse", "Harbor",
+    "Rune", "Muse", "Spark", "Atlas", "Vibe", "Flux", "Crest", "Wave"
+  ];
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  const adjective = adjectives[hash % adjectives.length]!;
+  const noun = nouns[Math.floor(hash / adjectives.length) % nouns.length]!;
+  const suffix = String((hash % 900) + 100);
+  return `${adjective}${noun}${suffix}`;
+}
+
+function isLegacyNadaName(name: string): boolean {
+  return name === "NADA" || /^NADA\s+[a-f0-9]/i.test(name);
 }
 
 export function NadaApp(): JSX.Element {
@@ -362,7 +449,7 @@ function Onboarding({
     await nadaDb.identity.put(confirmed);
     await nadaDb.settings.put({
       key: "displayName",
-      value: displayName.trim() || "NADA",
+      value: displayName.trim() || generateRandomUsername(draft.pubkeyHash),
       updatedAt: Date.now()
     });
     onComplete(confirmed);
@@ -523,8 +610,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [chatPref, setChatPrefState] = useState<ChatPrefRecord>({
     chatId: "", mutedUntil: 0, clearedAt: 0, blockedPubkeyHashes: [],
-    pinnedMessageId: null, pinnedMessageBody: null, updatedAt: 0
+    pinnedMessageId: null, pinnedMessageBody: null, archivedAt: 0, updatedAt: 0
   });
+  const [archivedChatIds, setArchivedChatIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [showArchivedChats, setShowArchivedChats] = useState(false);
+  const [pendingChatAction, setPendingChatAction] =
+    useState<PendingChatAction | null>(null);
   const [blurShieldActive, setBlurShieldActive] = useState(false);
   const [blurShieldRevealed, setBlurShieldRevealed] = useState(false);
   const [showGhostModal, setShowGhostModal] = useState(false);
@@ -562,6 +655,22 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     setTimeout(() => {
       setInAppNotification((current) => current?.id === id ? null : current);
     }, 4000);
+    if (typeof window !== "undefined" && "Notification" in window) {
+      const showSystemNotification = () => {
+        if (Notification.permission === "granted") {
+          new Notification(title, {
+            body,
+            icon: "/logo.png",
+            tag: chatId
+          });
+        }
+      };
+      if (Notification.permission === "default") {
+        void Notification.requestPermission().then(showSystemNotification);
+      } else {
+        showSystemNotification();
+      }
+    }
   }, []);
 
   // Mobile UI state
@@ -644,6 +753,68 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     Object.values(unreadCounts).reduce((acc, count) => acc + count, 0),
     [unreadCounts]
   );
+  const sidebarChatItems = useMemo<ChatListModel[]>(() => {
+    const groupItems = chats.map((chat) => {
+      const chatId = chat.id;
+      const lastMsg = lastMessages[chatId];
+      const unread = unreadCounts[chatId] ?? 0;
+      return {
+        avatar: chat.avatar,
+        chatId,
+        groupId: chat.id,
+        initials: chat.title.slice(0, 1).toUpperCase(),
+        isArchived: archivedChatIds.has(chatId),
+        isGroup: true,
+        isSelected: selectedGroupId === chat.id,
+        preview: lastMsg?.body || "Start a conversation",
+        sortTs: lastMsg?.ts || chat.updatedAt || chat.createdAt,
+        timestamp: lastMsg && lastMsg.ts > 0 ? formatRelativeTime(lastMsg.ts) : "",
+        title: chat.title,
+        unread
+      };
+    });
+
+    const contactItems = contacts.map((contact) => {
+      const chatId = directChatId(identity.pubkeyHash, contact.pubkeyHash);
+      const lastMsg = lastMessages[chatId];
+      const unread = unreadCounts[chatId] ?? 0;
+      return {
+        avatar: contact.localAvatar,
+        chatId,
+        contactHash: contact.pubkeyHash,
+        initials: contact.localDisplayName.slice(0, 1).toUpperCase(),
+        isArchived: archivedChatIds.has(chatId),
+        isGroup: false,
+        isOnline: true,
+        isSelected: selectedContactHash === contact.pubkeyHash,
+        preview: lastMsg?.body || "Start a conversation",
+        sortTs: lastMsg?.ts || contact.addedAt,
+        timestamp: lastMsg && lastMsg.ts > 0 ? formatRelativeTime(lastMsg.ts) : "",
+        title: contact.localDisplayName,
+        unread
+      };
+    });
+
+    return [...groupItems, ...contactItems].sort((a, b) => b.sortTs - a.sortTs);
+  }, [
+    archivedChatIds,
+    chats,
+    contacts,
+    identity.pubkeyHash,
+    lastMessages,
+    selectedContactHash,
+    selectedGroupId,
+    unreadCounts
+  ]);
+  const archivedCount = useMemo(
+    () => sidebarChatItems.filter((item) => item.isArchived).length,
+    [sidebarChatItems]
+  );
+  useEffect(() => {
+    if (archivedCount === 0 && showArchivedChats) {
+      setShowArchivedChats(false);
+    }
+  }, [archivedCount, showArchivedChats]);
 
   const [dashboardToast, setDashboardToast] = useState<string | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -678,18 +849,32 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   useEffect(() => {
     let active = true;
 
-    void nadaDb.settings.get("displayName").then((record) => {
+    void nadaDb.settings.get("displayName").then(async (record) => {
       if (!active) {
         return;
       }
 
-      setDisplayName(record?.value ?? "NADA");
+      const fallbackName = generateRandomUsername(identity.pubkeyHash);
+      const nextName =
+        !record?.value || isLegacyNadaName(record.value)
+          ? fallbackName
+          : record.value;
+      if (nextName !== record?.value) {
+        await nadaDb.settings.put({
+          key: "displayName",
+          value: nextName,
+          updatedAt: Date.now()
+        });
+      }
+      if (active) {
+        setDisplayName(nextName);
+      }
     });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [identity.pubkeyHash]);
 
   // Load ghost mode + mood from settings on mount
   useEffect(() => {
@@ -844,17 +1029,66 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     selectedChatId
   ]);
 
+  useEffect(() => {
+    const chatIds = [
+      ...contacts.map((contact) =>
+        directChatId(identity.pubkeyHash, contact.pubkeyHash)
+      ),
+      ...chats.map((chat) => chat.id)
+    ];
+    if (chatIds.length === 0) {
+      setArchivedChatIds(new Set());
+      return;
+    }
+
+    let active = true;
+    void Promise.all(
+      chatIds.map(async (chatId) => ({
+        chatId,
+        pref: await getChatPref(chatId)
+      }))
+    ).then((records) => {
+      if (!active) return;
+      setArchivedChatIds(
+        new Set(
+          records
+            .filter(({ pref }) => (pref.archivedAt ?? 0) > 0)
+            .map(({ chatId }) => chatId)
+        )
+      );
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [chats, contacts, identity.pubkeyHash]);
+
 
 
   useEffect(() => {
     let active = true;
 
-    void nadaDb.contacts.orderBy("addedAt").reverse().toArray().then((records) => {
+    void nadaDb.contacts.orderBy("addedAt").reverse().toArray().then(async (records) => {
       if (!active) {
         return;
       }
 
-      setContacts(records);
+      const renamed = records.map((contact) =>
+        isLegacyNadaName(contact.localDisplayName)
+          ? {
+              ...contact,
+              localDisplayName: generateRandomUsername(contact.pubkeyHash)
+            }
+          : contact
+      );
+      await Promise.all(
+        renamed
+          .filter((contact, index) => contact.localDisplayName !== records[index]?.localDisplayName)
+          .map((contact) => nadaDb.contacts.put(contact))
+      );
+      if (active) {
+        setContacts(renamed);
+      }
     });
 
     return () => {
@@ -1053,12 +1287,20 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       );
 
       newEnvelopes.forEach((env) => {
-         const chatId = directChatId(identity.pubkeyHash, env.sender);
-         if (chatId !== selectedChatId) {
-             const senderContact = contactRecords.find(c => c.pubkeyHash === env.sender);
-             const title = senderContact?.localDisplayName || "Someone";
-             showNotification(title, "Sent a new message", chatId);
-         }
+        const senderContact = contactRecords.find(c => c.pubkeyHash === env.sender);
+        const title = senderContact?.localDisplayName || generateRandomUsername(env.sender);
+        if (env.messageKind === "status") {
+          showNotification(title, "Posted a new status", "status");
+          return;
+        }
+        if (env.messageKind === "system") {
+          showNotification(title, "Commented on your status", "status");
+          return;
+        }
+        const chatId = directChatId(identity.pubkeyHash, env.sender);
+        if (chatId !== selectedChatId) {
+          showNotification(title, "Sent a new message", chatId);
+        }
       });
     });
     void loadStatuses();
@@ -1170,13 +1412,20 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       case "offer": {
         // Incoming call — store the SDP so the accept handler can use it
         const contact = contacts.find(c => c.pubkeyHash === latestSignal.sender);
+        const callerName = contact?.localDisplayName ?? generateRandomUsername(latestSignal.sender);
+        const callChatId = directChatId(identity.pubkeyHash, latestSignal.sender);
         callStore.receiveIncomingOffer({
           callId: latestSignal.callId,
           mode: latestSignal.mode,
           peerPubkeyHash: latestSignal.sender,
-          peerName: contact?.localDisplayName ?? latestSignal.sender.slice(0, 8),
+          peerName: callerName,
           offerSdp: latestSignal.payload
         });
+        showNotification(
+          callerName,
+          `Incoming ${latestSignal.mode === "video" ? "video" : "voice"} call`,
+          callChatId
+        );
         // Log incoming call attempt
         void insertCallLogMessage(latestSignal.callId, latestSignal.mode, "started");
         break;
@@ -1214,7 +1463,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         callStore.endCall();
         break;
     }
-  }, [callSignals, identity.pubkeyHash, contacts, callStore, insertCallLogMessage]);
+  }, [callSignals, identity.pubkeyHash, contacts, callStore, insertCallLogMessage, showNotification]);
 
   // ── Offline Message Queue Flush ──────────────────────────────────────────────
   useEffect(() => {
@@ -1602,16 +1851,64 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     contacts.forEach(contact => {
       sendEnvelope({
         type: "message",
-        id: crypto.randomUUID(),
+        id,
         recipient: contact.pubkeyHash,
         sender: identity.pubkeyHash,
         timestamp,
         ciphertext,
-        messageKind: "status"
+        messageKind: "status",
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
       });
     });
     
     showToast("Status posted!");
+  };
+
+  const sendStatusComment = async (
+    status: MessageRecord,
+    text: string
+  ): Promise<void> => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    const id = crypto.randomUUID();
+    const timestamp = Date.now();
+    const payload: StatusCommentPayload = {
+      kind: "status-comment",
+      statusId: status.id,
+      statusOwnerPubkeyHash: status.senderPubkeyHash,
+      text: trimmed,
+      version: 1
+    };
+    const body = JSON.stringify(payload);
+    const ciphertext = await mockEncryptMessage(body);
+    const record: MessageRecord = {
+      id,
+      chatId: statusCommentChatId(status.id),
+      senderPubkeyHash: identity.pubkeyHash,
+      recipientPubkeyHash: status.senderPubkeyHash,
+      direction: "outbound",
+      kind: "system",
+      body,
+      encryptedPayload: ciphertext,
+      status: "sent",
+      createdAt: timestamp
+    };
+
+    await nadaDb.messages.put(record);
+    if (status.senderPubkeyHash !== identity.pubkeyHash) {
+      sendEnvelope({
+        type: "message",
+        id,
+        recipient: status.senderPubkeyHash,
+        sender: identity.pubkeyHash,
+        timestamp,
+        ciphertext,
+        messageKind: "system",
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+      });
+    }
+    showToast("Comment added.");
   };
 
   const attachFile = async (file: File): Promise<boolean> => {
@@ -1875,6 +2172,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         peerName: selectedGroup.title,
         localSession: null as unknown as LocalCallSession
       });
+      showNotification(selectedGroup.title, "Starting group call", selectedGroup.id);
       void insertCallLogMessage(selectedGroup.id, mode, "started");
       return;
     }
@@ -1934,6 +2232,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         peerName: selectedContact.localDisplayName,
         localSession: session
       });
+      showNotification(
+        selectedContact.localDisplayName,
+        `Starting ${mode === "video" ? "video" : "voice"} call`,
+        selectedChatId
+      );
 
       await nadaDb.calls.put({
         id: callId,
@@ -2183,6 +2486,68 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     setChatPrefState(await getChatPref(selectedChatId));
   };
 
+  const confirmChatAction = async (): Promise<void> => {
+    if (!pendingChatAction) return;
+
+    const { action, chatId, contactHash, groupId } = pendingChatAction;
+    if (action === "archive" || action === "unarchive") {
+      await setChatPref(chatId, {
+        archivedAt: action === "archive" ? Date.now() : 0
+      });
+      setArchivedChatIds((current) => {
+        const next = new Set(current);
+        if (action === "archive") {
+          next.add(chatId);
+        } else {
+          next.delete(chatId);
+        }
+        return next;
+      });
+      if (selectedChatId === chatId && action === "archive") {
+        setSelectedContactHash(null);
+        setSelectedGroupId(null);
+      }
+      setPendingChatAction(null);
+      showToast(action === "archive" ? "Chat archived." : "Chat unarchived.");
+      return;
+    }
+
+    await nadaDb.messages.where("chatId").equals(chatId).delete();
+    await nadaDb.chatPrefs.delete(chatId);
+    if (groupId) {
+      await nadaDb.chats.delete(groupId);
+      setChats((current) => current.filter((chat) => chat.id !== groupId));
+    }
+    if (contactHash) {
+      await nadaDb.contacts.delete(contactHash);
+      setContacts((current) =>
+        current.filter((contact) => contact.pubkeyHash !== contactHash)
+      );
+    }
+    setArchivedChatIds((current) => {
+      const next = new Set(current);
+      next.delete(chatId);
+      return next;
+    });
+    setLastMessages((current) => {
+      const next = { ...current };
+      delete next[chatId];
+      return next;
+    });
+    setUnreadCounts((current) => {
+      const next = { ...current };
+      delete next[chatId];
+      return next;
+    });
+    if (selectedChatId === chatId) {
+      setSelectedContactHash(null);
+      setSelectedGroupId(null);
+      setMessages([]);
+    }
+    setPendingChatAction(null);
+    showToast("Chat deleted locally.");
+  };
+
 
 
   const copyGroupInvite = useCallback((): void => {
@@ -2323,75 +2688,85 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           ) : (
           <div className="flex flex-col">
             <RelayStatus status={relayStatus} />
-            <ArchivedRow count={0} />
+            {archivedCount > 0 ? (
+              <ArchivedRow
+                count={archivedCount}
+                onClick={() => setShowArchivedChats((current) => !current)}
+              />
+            ) : null}
+            {showArchivedChats ? (
+              <div className="px-5 py-2 text-[11px] font-bold uppercase tracking-wider text-nada-secondary/[.40]">
+                Archived chats
+              </div>
+            ) : null}
             
             {contacts.length === 0 && chats.length === 0 ? (
               <EmptyChatListState onAdd={() => setPanel("contacts")} />
             ) : (
-              <>
-                {chats
-                  .filter((chat) => {
-                    if (activeFilter === "groups") return true;
-                    if (activeFilter === "unread" && (unreadCounts[chat.id] ?? 0) === 0) return false;
-                    return matchesSearch(chat.title, searchQuery);
-                  })
-                  .map((chat) => {
-                    const chatId = chat.id;
-                    const lastMsg = lastMessages[chatId];
-                    const unread = unreadCounts[chatId] ?? 0;
-                    return (
-                      <ChatListItem
-                        key={chat.id}
-                        name={chat.title}
-                        preview={lastMsg?.body || "Start a conversation"}
-                        timestamp={lastMsg && lastMsg.ts > 0 ? formatRelativeTime(lastMsg.ts) : ""}
-                        unreadCount={unread}
-                        initials={chat.title.slice(0, 1).toUpperCase()}
-                        isSelected={selectedGroupId === chat.id}
-                        onClick={() => {
-                          setSelectedContactHash(null);
-                          setSelectedGroupId(chat.id);
-                          setDisappearingTimer(chat.disappearingTimer);
-                          setMessageSearchQuery("");
-                        }}
-                      />
-                    );
-                  })}
-                {activeTab !== "communities" && contacts
-                  .filter((contact) => {
-                    if (activeFilter === "groups") return false;
-                    const chatId = directChatId(identity.pubkeyHash, contact.pubkeyHash);
-                    if (activeFilter === "unread" && (unreadCounts[chatId] ?? 0) === 0) return false;
+              <div className="flex flex-col">
+                {sidebarChatItems
+                  .filter((item) => {
+                    if (item.isArchived !== showArchivedChats) return false;
+                    if (activeTab === "communities" && !item.isGroup) return false;
+                    if (activeFilter === "groups" && !item.isGroup) return false;
+                    if (activeFilter === "unread" && item.unread === 0) return false;
                     return matchesSearch(
-                      `${contact.localDisplayName} ${contact.pubkeyHash}`,
+                      `${item.title} ${item.chatId} ${item.contactHash ?? ""}`,
                       searchQuery
                     );
                   })
-                  .map((contact) => {
-                    const chatId = directChatId(identity.pubkeyHash, contact.pubkeyHash);
-                    const lastMsg = lastMessages[chatId];
-                    const unread = unreadCounts[chatId] ?? 0;
+                  .map((item) => {
                     return (
                       <ChatListItem
-                        key={contact.id}
-                        name={contact.localDisplayName}
-                        preview={lastMsg?.body || "Start a conversation"}
-                        timestamp={lastMsg && lastMsg.ts > 0 ? formatRelativeTime(lastMsg.ts) : ""}
-                        unreadCount={unread}
-                        initials={contact.localDisplayName.slice(0, 1).toUpperCase()}
-                        isSelected={selectedContactHash === contact.pubkeyHash}
-                        isOnline={true}
+                        key={item.chatId}
+                        name={item.title}
+                        preview={item.preview}
+                        timestamp={item.timestamp}
+                        unreadCount={item.unread}
+                        initials={item.initials}
+                        isSelected={item.isSelected}
+                        isOnline={item.isOnline}
+                        {...(item.avatar ? { avatar: item.avatar } : {})}
+                        archiveLabel={item.isArchived ? "Unarchive" : "Archive"}
+                        onArchive={() =>
+                          setPendingChatAction({
+                            action: item.isArchived ? "unarchive" : "archive",
+                            chatId: item.chatId,
+                            title: item.title,
+                            ...(item.contactHash ? { contactHash: item.contactHash } : {}),
+                            ...(item.groupId ? { groupId: item.groupId } : {})
+                          })
+                        }
                         onClick={() => {
-                          setSelectedGroupId(null);
-                          setSelectedContactHash(contact.pubkeyHash);
+                          if (item.isGroup) {
+                            const chat = chats.find((group) => group.id === item.groupId);
+                            setSelectedContactHash(null);
+                            setSelectedGroupId(item.groupId ?? null);
+                            setDisappearingTimer(chat?.disappearingTimer ?? 0);
+                          } else {
+                            setSelectedGroupId(null);
+                            setSelectedContactHash(item.contactHash ?? null);
+                          }
                           setMessageSearchQuery("");
                         }}
+                        onDelete={() =>
+                          setPendingChatAction({
+                            action: "delete",
+                            chatId: item.chatId,
+                            title: item.title,
+                            ...(item.contactHash ? { contactHash: item.contactHash } : {}),
+                            ...(item.groupId ? { groupId: item.groupId } : {})
+                          })
+                        }
                       />
                     );
                   })}
-                
-                
-              </>
+                {sidebarChatItems.filter((item) => item.isArchived === showArchivedChats).length === 0 ? (
+                  <div className="px-6 py-12 text-center text-sm text-nada-secondary/50">
+                    {showArchivedChats ? "No archived chats." : "No chats here yet."}
+                  </div>
+                ) : null}
+              </div>
             )}
             </div>
           )}
@@ -2627,13 +3002,30 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ) : null}
         {selectedStatusSenderHash ? (
           <StatusViewerSheet
+            contacts={contacts}
+            identity={identity}
+            onComment={(status, text) => {
+              void sendStatusComment(status, text);
+            }}
             senderName={
               selectedStatusSenderHash === identity.pubkeyHash 
                 ? "My Status" 
                 : contacts.find(c => c.pubkeyHash === selectedStatusSenderHash)?.localDisplayName || "Someone"
             }
-            statuses={allStatuses.filter(s => s.senderPubkeyHash === selectedStatusSenderHash)}
+            statuses={allStatuses
+              .filter(s => s.senderPubkeyHash === selectedStatusSenderHash)
+              .sort((a, b) => b.createdAt - a.createdAt)}
             onClose={() => setSelectedStatusSenderHash(null)}
+          />
+        ) : null}
+        {pendingChatAction ? (
+          <ConfirmChatActionDialog
+            action={pendingChatAction.action}
+            chatTitle={pendingChatAction.title}
+            onCancel={() => setPendingChatAction(null)}
+            onConfirm={() => {
+              void confirmChatAction();
+            }}
           />
         ) : null}
       </AnimatePresence>
@@ -6185,6 +6577,89 @@ function Sheet({
   );
 }
 
+function ConfirmChatActionDialog({
+  action,
+  chatTitle,
+  onCancel,
+  onConfirm
+}: {
+  action: PendingChatAction["action"];
+  chatTitle: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}): JSX.Element {
+  const isDelete = action === "delete";
+  const copy =
+    action === "archive"
+      ? "Archive this chat? It will move out of your main chat list."
+      : action === "unarchive"
+        ? "Unarchive this chat? It will return to your main chat list."
+        : "Delete this chat locally? Messages in this conversation will be removed from this device.";
+  const confirmLabel =
+    action === "archive"
+      ? "Archive"
+      : action === "unarchive"
+        ? "Unarchive"
+        : "Delete";
+
+  return (
+    <motion.div
+      animate={{ opacity: 1 }}
+      className="nada-overlay fixed inset-0 z-overlay grid place-items-center p-4"
+      exit={{ opacity: 0 }}
+      initial={{ opacity: 0 }}
+      onClick={onCancel}
+    >
+      <motion.div
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        className="w-full max-w-sm rounded-3xl border border-nada-border/10 bg-nada-surface p-5 shadow-2xl"
+        exit={{ y: 16, opacity: 0, scale: 0.98 }}
+        initial={{ y: 16, opacity: 0, scale: 0.98 }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center gap-3">
+          <div
+            className={cn(
+              "grid h-11 w-11 place-items-center rounded-2xl",
+              isDelete ? "bg-red-500/12 text-red-300" : "bg-nada-accent/12 text-nada-accent"
+            )}
+          >
+            {isDelete ? <Trash2 size={20} /> : <Archive size={20} />}
+          </div>
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-bold text-nada-primary">
+              {confirmLabel} chat
+            </h3>
+            <p className="truncate text-xs text-nada-secondary/55">{chatTitle}</p>
+          </div>
+        </div>
+        <p className="mb-5 text-sm leading-relaxed text-nada-secondary/75">
+          {copy}
+        </p>
+        <div className="flex gap-3">
+          <button
+            className="flex-1 rounded-2xl bg-nada-muted px-4 py-3 text-sm font-semibold text-nada-secondary"
+            onClick={onCancel}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className={cn(
+              "flex-1 rounded-2xl px-4 py-3 text-sm font-bold",
+              isDelete ? "bg-red-500 text-white" : "bg-nada-accent text-black"
+            )}
+            onClick={onConfirm}
+            type="button"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 async function upsertContact(payload: InvitePayload): Promise<ContactRecord> {
   const existing = await nadaDb.contacts.get(payload.pubkeyHash);
   const contact: ContactRecord = {
@@ -6192,7 +6667,9 @@ async function upsertContact(payload: InvitePayload): Promise<ContactRecord> {
     pubkeyHash: payload.pubkeyHash,
     publicKey: payload.publicKey,
     localDisplayName:
-      existing?.localDisplayName ?? `NADA ${payload.pubkeyHash.slice(0, 8)}`,
+      existing && !isLegacyNadaName(existing.localDisplayName)
+        ? existing.localDisplayName
+        : generateRandomUsername(payload.pubkeyHash),
     addedAt: existing?.addedAt ?? Date.now(),
     trustStatus: existing?.trustStatus ?? "unverified"
   };
@@ -6249,8 +6726,12 @@ function StatusView({
   onPostStatus: () => void;
   onViewStatus: (hash: string) => void;
 }) {
-  const myStatuses = statuses.filter(s => s.senderPubkeyHash === identity.pubkeyHash);
-  const otherStatuses = statuses.filter(s => s.senderPubkeyHash !== identity.pubkeyHash);
+  const myStatuses = statuses
+    .filter(s => s.senderPubkeyHash === identity.pubkeyHash)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const otherStatuses = statuses
+    .filter(s => s.senderPubkeyHash !== identity.pubkeyHash)
+    .sort((a, b) => b.createdAt - a.createdAt);
   
   const grouped = otherStatuses.reduce((acc, s) => {
     if (!acc[s.senderPubkeyHash]) acc[s.senderPubkeyHash] = [];
@@ -6276,14 +6757,18 @@ function StatusView({
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-nada-primary">My Status</h3>
           <p className="text-sm text-nada-secondary/[.60] truncate">
-            {myStatuses.length > 0 ? "Tap to view updates" : "Tap to add status update"}
+            {myStatuses.length > 0
+              ? `${myStatuses.length} update${myStatuses.length === 1 ? "" : "s"} - tap to view`
+              : "Tap to add status update"}
           </p>
         </div>
-        {myStatuses.length === 0 && (
-          <button className="p-2 text-nada-accent" onClick={(e) => { e.stopPropagation(); onPostStatus(); }}>
-            <Plus size={20} />
-          </button>
-        )}
+        <button
+          className="grid h-10 w-10 place-items-center rounded-2xl bg-nada-accent/12 text-nada-accent"
+          onClick={(e) => { e.stopPropagation(); onPostStatus(); }}
+          type="button"
+        >
+          <Plus size={20} />
+        </button>
       </div>
 
       {Object.entries(grouped).length > 0 && (
@@ -6372,18 +6857,28 @@ function StatusCreateSheet({
 }
 
 function StatusViewerSheet({
+  contacts,
+  identity,
+  onComment,
   senderName,
   statuses,
   onClose
 }: {
+  contacts: ContactRecord[];
+  identity: IdentityRecord;
+  onComment: (status: MessageRecord, text: string) => void;
   senderName: string;
   statuses: MessageRecord[];
   onClose: () => void;
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [comments, setComments] = useState<MessageRecord[]>([]);
+  const [showComments, setShowComments] = useState(false);
   const currentStatus = statuses[currentIndex];
 
   useEffect(() => {
+    if (showComments || commentDraft.trim()) return;
     const timer = setTimeout(() => {
       if (currentIndex < statuses.length - 1) {
         setCurrentIndex(prev => prev + 1);
@@ -6392,7 +6887,24 @@ function StatusViewerSheet({
       }
     }, 5000);
     return () => clearTimeout(timer);
-  }, [currentIndex, statuses.length, onClose]);
+  }, [commentDraft, currentIndex, showComments, statuses.length, onClose]);
+
+  useEffect(() => {
+    if (!currentStatus) return;
+    let active = true;
+    const load = async () => {
+      const records = await loadStatusComments(currentStatus.id);
+      if (active) setComments(records.sort((a, b) => a.createdAt - b.createdAt));
+    };
+    void load();
+    const interval = window.setInterval(() => {
+      void load();
+    }, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [currentStatus]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -6447,6 +6959,96 @@ function StatusViewerSheet({
           {decodeMessagePayload(currentStatus.body)?.text ?? "..."}
         </p>
       </div>
+
+      <div className="z-10 border-t border-white/10 bg-black/80 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <button
+          className="mb-3 flex w-full items-center justify-between rounded-2xl bg-white/8 px-4 py-3 text-left text-sm font-semibold"
+          onClick={() => setShowComments((current) => !current)}
+          type="button"
+        >
+          <span className="flex items-center gap-2">
+            <MessageCircle size={16} />
+            Comments
+          </span>
+          <span className="text-white/55">{comments.length}</span>
+        </button>
+        {showComments ? (
+          <div className="mb-3 max-h-44 space-y-2 overflow-y-auto pr-1">
+            {comments.length === 0 ? (
+              <p className="py-4 text-center text-xs text-white/45">
+                No comments yet.
+              </p>
+            ) : (
+              comments.map((comment) => {
+                const payload = parseStatusCommentPayload(comment.body);
+                const name =
+                  comment.senderPubkeyHash === identity.pubkeyHash
+                    ? "You"
+                    : contacts.find((contact) => contact.pubkeyHash === comment.senderPubkeyHash)
+                        ?.localDisplayName ?? generateRandomUsername(comment.senderPubkeyHash);
+                return (
+                  <div key={comment.id} className="rounded-2xl bg-white/8 px-3 py-2 text-left">
+                    <div className="mb-0.5 flex items-center justify-between gap-3">
+                      <span className="text-xs font-bold">{name}</span>
+                      <span className="text-[10px] text-white/40">
+                        {formatRelativeTime(comment.createdAt)}
+                      </span>
+                    </div>
+                    <p className="text-sm leading-relaxed text-white/80">
+                      {payload?.text ?? comment.body}
+                    </p>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : null}
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const trimmed = commentDraft.trim();
+            if (!trimmed) return;
+            onComment(currentStatus, trimmed);
+            const timestamp = Date.now();
+            const localComment: MessageRecord = {
+              id: crypto.randomUUID(),
+              chatId: statusCommentChatId(currentStatus.id),
+              senderPubkeyHash: identity.pubkeyHash,
+              recipientPubkeyHash: currentStatus.senderPubkeyHash,
+              direction: "outbound",
+              kind: "system",
+              body: JSON.stringify({
+                kind: "status-comment",
+                statusId: currentStatus.id,
+                statusOwnerPubkeyHash: currentStatus.senderPubkeyHash,
+                text: trimmed,
+                version: 1
+              } satisfies StatusCommentPayload),
+              encryptedPayload: "local-preview",
+              status: "sent",
+              createdAt: timestamp
+            };
+            setComments((current) => [...current, localComment]);
+            setCommentDraft("");
+            setShowComments(true);
+          }}
+        >
+          <input
+            className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-nada-accent/50"
+            onChange={(event) => setCommentDraft(event.target.value)}
+            placeholder="Comment on this status..."
+            value={commentDraft}
+          />
+          <button
+            className="grid h-11 w-11 place-items-center rounded-2xl bg-nada-accent text-black disabled:opacity-40"
+            disabled={!commentDraft.trim()}
+            type="submit"
+          >
+            <Send size={16} />
+          </button>
+        </form>
+      </div>
     </motion.div>
   );
 }
@@ -6477,9 +7079,43 @@ async function persistIncomingMessages(
     } else {
       try {
         body = await mockDecryptMessage(envelope.ciphertext);
-      } catch {
+    } catch {
         body = envelope.ciphertext;
       }
+    }
+
+    const statusComment = parseStatusCommentPayload(body);
+    if (statusComment) {
+      await nadaDb.messages.put({
+        id: envelope.id,
+        chatId: statusCommentChatId(statusComment.statusId),
+        senderPubkeyHash: envelope.sender,
+        recipientPubkeyHash: identity.pubkeyHash,
+        direction: "inbound",
+        kind: "system",
+        body,
+        encryptedPayload: envelope.ciphertext,
+        status: "delivered",
+        createdAt: envelope.timestamp
+      });
+      continue;
+    }
+
+    const messageKind = envelope.messageKind ?? decodeMessagePayload(body)?.type ?? "text";
+    if (messageKind === "status") {
+      await nadaDb.messages.put({
+        id: envelope.id,
+        chatId: "status",
+        senderPubkeyHash: envelope.sender,
+        recipientPubkeyHash: identity.pubkeyHash,
+        direction: "inbound",
+        kind: "status",
+        body,
+        encryptedPayload: envelope.ciphertext,
+        status: "delivered",
+        createdAt: envelope.timestamp
+      });
+      continue;
     }
 
     await nadaDb.messages.put({
@@ -6488,7 +7124,7 @@ async function persistIncomingMessages(
       senderPubkeyHash: envelope.sender,
       recipientPubkeyHash: identity.pubkeyHash,
       direction: "inbound",
-      kind: envelope.messageKind ?? decodeMessagePayload(body)?.type ?? "text",
+      kind: messageKind,
       body,
       encryptedPayload: envelope.ciphertext,
       status: "delivered",
