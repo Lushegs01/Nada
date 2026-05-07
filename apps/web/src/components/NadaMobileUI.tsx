@@ -14,7 +14,8 @@ import {
   VolumeX,
   Pin,
   ChevronRight,
-  CircleDashed
+  CircleDashed,
+  Network
 } from "lucide-react";
 import { cn } from "@nada/ui";
 import { motion } from "framer-motion";
@@ -274,20 +275,21 @@ export const BottomNavigation = ({
   const tabs = [
     { id: "chats",       label: "Chats",    icon: MessageCircle, badge: unreadCount },
     { id: "status",      label: "Status",   icon: CircleDashed },
-    { id: "communities", label: "Groups",   icon: Users },
+    { id: "groups",      label: "Groups",   icon: Users },
+    { id: "communities", label: "Community", icon: Network },
     { id: "settings",    label: "Settings", icon: Settings }
   ];
 
   return (
-    <div
-      className="fixed bottom-0 left-0 right-0 z-header border-t border-nada-border/[0.05] pb-safe-area pl-safe-area pr-safe-area"
-      style={{
-        background: "linear-gradient(to top, rgba(8,10,22,0.98), rgba(8,10,22,0.78))",
-        backdropFilter: "blur(28px) saturate(150%)",
-        WebkitBackdropFilter: "blur(28px) saturate(150%)"
-      }}
-    >
-      <div className="flex h-[62px] items-center justify-around px-2">
+    <div className="absolute bottom-3 left-3 right-3 z-header pb-safe-area pl-safe-area pr-safe-area">
+      <div
+        className="flex h-[68px] items-center justify-around rounded-[24px] border border-nada-border/[0.08] px-1.5 shadow-2xl"
+        style={{
+          background: "rgba(13,18,36,0.86)",
+          backdropFilter: "blur(24px) saturate(150%)",
+          WebkitBackdropFilter: "blur(24px) saturate(150%)"
+        }}
+      >
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -295,9 +297,9 @@ export const BottomNavigation = ({
             <button
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
-              className="relative flex flex-1 flex-col items-center justify-center gap-0.5 h-full transition-all active:scale-90"
+              className="relative flex flex-1 flex-col items-center justify-center gap-1 h-full transition-all active:scale-90"
             >
-              <div className="relative flex h-9 w-16 items-center justify-center">
+              <div className="relative flex h-9 w-full max-w-[58px] items-center justify-center">
                 {isActive && (
                   <motion.div
                     layoutId="nav-active-pill"
@@ -312,7 +314,7 @@ export const BottomNavigation = ({
                 )}
                 <Icon
                   className={cn(
-                    "relative z-10 h-[22px] w-[22px] transition-all duration-200",
+                    "relative z-10 h-[21px] w-[21px] transition-all duration-200",
                     isActive ? "text-nada-accent" : "text-nada-secondary/40"
                   )}
                   strokeWidth={isActive ? 2.4 : 1.9}
@@ -333,7 +335,7 @@ export const BottomNavigation = ({
                 )}
               </div>
               <span className={cn(
-                "text-[10px] font-bold tracking-tight leading-none transition-all duration-200",
+                "text-[9.5px] font-bold leading-none transition-all duration-200",
                 isActive ? "text-nada-accent" : "text-nada-secondary/40"
               )}>
                 {tab.label}
@@ -366,7 +368,8 @@ const NadaLogoMark = ({ size = 32 }: { size?: number }) => (
 const TAB_TITLES: Record<string, string> = {
   chats: "Messages",
   status: "Status",
-  communities: "Groups",
+  groups: "Groups",
+  communities: "Communities",
   settings: "Settings"
 };
 
@@ -442,7 +445,7 @@ export const MobileChatsHome = ({
     onMoreClick: () => void;
   };
 }) => (
-  <div className="flex h-full flex-col overflow-hidden nada-chat-bg">
+  <div className="relative flex h-full flex-col overflow-hidden nada-chat-bg">
     <MobileHeader
       {...headerProps}
       activeTab={headerProps.activeTab ?? activeTab}
@@ -450,7 +453,7 @@ export const MobileChatsHome = ({
     />
     <SearchBar value={searchQuery} onChange={onSearchChange} />
 
-    <div className="flex-1 overflow-y-auto pb-[72px]">
+    <div className="flex-1 overflow-y-auto pb-[84px]">
       {children}
     </div>
 

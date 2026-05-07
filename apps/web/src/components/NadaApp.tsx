@@ -262,12 +262,12 @@ async function loadStatusComments(statusId: string): Promise<MessageRecord[]> {
 
 function generateRandomUsername(seed = crypto.randomUUID()): string {
   const adjectives = [
-    "Solar", "Velvet", "Neon", "Silent", "Lucky", "Nova", "Cosmic", "Bright",
-    "Midnight", "Echo", "Pixel", "Azure", "Golden", "Rapid", "Orbit", "Wild"
+    "Silent", "Hidden", "Velvet", "Obsidian", "Midnight", "Golden", "Cipher", "Ghost",
+    "Signal", "Nocturne", "Nova", "Private", "Quiet", "Vanta", "Echo", "Lunar"
   ];
   const nouns = [
-    "Comet", "Cipher", "Bloom", "Signal", "Quest", "Drift", "Pulse", "Harbor",
-    "Rune", "Muse", "Spark", "Atlas", "Vibe", "Flux", "Crest", "Wave"
+    "Key", "Signal", "Node", "Pulse", "Room", "Cipher", "Trace", "Vault",
+    "Relay", "Mask", "Drift", "Halo", "Rune", "Wave", "Lock", "Path"
   ];
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) {
@@ -275,8 +275,8 @@ function generateRandomUsername(seed = crypto.randomUUID()): string {
   }
   const adjective = adjectives[hash % adjectives.length]!;
   const noun = nouns[Math.floor(hash / adjectives.length) % nouns.length]!;
-  const suffix = String((hash % 900) + 100);
-  return `${adjective}${noun}${suffix}`;
+  const suffix = hash.toString(16).slice(0, 4).toUpperCase().padStart(4, "0");
+  return `${adjective} ${noun} ${suffix}`;
 }
 
 function isLegacyNadaName(name: string): boolean {
@@ -2632,16 +2632,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   }, [identity.pubkeyHash]);
 
   return (
-    <div className="flex h-dvh w-full items-center justify-center overflow-hidden bg-nada-bg pl-safe-area pr-safe-area">
+    <div className="nada-app-frame flex h-dvh w-full items-center justify-center overflow-hidden pl-safe-area pr-safe-area">
       <section
-        className="flex h-full w-full max-w-[1600px] bg-nada-surface md:h-[calc(100dvh-2rem)] md:overflow-hidden md:rounded-[28px]"
-        style={{
-          boxShadow: "0 28px 80px rgba(0,0,0,0.55), 0 8px 24px rgba(88,88,220,0.10)"
-        }}
+        className="nada-desktop-shell flex h-full w-full max-w-[1440px] bg-nada-surface md:h-[calc(100dvh-1.5rem)] md:overflow-hidden md:rounded-[28px]"
       >
         <aside
           className={cn(
-            "nada-sidebar relative flex w-full flex-col overflow-hidden md:w-[360px] lg:w-[400px] bg-nada-surface",
+            "nada-sidebar relative flex w-full flex-col overflow-hidden bg-nada-surface md:w-[360px] md:min-w-[340px] md:max-w-[390px] lg:w-[372px]",
             selectedContact || selectedGroup ? "hidden md:flex" : "flex"
           )}
         >
@@ -2672,19 +2669,33 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
               onPostStatus={() => setPanel("status_create" as Panel)}
               onViewStatus={(hash) => setSelectedStatusSenderHash(hash)}
             />
+          ) : activeTab === "groups" || activeTab === "communities" ? (
+            <GroupsHome
+              chats={chats}
+              contacts={contacts}
+              groupItems={sidebarChatItems.filter((item) => item.isGroup && !item.isArchived)}
+              onCreateGroup={() => setPanel("group")}
+              onSelectGroup={(groupId) => {
+                const chat = chats.find((group) => group.id === groupId);
+                setSelectedContactHash(null);
+                setSelectedGroupId(groupId);
+                setDisappearingTimer(chat?.disappearingTimer ?? 0);
+                setMessageSearchQuery("");
+              }}
+            />
           ) : activeTab === "settings" ? (
-            <div className="flex flex-col items-center justify-center py-24 text-center px-6 animate-fade-in">
-              <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-3xl border border-nada-border/[.08]" style={{ background: "rgb(var(--nada-surface-elevated))" }}>
-                <Settings className="h-9 w-9 text-nada-secondary/[.20]" />
-              </div>
-              <h3 className="mb-2 text-base font-bold text-nada-primary">Settings</h3>
-              <p className="mb-8 text-sm leading-relaxed text-nada-secondary/[.60]">
-                Configure your account, privacy, and appearance.
-              </p>
-              <button className="nada-btn-gold px-6 py-3 text-sm font-bold" onClick={() => setPanel("settings")}>
-                Open Settings
-              </button>
-            </div>
+            <SettingsDashboardPreview
+              displayName={displayName}
+              ghostMode={ghostMode}
+              identity={identity}
+              mood={mood}
+              onOpenBilling={() => setPanel("billing")}
+              onOpenGhostModal={() => setShowGhostModal(true)}
+              onOpenMigration={() => setPanel("migration")}
+              onOpenMoodModal={() => setShowMoodModal(true)}
+              onOpenSettings={() => setPanel("settings")}
+              onOpenShare={() => setPanel("share")}
+            />
           ) : (
           <div className="flex flex-col">
             <RelayStatus status={relayStatus} />
@@ -3328,19 +3339,35 @@ function RelayStatus({ status }: { status: string }): JSX.Element {
   const isConnected = status === "connected";
   const copy =
     status === "connected"
-      ? "Connected"
+      ? "Secure connection active"
       : status === "missing-url"
-        ? "Relay URL missing"
-        : "Connecting...";
-
-  if (isConnected) return <></>;
+        ? "Offline mode active"
+        : "Syncing securely...";
 
   return (
     <div
-      className="mx-4 mb-2 flex items-center gap-2 rounded-xl border border-nada-border/10 px-3 py-2 text-[11px] font-medium text-nada-secondary/70"
-      style={{ background: "rgb(var(--nada-surface-elevated) / 0.6)" }}
+      className={cn(
+        "mx-4 mb-3 mt-1 flex items-center gap-2 rounded-2xl border px-3 py-2 text-[11.5px] font-semibold",
+        isConnected
+          ? "border-nada-cyan/20 text-nada-cyan"
+          : status === "missing-url"
+            ? "border-nada-warning/20 text-nada-warning"
+            : "border-nada-accent/20 text-nada-accent"
+      )}
+      style={{
+        background: isConnected
+          ? "rgb(var(--nada-cyan) / 0.08)"
+          : "rgb(var(--nada-surface-elevated) / 0.62)"
+      }}
     >
-      <div className="h-1.5 w-1.5 rounded-full bg-nada-danger animate-pulse" />
+      <div
+        className={cn(
+          "h-1.5 w-1.5 rounded-full",
+          isConnected
+            ? "bg-nada-cyan shadow-[0_0_12px_rgb(var(--nada-cyan)/0.7)]"
+            : "bg-nada-accent animate-pulse"
+        )}
+      />
       {copy}
     </div>
   );
@@ -3615,8 +3642,8 @@ function ChatPanel({
   ): void => {
     if (message.deletedAt) return;
 
-    const menuWidth = 252;
-    const menuHeight = message.direction === "outbound" ? 338 : 292;
+    const menuWidth = 232;
+    const menuHeight = message.direction === "outbound" ? 320 : 276;
     const padding = 12;
     const x = Math.min(
       Math.max(point.x, padding),
@@ -3911,7 +3938,7 @@ function ChatPanel({
 
   if (!contact && !isGroup) {
     return (
-      <section className="relative hidden flex-1 flex-col items-center justify-center overflow-hidden md:flex nada-chat-bg">
+      <section className="nada-empty-state relative hidden flex-1 flex-col items-center justify-center overflow-hidden md:flex nada-chat-bg">
         {/* Aurora ambient glow */}
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-30 blur-[120px] animate-aurora"
@@ -3928,21 +3955,20 @@ function ChatPanel({
             </div>
           </div>
 
-          <p className="text-[10px] font-bold uppercase tracking-[0.32em] text-nada-secondary/60">
-            End-to-end encrypted
+          <p className="text-[10px] font-bold uppercase text-nada-gold/85">
+            Say less. Reveal nothing.
           </p>
-          <h2 className="mt-3 text-[26px] font-bold tracking-tight text-nada-primary">
-            Welcome to <span className="nada-accent-text">NADA</span>
+          <h2 className="mt-3 text-[28px] font-bold text-nada-primary">
+            Nothing to reveal.
           </h2>
           <p className="mt-3 text-[14.5px] leading-relaxed text-nada-secondary/75">
-            Pick a conversation from the sidebar, or start a new one to send your first
-            anonymous, encrypted message.
+            Start a private conversation without a name, phone number, or trace.
           </p>
 
           {/* Decorative chips */}
           <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
-            {["No phone", "No email", "Local keys"].map((label) => (
-              <span key={label} className="nada-mood-pill">{label}</span>
+            {["No phone", "No email", "Local keys", "Encrypted", "Anonymous by default"].map((label) => (
+              <span key={label} className="nada-privacy-chip">{label}</span>
             ))}
           </div>
         </div>
@@ -3969,26 +3995,26 @@ function ChatPanel({
       {wallpaperUrl && <div className="absolute inset-0 bg-black/45 z-0 pointer-events-none" />}
       
       {/* Chat Header */}
-      <header
-        className="z-header relative flex h-[64px] shrink-0 items-center gap-2.5 border-b border-nada-border/[0.06] px-3 pl-safe-area pr-safe-area"
-        style={{
-          background: "rgba(8,10,22,0.88)",
-          backdropFilter: "blur(28px) saturate(150%)",
-          WebkitBackdropFilter: "blur(28px) saturate(150%)"
-        }}
-      >
+      <header className="nada-chat-header z-header relative flex shrink-0 items-center gap-3 px-3 pl-safe-area pr-safe-area md:px-5">
         <IconButton className="md:hidden" label="Back" onClick={onBack}>
           <ArrowLeft size={18} />
         </IconButton>
         {/* Avatar */}
         <div className="relative shrink-0">
-          <div className="flex h-[44px] w-[44px] items-center justify-center overflow-hidden rounded-[15px] text-[15px] font-bold text-white nada-logo-aura">
+          <div className="flex h-[48px] w-[48px] items-center justify-center overflow-hidden rounded-[17px] text-[15px] font-bold text-white nada-logo-aura">
             {title.charAt(0).toUpperCase()}
           </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[15.5px] font-bold tracking-tight text-nada-primary">{title}</h2>
-          <p className="truncate text-[11.5px] font-medium text-nada-secondary/65">{subtitle || "tap for info"}</p>
+        <div className="min-w-0 flex-1 py-2">
+          <h2 className="truncate text-[16px] font-bold text-nada-primary">{title}</h2>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="nada-security-pill py-1 text-[10.5px]">
+              {isGroup ? "Invite-only encrypted room" : "End-to-end encrypted"}
+            </span>
+            <span className="truncate text-[11.5px] font-medium text-nada-text-muted">
+              {subtitle || "Unverified key"}
+            </span>
+          </div>
         </div>
         {isGroup ? (
           <>
@@ -4052,7 +4078,7 @@ function ChatPanel({
                     }}
                   >
                     <button
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:hover:bg-nada-surface-elevated/40 transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
                       onClick={() => {
                         setShowOptions(false);
                         setShowProfilePanel(true);
@@ -4063,7 +4089,7 @@ function ChatPanel({
                       View profile
                     </button>
                     <button
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:hover:bg-nada-surface-elevated/40 transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
                       onClick={() => {
                         setShowOptions(false);
                         setChatSearchActive(true);
@@ -4073,7 +4099,7 @@ function ChatPanel({
                       Search in chat
                     </button>
                     <button
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:hover:bg-nada-surface-elevated/40 transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
                       onClick={() => {
                         setShowOptions(false);
                         if (chatIsMuted) {
@@ -4088,7 +4114,7 @@ function ChatPanel({
                       {chatIsMuted ? "Unmute notifications" : "Mute notifications"}
                     </button>
                     <button
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:hover:bg-nada-surface-elevated/40 transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
                       onClick={() => {
                         setShowOptions(false);
                         setShowWallpaperPrompt(true);
@@ -4099,7 +4125,7 @@ function ChatPanel({
                     </button>
                     <div className="my-1 border-t border-nada-border/[.08]" />
                     <button
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:hover:bg-nada-surface-elevated/40 transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
                       onClick={() => {
                         setShowOptions(false);
                         onToggleBlurShield();
@@ -4112,7 +4138,17 @@ function ChatPanel({
                       {blurShieldActive ? "Disable privacy shield" : "Enable privacy shield"}
                     </button>
                     <button
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-danger hover:hover:bg-nada-surface-elevated/40 transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
+                      onClick={() => {
+                        setShowOptions(false);
+                        showToast("Key verification UI is coming soon.");
+                      }}
+                    >
+                      <ShieldAlert size={14} className="text-nada-gold/80" />
+                      Verify key
+                    </button>
+                    <button
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-danger hover:bg-nada-surface-elevated/40 transition-colors"
                       onClick={() => {
                         setShowOptions(false);
                         setShowClearModal(true);
@@ -4122,7 +4158,7 @@ function ChatPanel({
                       Clear chat
                     </button>
                     <button
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-danger hover:hover:bg-nada-surface-elevated/40 transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-danger hover:bg-nada-surface-elevated/40 transition-colors"
                       onClick={() => {
                         setShowOptions(false);
                         if (peerIsBlocked) {
@@ -4786,7 +4822,7 @@ function ChatPanel({
             <div
               key={message.id}
               ref={(el) => setMessageRef(message.id, el)}
-              className={cn("px-3", isFirstInCluster ? "mt-3" : "mt-0.5")}
+              className={cn("px-1 md:px-2", isFirstInCluster ? "mt-3" : "mt-1")}
             >
               {/* Date separator */}
               {showDateSep && (
@@ -4859,7 +4895,7 @@ function ChatPanel({
                 </div>
                 <div
                   className={cn(
-                    "relative max-w-[85%] px-4 py-2.5",
+                    "relative max-w-[min(82%,520px)] px-3.5 py-2.5 text-[14.5px] md:px-4",
                     message.direction === "outbound"
                       ? cn("nada-bubble-sent", isLastInCluster && "has-tail")
                       : cn("nada-bubble-received", isLastInCluster && "has-tail"),
@@ -4869,7 +4905,7 @@ function ChatPanel({
                 >
                   {message.replyToId ? (
                     <div
-                      className="mb-1.5 rounded-lg bg-black/10 px-2.5 py-1.5 text-xs opacity-80 cursor-pointer hover:opacity-100 transition-opacity"
+                      className="mb-2 rounded-xl border border-nada-border/10 bg-black/10 px-3 py-2 text-xs opacity-90 cursor-pointer hover:opacity-100 transition-opacity"
                       onClick={() => {
                         if (message.replyToId) scrollToMessage(message.replyToId);
                       }}
@@ -4887,7 +4923,7 @@ function ChatPanel({
                           : snapshot?.textPreview ?? snapshot?.fileName ?? "Message unavailable.";
                         
                         return (
-                          <div className="flex flex-col border-l-2 border-nada-accent pl-2">
+                          <div className="flex flex-col border-l-2 border-nada-gold pl-2">
                             <span className="font-semibold text-[10px] text-nada-accent">{senderName}</span>
                             <span className="truncate opacity-80">
                               {previewText.length > 48 ? `${previewText.slice(0, 48)}...` : previewText}
@@ -4976,7 +5012,7 @@ function ChatPanel({
               type="button"
             />
             <motion.div
-              className="nada-message-context-menu fixed z-[70] w-[252px] overflow-hidden rounded-2xl p-1.5"
+              className="nada-message-context-menu fixed z-[70] w-[232px] overflow-hidden rounded-2xl p-1.5"
               style={{ left: messageMenu.x, top: messageMenu.y }}
               initial={{ opacity: 0, scale: 0.94, y: -4 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -4985,12 +5021,12 @@ function ChatPanel({
               onClick={(event) => event.stopPropagation()}
               onContextMenu={(event) => event.preventDefault()}
             >
-              <div className="grid grid-cols-8 gap-1 px-1 pb-1 pt-1">
+              <div className="mb-1 flex items-center justify-between rounded-full border border-nada-border/10 bg-white/[0.04] px-1.5 py-1">
                 {REACTION_EMOJIS.map((emoji) => (
                   <button
                     key={emoji}
                     aria-label={`React with ${emoji}`}
-                    className="grid h-8 w-7 place-items-center rounded-xl text-[15px] transition hover:bg-white/10 hover:scale-110"
+                    className="grid h-7 w-7 place-items-center rounded-full text-[14px] transition hover:bg-white/10 hover:scale-110"
                     onClick={() => {
                       onReact(contextMenuMessage, emoji);
                       closeMessageContextMenu();
@@ -5001,7 +5037,7 @@ function ChatPanel({
                   </button>
                 ))}
               </div>
-              <div className="my-1 h-px bg-white/10" />
+              <div className="my-1 h-px bg-white/8" />
               <MessageContextAction
                 icon={<Reply size={15} />}
                 label="Reply"
@@ -5062,7 +5098,7 @@ function ChatPanel({
 
       <form
         className={cn(
-          "nada-input-bar relative sticky bottom-0 z-header px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]",
+          "nada-input-bar relative sticky bottom-0 z-header px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-6",
           peerIsBlocked && "pointer-events-none opacity-40"
         )}
         onSubmit={(event) => {
@@ -5113,7 +5149,7 @@ function ChatPanel({
             }}
           />
         ) : null}
-        <div className="flex items-center gap-2">
+        <div className="nada-message-lane flex items-center gap-2">
           {!isRecording ? (
             <>
               <input
@@ -5132,7 +5168,7 @@ function ChatPanel({
               />
               <button
                 aria-label="Attach file"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-nada-border/12 text-nada-secondary/65 transition-all duration-150 hover:border-nada-accent/35 hover:text-nada-accent hover:scale-105 active:scale-90"
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-nada-border/10 text-nada-secondary/70 transition-all duration-150 hover:border-nada-accent/35 hover:text-nada-accent hover:scale-105 active:scale-90"
                 style={{
                   background: "rgb(var(--nada-surface-elevated) / 0.7)",
                   backdropFilter: "blur(12px)"
@@ -5163,11 +5199,7 @@ function ChatPanel({
                 />
               ) : null}
               <input
-                className="h-11 min-w-0 flex-1 rounded-2xl border border-nada-border/12 px-4 text-[14.5px] text-nada-primary outline-none transition-all duration-200 placeholder:text-nada-secondary/45 focus:border-nada-accent/35 focus:ring-4 focus:ring-nada-accent/10 disabled:opacity-40"
-                style={{
-                  background: "rgb(var(--nada-input-bg) / 0.78)",
-                  backdropFilter: "blur(12px) saturate(140%)"
-                }}
+                className="nada-composer-input h-12 min-w-0 flex-1 px-4 text-[14.5px] text-nada-primary outline-none transition-all duration-200 placeholder:text-nada-secondary/45 disabled:opacity-40"
                 disabled={peerIsBlocked}
                 onChange={(event) => {
                   const val = event.target.value;
@@ -5205,7 +5237,7 @@ function ChatPanel({
               />
               {messageText.trim() ? (
                 <button
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white transition-all duration-200 hover:scale-105 active:scale-90 nada-logo-aura"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white transition-all duration-200 hover:scale-105 active:scale-90 nada-logo-aura"
                   type="submit"
                   aria-label="Send message"
                 >
@@ -5214,7 +5246,7 @@ function ChatPanel({
               ) : (
                 <button
                   aria-label="Voice note"
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white transition-all duration-200 hover:scale-105 active:scale-90 nada-logo-aura"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white transition-all duration-200 hover:scale-105 active:scale-90 nada-logo-aura"
                   onPointerDown={startRecording}
                   type="button"
                 >
@@ -5307,7 +5339,7 @@ function MessageContextAction({
   return (
     <button
       className={cn(
-        "flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-[13px] font-semibold transition",
+        "flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[13px] font-semibold transition",
         danger
           ? "text-nada-danger hover:bg-red-500/10"
           : active
@@ -5668,35 +5700,50 @@ function AttachmentMenu({
   onPickVideo: () => void;
   onPickPoll?: () => void;
 }): JSX.Element {
-  const options = [
+  const options: Array<{
+    action?: () => void;
+    comingSoon?: boolean;
+    icon: typeof Image;
+    label: string;
+  }> = [
     { label: "Photo", icon: Image, action: onPickImage },
     { label: "Camera", icon: Camera, action: onPickCamera },
     { label: "Document", icon: FileText, action: onPickDocument },
     { label: "Video", icon: Video, action: onPickVideo },
     { label: "Audio", icon: Music, action: onPickAudio },
+    { label: "Burn-after-view photo", icon: Flame, comingSoon: true },
     ...(onPickPoll ? [{ label: "Poll", icon: FileText, action: onPickPoll }] : [])
   ];
 
   return (
     <div
-      className="absolute bottom-16 left-3 z-40 grid w-56 gap-0.5 rounded-2xl border border-nada-border/24 p-2 animate-scale-in"
-      style={{
-        background: "linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.95), rgb(var(--nada-surface) / 0.95))",
-        backdropFilter: "blur(28px) saturate(150%)",
-        boxShadow: "0 20px 56px rgba(0,0,0,0.55), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgb(var(--nada-border) / 0.10)"
-      }}
+      className="nada-floating-menu absolute bottom-16 left-3 z-40 grid w-[260px] gap-1 rounded-[22px] p-2 animate-scale-in"
     >
       {options.map((option) => (
         <button
-          className="flex items-center gap-3 rounded-xl px-2.5 py-2 text-left text-[13.5px] font-medium text-nada-primary transition-colors hover:bg-nada-accent/12"
+          className={cn(
+            "flex items-center gap-3 rounded-2xl px-2.5 py-2 text-left text-[13.5px] font-semibold text-nada-primary transition-colors hover:bg-nada-accent/12",
+            option.comingSoon && "cursor-not-allowed opacity-55 hover:bg-transparent"
+          )}
+          disabled={option.comingSoon}
           key={option.label}
           onClick={option.action}
           type="button"
         >
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-nada-accent/14 text-nada-accent ring-1 ring-nada-accent/10">
+          <span className={cn(
+            "grid h-9 w-9 place-items-center rounded-xl ring-1",
+            option.comingSoon
+              ? "bg-nada-danger/10 text-nada-danger ring-nada-danger/10"
+              : "bg-nada-accent/14 text-nada-accent ring-nada-accent/10"
+          )}>
             <option.icon size={17} strokeWidth={2} />
           </span>
-          {option.label}
+          <span className="min-w-0 flex-1">{option.label}</span>
+          {option.comingSoon ? (
+            <span className="rounded-full bg-nada-surface/70 px-2 py-0.5 text-[10px] text-nada-text-muted">
+              Soon
+            </span>
+          ) : null}
         </button>
       ))}
     </div>
@@ -6459,7 +6506,7 @@ function SettingsSheet({
         <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/[.40]">Privacy</p>
         <div className="rounded-2xl border border-nada-border/[.08] overflow-hidden" style={{ background: "rgb(var(--nada-surface))" }}>
           <button
-            className="flex w-full items-center justify-between border-b border-nada-border/[.08] px-4 py-3.5 text-left hover:hover:bg-nada-surface-elevated/40 transition-colors"
+            className="flex w-full items-center justify-between border-b border-nada-border/[.08] px-4 py-3.5 text-left hover:bg-nada-surface-elevated/40 transition-colors"
             onClick={onOpenGhostModal}
           >
             <div className="flex items-center gap-3">
@@ -6477,7 +6524,7 @@ function SettingsSheet({
             </span>
           </button>
           <button
-            className="flex w-full items-center justify-between px-4 py-3.5 text-left hover:hover:bg-nada-surface-elevated/40 transition-colors"
+            className="flex w-full items-center justify-between px-4 py-3.5 text-left hover:bg-nada-surface-elevated/40 transition-colors"
             onClick={onOpenMoodModal}
           >
             <div className="flex items-center gap-3">
@@ -6494,12 +6541,41 @@ function SettingsSheet({
         </div>
       </div>
 
+      <SettingsSheetSection
+        items={[
+          { icon: <Image size={15} />, label: "Theme", value: "Obsidian Gold", description: "Premium dark glass mode" },
+          { icon: <Image size={15} />, label: "Chat wallpaper", value: "Per-chat", description: "Set from the chat menu" },
+          { icon: <MessageCircle size={15} />, label: "Bubble style", value: "Soft glass", description: "Readable, compact, private" },
+          { icon: <Flame size={15} />, label: "Accent color", value: "Purple + gold", description: "Primary actions and identity glow" }
+        ]}
+        title="Appearance"
+      />
+
+      <SettingsSheetSection
+        items={[
+          { icon: <Download size={15} />, label: "Media auto-download", value: "Manual", description: "Avoids unwanted traces" },
+          { icon: <Trash2 size={15} />, label: "Clear cache", value: "Coming soon", description: "Remove local media previews" },
+          { icon: <ShieldAlert size={15} />, label: "Encrypted local storage", value: "Active", description: "Messages stay on this device" }
+        ]}
+        title="Storage"
+      />
+
+      <SettingsSheetSection
+        items={[
+          { icon: <ShieldAlert size={15} />, label: "Verify contact key", value: "Manual", description: "Compare fingerprints with a contact" },
+          { icon: <Upload size={15} />, label: "Export encrypted backup", value: "Coming soon", description: "Backup without plaintext export" },
+          { icon: <QrCode size={15} />, label: "Recovery phrase", value: identity.seedBackupStatus, description: "Protect access to local identity" },
+          { icon: <WifiOff size={15} />, label: "Active sessions", value: "This device", description: "No cloud account sessions" }
+        ]}
+        title="Security"
+      />
+
       {/* Actions */}
       <div className="mt-5 space-y-1">
         <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/[.40]">More</p>
         <div className="rounded-2xl border border-nada-border/[.08] overflow-hidden" style={{ background: "rgb(var(--nada-surface))" }}>
           <button
-            className="flex w-full items-center gap-3 border-b border-nada-border/[.08] px-4 py-3.5 text-sm text-nada-primary hover:hover:bg-nada-surface-elevated/40 transition-colors"
+            className="flex w-full items-center gap-3 border-b border-nada-border/[.08] px-4 py-3.5 text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
             onClick={onOpenBilling}
           >
             <CreditCard size={15} className="text-nada-accent/70" />
@@ -6507,7 +6583,7 @@ function SettingsSheet({
             <ChevronDown size={14} className="ml-auto rotate-[-90deg] text-nada-secondary/[.30]" />
           </button>
           <button
-            className="flex w-full items-center gap-3 border-b border-nada-border/[.08] px-4 py-3.5 text-sm text-nada-primary hover:hover:bg-nada-surface-elevated/40 transition-colors"
+            className="flex w-full items-center gap-3 border-b border-nada-border/[.08] px-4 py-3.5 text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
             onClick={onOpenShare}
           >
             <Share2 size={15} className="text-nada-accent/70" />
@@ -6515,7 +6591,7 @@ function SettingsSheet({
             <ChevronDown size={14} className="ml-auto rotate-[-90deg] text-nada-secondary/[.30]" />
           </button>
           <button
-            className="flex w-full items-center gap-3 px-4 py-3.5 text-sm text-nada-primary hover:hover:bg-nada-surface-elevated/40 transition-colors"
+            className="flex w-full items-center gap-3 px-4 py-3.5 text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
             onClick={onOpenMigration}
           >
             <Download size={15} className="text-nada-accent/70" />
@@ -6533,7 +6609,57 @@ function SettingsSheet({
         A browser PWA cannot control network routing. Use Tor Browser, Orbot,
         VPN, or a future mixnet relay for IP-level anonymity.
       </div>
+
+      <SettingsSheetSection
+        items={[
+          { icon: <Settings size={15} />, label: "App version", value: "Launch build", description: "NADA privacy-first messenger" },
+          { icon: <ShieldAlert size={15} />, label: "Privacy principles", value: "Local-first", description: "No phone, no email, no identity graph" },
+          { icon: <FileText size={15} />, label: "Terms/security notes", value: "Review", description: "Security docs and limitations" }
+        ]}
+        title="About NADA"
+      />
     </Sheet>
+  );
+}
+
+function SettingsSheetSection({
+  items,
+  title
+}: {
+  items: Array<{
+    description: string;
+    icon: ReactNode;
+    label: string;
+    value: string;
+  }>;
+  title: string;
+}): JSX.Element {
+  return (
+    <div className="mt-5">
+      <p className="mb-2 px-1 text-[11px] font-semibold uppercase text-nada-text-muted">{title}</p>
+      <div className="overflow-hidden rounded-2xl border border-nada-border/[.08] bg-nada-surface/80">
+        {items.map((item, index) => (
+          <div
+            className={cn(
+              "flex items-center gap-3 px-4 py-3.5",
+              index < items.length - 1 && "border-b border-nada-border/[.07]"
+            )}
+            key={`${title}-${item.label}`}
+          >
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-nada-accent/12 text-nada-accent">
+              {item.icon}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-nada-primary">{item.label}</span>
+              <span className="block truncate text-[11.5px] text-nada-text-muted">{item.description}</span>
+            </span>
+            <span className="shrink-0 rounded-full bg-nada-surface-elevated px-2.5 py-0.5 text-[10px] font-bold text-nada-secondary/[.65]">
+              {item.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -6660,6 +6786,277 @@ function ConfirmChatActionDialog({
   );
 }
 
+function SettingsDashboardPreview({
+  displayName,
+  ghostMode,
+  identity,
+  mood,
+  onOpenBilling,
+  onOpenGhostModal,
+  onOpenMigration,
+  onOpenMoodModal,
+  onOpenSettings,
+  onOpenShare
+}: {
+  displayName: string;
+  ghostMode: boolean;
+  identity: IdentityRecord;
+  mood: string;
+  onOpenBilling: () => void;
+  onOpenGhostModal: () => void;
+  onOpenMigration: () => void;
+  onOpenMoodModal: () => void;
+  onOpenSettings: () => void;
+  onOpenShare: () => void;
+}): JSX.Element {
+  return (
+    <div className="nada-settings-dashboard animate-fade-in">
+      <div className="nada-premium-card overflow-hidden p-4">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="relative grid h-12 w-12 place-items-center overflow-hidden rounded-2xl nada-logo-aura">
+            <img src="/logo.png" alt="NADA" className="h-full w-full object-cover" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-bold text-nada-primary">{displayName}</p>
+            <p className="truncate font-mono text-[11px] text-nada-text-muted">
+              {identity.pubkeyHash.slice(0, 18)}...
+            </p>
+          </div>
+          <button
+            className="grid h-10 w-10 place-items-center rounded-2xl border border-nada-border/10 bg-nada-surface-elevated/60 text-nada-accent transition hover:border-nada-accent/35"
+            onClick={onOpenSettings}
+            type="button"
+          >
+            <Edit3 size={16} />
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {["No name", "No number", "Local keys", "Encrypted"].map((label) => (
+            <span className="nada-privacy-chip" key={label}>{label}</span>
+          ))}
+        </div>
+      </div>
+
+      <SettingsPreviewSection title="Privacy">
+        <SettingsPreviewButton
+          icon={<Ghost size={17} />}
+          label="Ghost Mode"
+          value={ghostMode ? "On" : "Off"}
+          description="Hide typing and online traces."
+          onClick={onOpenGhostModal}
+        />
+        <SettingsPreviewButton
+          icon={<ShieldAlert size={17} />}
+          label="Privacy Shield"
+          value="Ready"
+          description="Blur sensitive chat content on demand."
+          onClick={onOpenSettings}
+        />
+        <SettingsPreviewButton
+          icon={<Flame size={17} />}
+          label="Mood Status"
+          value={mood}
+          description="Visible only inside your anonymous profile."
+          onClick={onOpenMoodModal}
+        />
+      </SettingsPreviewSection>
+
+      <SettingsPreviewSection title="Identity">
+        <SettingsPreviewButton
+          icon={<QrCode size={17} />}
+          label="Share invite card"
+          value="Private"
+          description="Send an invite without exposing contacts."
+          onClick={onOpenShare}
+        />
+        <SettingsPreviewButton
+          icon={<Download size={17} />}
+          label="Group migration"
+          value="Local"
+          description="Export invite-only rooms safely."
+          onClick={onOpenMigration}
+        />
+      </SettingsPreviewSection>
+
+      <SettingsPreviewSection title="Product">
+        <SettingsPreviewButton
+          icon={<CreditCard size={17} />}
+          label="Plans & Billing"
+          value="Free"
+          description="Paid plans never touch message content."
+          onClick={onOpenBilling}
+        />
+        <SettingsPreviewButton
+          icon={<Settings size={17} />}
+          label="Full settings"
+          value="Open"
+          description="Security, appearance, storage, and about."
+          onClick={onOpenSettings}
+        />
+      </SettingsPreviewSection>
+
+      <div className="rounded-2xl border border-nada-gold/15 bg-nada-gold/[0.08] p-4 text-[12.5px] leading-relaxed text-nada-secondary/78">
+        <div className="mb-1 flex items-center gap-2 font-bold text-nada-gold">
+          <ShieldAlert size={15} />
+          IP anonymity notice
+        </div>
+        A browser PWA cannot control network routing. Use Tor Browser, Orbot, VPN, or a future mixnet relay for IP-level anonymity.
+      </div>
+    </div>
+  );
+}
+
+function SettingsPreviewSection({
+  children,
+  title
+}: {
+  children: ReactNode;
+  title: string;
+}): JSX.Element {
+  return (
+    <section>
+      <p className="mb-2 px-1 text-[11px] font-bold uppercase text-nada-text-muted">{title}</p>
+      <div className="grid gap-2">{children}</div>
+    </section>
+  );
+}
+
+function SettingsPreviewButton({
+  description,
+  icon,
+  label,
+  onClick,
+  value
+}: {
+  description: string;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  value: string;
+}): JSX.Element {
+  return (
+    <button
+      className="nada-settings-card flex w-full items-center gap-3 text-left"
+      onClick={onClick}
+      type="button"
+    >
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-nada-accent/12 text-nada-accent">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[14px] font-bold text-nada-primary">{label}</span>
+        <span className="block truncate text-[12px] text-nada-text-muted">{description}</span>
+      </span>
+      <span className="shrink-0 rounded-full bg-nada-surface/70 px-2.5 py-1 text-[10.5px] font-bold text-nada-secondary/70">
+        {value}
+      </span>
+    </button>
+  );
+}
+
+function GroupsHome({
+  chats,
+  contacts,
+  groupItems,
+  onCreateGroup,
+  onSelectGroup
+}: {
+  chats: ChatRecord[];
+  contacts: ContactRecord[];
+  groupItems: ChatListModel[];
+  onCreateGroup: () => void;
+  onSelectGroup: (groupId: string) => void;
+}): JSX.Element {
+  const inviteOnlyCount = chats.filter((chat) => chat.type === "group").length;
+
+  return (
+    <div className="flex h-full flex-col overflow-y-auto px-5 pb-24 pt-3 animate-fade-in">
+      <div className="nada-premium-card mb-5 p-5">
+        <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-nada-accent/14 text-nada-accent">
+          <Users size={24} />
+        </div>
+        <h2 className="text-[20px] font-bold text-nada-primary">Silent rooms</h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-nada-text-muted">
+          Create a room where nobody needs a real name, phone number, or visible identity.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className="nada-privacy-chip">Invite-only</span>
+          <span className="nada-privacy-chip">Local keys</span>
+          <span className="nada-privacy-chip">No contacts upload</span>
+        </div>
+        <button
+          className="nada-btn-gold mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-[13px] font-bold"
+          onClick={onCreateGroup}
+          type="button"
+        >
+          <Plus size={16} />
+          Create anonymous group
+        </button>
+      </div>
+
+      <section className="mb-5">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-[11px] font-bold uppercase text-nada-text-muted">My Groups</p>
+          <span className="rounded-full bg-nada-surface-elevated/70 px-2 py-1 text-[10px] font-bold text-nada-secondary/60">
+            {inviteOnlyCount}
+          </span>
+        </div>
+        {groupItems.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-nada-border/10 bg-nada-surface-elevated/35 px-4 py-8 text-center">
+            <Users className="mx-auto mb-3 h-7 w-7 text-nada-secondary/35" />
+            <p className="text-[14px] font-bold text-nada-primary">No private rooms yet</p>
+            <p className="mt-1 text-[12.5px] text-nada-text-muted">
+              Start a hidden circle with trusted anonymous contacts.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            {groupItems.map((item) => (
+              <button
+                className="nada-settings-card flex items-center gap-3"
+                key={item.chatId}
+                onClick={() => item.groupId && onSelectGroup(item.groupId)}
+                type="button"
+              >
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-nada-accent/14 text-nada-accent">
+                  <Users size={19} />
+                </span>
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block truncate text-[14px] font-bold text-nada-primary">{item.title}</span>
+                  <span className="block truncate text-[12px] text-nada-text-muted">{item.preview}</span>
+                </span>
+                <span className="text-[11px] font-semibold text-nada-secondary/55">{item.timestamp}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="grid gap-2">
+        <p className="px-1 text-[11px] font-bold uppercase text-nada-text-muted">Invite-only Groups</p>
+        {[
+          ["Silent Room", `${contacts.length} possible members`, "Private Node"],
+          ["Hidden Circle", "Invite link required", "Locked"],
+          ["Ghost Group", "Burn-after-read ready", "Coming soon"]
+        ].map(([name, meta, badge]) => (
+          <div className="nada-settings-card flex items-center gap-3" key={name}>
+            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-nada-gold/12 text-nada-gold">
+              <ShieldAlert size={16} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13.5px] font-bold text-nada-primary">{name}</span>
+              <span className="block text-[12px] text-nada-text-muted">{meta}</span>
+            </span>
+            <span className="rounded-full bg-nada-surface/70 px-2 py-1 text-[10px] font-bold text-nada-secondary/60">
+              {badge}
+            </span>
+          </div>
+        ))}
+      </section>
+    </div>
+  );
+}
+
 async function upsertContact(payload: InvitePayload): Promise<ContactRecord> {
   const existing = await nadaDb.contacts.get(payload.pubkeyHash);
   const contact: ContactRecord = {
@@ -6740,62 +7137,105 @@ function StatusView({
   }, {} as Record<string, MessageRecord[]>);
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto pb-20">
-      <div className="px-5 py-4 border-b border-nada-border/[.05]">
-        <h2 className="text-xl font-bold text-nada-primary">Status</h2>
+    <div className="flex h-full flex-col overflow-y-auto px-5 pb-24 pt-3 animate-fade-in">
+      <div className="nada-premium-card mb-5 p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-bold uppercase text-nada-gold">Anonymous stories</p>
+            <h2 className="mt-1 text-[21px] font-bold text-nada-primary">Nothing shared forever.</h2>
+          </div>
+          <button
+            className="grid h-11 w-11 place-items-center rounded-2xl bg-nada-accent text-white shadow-accent-glow transition hover:scale-105 active:scale-95"
+            onClick={onPostStatus}
+            type="button"
+          >
+            <Plus size={20} />
+          </button>
+        </div>
+        <p className="text-[13px] leading-relaxed text-nada-text-muted">
+          Post a vanishing thought without revealing who you are.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {["Vanishes in 24h", "Anonymous viewers", "Comments stay here"].map((label) => (
+            <span key={label} className="nada-privacy-chip">{label}</span>
+          ))}
+        </div>
       </div>
 
-      <div className="px-5 py-4 flex items-center gap-4 hover:bg-nada-surface-elevated/30 cursor-pointer" 
-           onClick={() => myStatuses.length > 0 ? onViewStatus(identity.pubkeyHash) : onPostStatus()}>
-        <div className="relative">
-          <div className="h-14 w-14 rounded-2xl border-2 border-nada-accent/40 p-0.5">
-            <div className="h-full w-full rounded-xl bg-nada-muted flex items-center justify-center overflow-hidden">
-               {myStatuses.length > 0 ? <CircleDashed className="text-nada-accent animate-spin-slow" size={24} /> : <Plus className="text-nada-accent" size={24} />}
-            </div>
+      <button
+        className="nada-settings-card mb-5 flex items-center gap-4 text-left"
+        onClick={() => myStatuses.length > 0 ? onViewStatus(identity.pubkeyHash) : onPostStatus()}
+        type="button"
+      >
+        <div className="relative h-14 w-14 shrink-0 rounded-2xl border border-nada-accent/35 p-0.5">
+          <div className="grid h-full w-full place-items-center overflow-hidden rounded-[14px] bg-nada-accent/12">
+            {myStatuses.length > 0 ? (
+              <CircleDashed className="text-nada-accent" size={24} />
+            ) : (
+              <Plus className="text-nada-accent" size={24} />
+            )}
           </div>
         </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-nada-primary">My Status</h3>
-          <p className="text-sm text-nada-secondary/[.60] truncate">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-bold text-nada-primary">My Status</h3>
+          <p className="truncate text-[13px] text-nada-text-muted">
             {myStatuses.length > 0
-              ? `${myStatuses.length} update${myStatuses.length === 1 ? "" : "s"} - tap to view`
-              : "Tap to add status update"}
+              ? `${myStatuses.length} update${myStatuses.length === 1 ? "" : "s"} - tap to view or add more`
+              : "Add your first vanishing thought"}
           </p>
         </div>
-        <button
-          className="grid h-10 w-10 place-items-center rounded-2xl bg-nada-accent/12 text-nada-accent"
-          onClick={(e) => { e.stopPropagation(); onPostStatus(); }}
-          type="button"
-        >
-          <Plus size={20} />
-        </button>
-      </div>
+        <span className="rounded-full bg-nada-surface/70 px-2.5 py-1 text-[10px] font-bold text-nada-secondary/60">
+          {myStatuses.length}
+        </span>
+      </button>
 
-      {Object.entries(grouped).length > 0 && (
-        <div className="mt-4">
-          <p className="px-5 py-2 text-[11px] font-bold uppercase tracking-wider text-nada-secondary/[.40]">Recent updates</p>
-          {Object.entries(grouped).map(([hash, list]) => {
-            const contact = contacts.find(c => c.pubkeyHash === hash);
-            const name = contact?.localDisplayName || hash.slice(0, 8);
-            const latest = list[0]!;
-            return (
-              <div key={hash} className="px-5 py-3 flex items-center gap-4 hover:bg-nada-surface-elevated/30 cursor-pointer" onClick={() => onViewStatus(hash)}>
-                <div className="h-14 w-14 rounded-2xl border-2 border-nada-accent p-0.5">
-                  <div className="h-full w-full rounded-xl bg-nada-muted flex items-center justify-center overflow-hidden">
-                    <CircleDashed className="text-nada-accent" size={24} />
+      <section className="mb-5">
+        <p className="mb-2 px-1 text-[11px] font-bold uppercase text-nada-text-muted">Anonymous Updates</p>
+        {Object.entries(grouped).length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-nada-border/10 bg-nada-surface-elevated/35 px-5 py-10 text-center">
+            <CircleDashed className="mx-auto mb-3 h-8 w-8 text-nada-secondary/35" />
+            <p className="text-[14px] font-bold text-nada-primary">Nothing shared.</p>
+            <p className="mt-1 text-[12.5px] text-nada-text-muted">
+              Recent anonymous updates from contacts will appear here.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            {Object.entries(grouped).map(([hash, list]) => {
+              const contact = contacts.find(c => c.pubkeyHash === hash);
+              const name = contact?.localDisplayName || generateRandomUsername(hash);
+              const latest = list[0]!;
+              return (
+                <button
+                  key={hash}
+                  className="nada-settings-card flex items-center gap-4 text-left"
+                  onClick={() => onViewStatus(hash)}
+                  type="button"
+                >
+                  <div className="h-14 w-14 shrink-0 rounded-2xl border border-nada-gold/45 p-0.5">
+                    <div className="grid h-full w-full place-items-center overflow-hidden rounded-[14px] bg-nada-gold/12">
+                      <CircleDashed className="text-nada-gold" size={24} />
+                    </div>
                   </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-nada-primary">{name}</h3>
-                  <p className="text-sm text-nada-secondary/[.60] truncate">
-                    {formatRelativeTime(latest.createdAt)}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate font-bold text-nada-primary">{name}</h3>
+                    <p className="truncate text-[13px] text-nada-text-muted">
+                      {list.length} update{list.length === 1 ? "" : "s"} - {formatRelativeTime(latest.createdAt)}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="grid gap-2">
+        <p className="px-1 text-[11px] font-bold uppercase text-nada-text-muted">Muted</p>
+        <div className="rounded-2xl border border-nada-border/8 bg-nada-surface-elevated/30 px-4 py-4 text-[12.5px] text-nada-text-muted">
+          Muted status updates will stay tucked away here.
         </div>
-      )}
+      </section>
     </div>
   );
 }
@@ -6820,15 +7260,22 @@ function StatusCreateSheet({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[1000] flex flex-col bg-black md:relative md:inset-auto md:h-full md:w-full pt-safe-area pb-safe-area pl-safe-area pr-safe-area"
+      className="fixed inset-0 z-[1000] flex flex-col bg-nada-bg md:relative md:inset-auto md:h-full md:w-full pt-safe-area pb-safe-area pl-safe-area pr-safe-area"
+      style={{
+        background:
+          "radial-gradient(circle at 50% 20%, rgb(var(--nada-accent) / 0.18), transparent 36%), radial-gradient(circle at 50% 80%, rgb(var(--nada-gold) / 0.10), transparent 34%), rgb(var(--nada-bg))"
+      }}
       initial={{ y: "100%" }} 
       animate={{ y: 0 }} 
       exit={{ y: "100%" }}
       transition={{ type: "spring", damping: 25, stiffness: 350 }}
     >
       <div className="flex h-16 items-center justify-between px-4 text-white">
-        <button onClick={onClose} className="p-2"><X size={24} /></button>
-        <h2 className="font-bold">Add Status</h2>
+        <button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-2xl bg-white/8 text-white/80"><X size={22} /></button>
+        <div className="text-center">
+          <h2 className="font-bold">Add Status</h2>
+          <p className="text-[10px] text-white/45">Vanishes in 24h</p>
+        </div>
         <button 
           onClick={() => {
             if (!text.trim()) return;
@@ -6836,21 +7283,28 @@ function StatusCreateSheet({
             onPost(text);
           }}
           disabled={!text.trim() || isPosting}
-          className="rounded-full bg-nada-accent px-5 py-1.5 text-sm font-bold text-black disabled:opacity-50"
+          className="rounded-full bg-nada-accent px-5 py-2 text-sm font-bold text-white shadow-accent-glow disabled:opacity-50"
         >
           Post
         </button>
       </div>
 
-      <div className="flex-1 flex items-center justify-center px-6">
+      <div className="flex flex-1 items-center justify-center px-6">
         <textarea
           autoFocus
-          className="w-full bg-transparent text-center text-3xl font-bold text-white outline-none placeholder:text-white/20 resize-none"
-          placeholder="Type a status..."
+          className="w-full resize-none bg-transparent text-center text-[30px] font-bold leading-tight text-white outline-none placeholder:text-white/20"
+          placeholder="Say less..."
           value={text}
           onChange={e => setText(e.target.value)}
           rows={5}
         />
+      </div>
+      <div className="px-6 pb-8">
+        <div className="mx-auto flex max-w-sm flex-wrap justify-center gap-2">
+          {["Anonymous", "No screenshots if supported", "Comments in status"].map((label) => (
+            <span key={label} className="nada-privacy-chip border-white/10 bg-white/[0.06] text-white/65">{label}</span>
+          ))}
+        </div>
       </div>
     </motion.div>
   );

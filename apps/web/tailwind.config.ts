@@ -27,10 +27,10 @@ const config = {
         xl: "0 12px 40px rgb(0 0 0 / 0.65), 0 4px 12px rgb(0 0 0 / 0.40)",
         "2xl": "0 24px 70px rgb(0 0 0 / 0.70), 0 8px 24px rgb(0 0 0 / 0.45)",
         /* Premium accent glows */
-        "accent-glow":    "0 0 22px rgb(139 148 252 / 0.32)",
-        "accent-glow-lg": "0 0 44px rgb(139 148 252 / 0.26)",
-        "gold-glow":      "0 0 22px rgb(139 148 252 / 0.32)",
-        "gold-glow-lg":   "0 0 44px rgb(139 148 252 / 0.26)",
+        "accent-glow":    "0 0 22px rgb(139 124 255 / 0.32)",
+        "accent-glow-lg": "0 0 44px rgb(139 124 255 / 0.26)",
+        "gold-glow":      "0 0 22px rgb(245 182 66 / 0.28)",
+        "gold-glow-lg":   "0 0 44px rgb(245 182 66 / 0.22)",
         /* Soft hairline */
         hairline:    "inset 0 0 0 1px rgb(255 255 255 / 0.06)",
         "hairline-strong": "inset 0 0 0 1px rgb(255 255 255 / 0.10)",
@@ -55,6 +55,10 @@ const config = {
           violet:            "rgb(var(--nada-violet) / <alpha-value>)",
           "gold-dark":       "rgb(var(--nada-gold-dark) / <alpha-value>)",
           "gold-glow":       "rgb(var(--nada-gold-glow) / <alpha-value>)",
+          gold:              "rgb(var(--nada-gold) / <alpha-value>)",
+          cyan:              "rgb(var(--nada-cyan) / <alpha-value>)",
+          "text-muted":      "rgb(var(--nada-text-muted) / <alpha-value>)",
+          "text-faint":      "rgb(var(--nada-text-faint) / <alpha-value>)",
           sent:              "rgb(var(--nada-sent) / <alpha-value>)",
           received:          "rgb(var(--nada-received) / <alpha-value>)",
           danger:            "rgb(var(--nada-danger) / <alpha-value>)",
@@ -79,26 +83,34 @@ const config = {
         surface:          "rgb(var(--nada-surface) / <alpha-value>)"
       },
       fontFamily: {
-        sans: ["'Inter'", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "system-ui", "sans-serif"],
-        display: ["'Inter'", "system-ui", "sans-serif"],
+        sans: ["'Inter'", "'Satoshi'", "'Manrope'", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "system-ui", "sans-serif"],
+        display: ["'Inter'", "'Satoshi'", "'Manrope'", "system-ui", "sans-serif"],
         mono: ["'Space Grotesk'", "ui-monospace", "monospace"]
       },
       fontSize: {
         "2xs":   ["10px",  { lineHeight: "1.4", letterSpacing: "0.01em" }],
-        xs:      ["12px",  { lineHeight: "1.45", letterSpacing: "0" }],
-        sm:      ["14px",  { lineHeight: "1.5", letterSpacing: "-0.005em" }],
-        base:    ["15px",  { lineHeight: "1.55", letterSpacing: "-0.011em" }],
-        md:      ["16px",  { lineHeight: "1.55", letterSpacing: "-0.011em" }],
-        lg:      ["18px",  { lineHeight: "1.4", letterSpacing: "-0.014em" }],
-        xl:      ["20px",  { lineHeight: "1.3", letterSpacing: "-0.018em" }],
-        "2xl":   ["24px",  { lineHeight: "1.22", letterSpacing: "-0.022em" }],
-        "3xl":   ["30px",  { lineHeight: "1.15", letterSpacing: "-0.026em" }],
-        "4xl":   ["36px",  { lineHeight: "1.10", letterSpacing: "-0.030em" }],
-        "5xl":   ["48px",  { lineHeight: "1.05", letterSpacing: "-0.034em" }],
+        xs:      ["11px",  { lineHeight: "1.45", letterSpacing: "0" }],
+        sm:      ["13px",  { lineHeight: "1.5", letterSpacing: "0" }],
+        base:    ["14.5px", { lineHeight: "1.55", letterSpacing: "0" }],
+        md:      ["16px",  { lineHeight: "1.55", letterSpacing: "0" }],
+        lg:      ["20px",  { lineHeight: "1.35", letterSpacing: "0" }],
+        xl:      ["28px",  { lineHeight: "1.18", letterSpacing: "0" }],
+        "2xl":   ["32px",  { lineHeight: "1.14", letterSpacing: "0" }],
+        "3xl":   ["36px",  { lineHeight: "1.10", letterSpacing: "0" }],
+        "4xl":   ["42px",  { lineHeight: "1.08", letterSpacing: "0" }],
+        "5xl":   ["52px",  { lineHeight: "1.04", letterSpacing: "0" }],
         caption: ["12px",  { lineHeight: "1.4" }],
         body:    ["15px",  { lineHeight: "1.55" }],
-        title:   ["20px",  { fontWeight: "600", lineHeight: "1.3", letterSpacing: "-0.018em" }],
-        headline:["32px",  { fontWeight: "700", lineHeight: "1.10", letterSpacing: "-0.030em" }]
+        title:   ["20px",  { fontWeight: "600", lineHeight: "1.3", letterSpacing: "0" }],
+        headline:["28px",  { fontWeight: "700", lineHeight: "1.12", letterSpacing: "0" }]
+      },
+      letterSpacing: {
+        tighter: "0",
+        tight: "0",
+        normal: "0",
+        wide: "0",
+        wider: "0",
+        widest: "0"
       },
       keyframes: {
         "bubble-in": {
