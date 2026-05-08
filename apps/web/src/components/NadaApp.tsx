@@ -165,6 +165,7 @@ import {
 } from "@/lib/media-upload";
 import { createLocalCallSession, type LocalCallSession } from "@/lib/webrtc";
 import type { CallMode } from "@/lib/webrtc";
+import { getRelayHttpBaseUrl } from "@/lib/relay-url";
 import { useSocketStore } from "@/stores/useSocketStore";
 
 type Panel =
@@ -957,6 +958,76 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     void loadStatuses();
   }, [loadStatuses]);
 
+  const statusPeerHashes = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          contacts
+            .map((contact) => contact.pubkeyHash)
+            .filter((hash) => hash !== identity.pubkeyHash)
+        )
+      ),
+    [contacts, identity.pubkeyHash]
+  );
+
+  const visibleStatuses = useMemo(() => {
+    const peerSet = new Set(statusPeerHashes);
+    return allStatuses.filter(
+      (status) =>
+        status.senderPubkeyHash === identity.pubkeyHash ||
+        peerSet.has(status.senderPubkeyHash)
+    );
+  }, [allStatuses, identity.pubkeyHash, statusPeerHashes]);
+
+  const syncStatusFeedFromRelay = useCallback(async (): Promise<void> => {
+    if (statusPeerHashes.length === 0) return;
+    const relayBaseUrl = getRelayHttpBaseUrl();
+    if (!relayBaseUrl) return;
+
+    try {
+      const response = await fetch(new URL("/api/v1/statuses/query", relayBaseUrl), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          limit: 120,
+          senderPubkeyHashes: statusPeerHashes,
+          since: Date.now() - 24 * 60 * 60 * 1000,
+          viewerPubkeyHash: identity.pubkeyHash
+        })
+      });
+      if (!response.ok) return;
+      const data = (await response.json()) as { statuses?: MessageEnvelope[] };
+      const envelopes = (data.statuses ?? []).filter(
+        (envelope) =>
+          envelope.messageKind === "status" &&
+          statusPeerHashes.includes(envelope.sender)
+      );
+      if (envelopes.length === 0) return;
+      await persistIncomingMessages(identity, envelopes);
+      await loadStatuses();
+    } catch {
+      // Status relay sync is best-effort; direct socket delivery still works.
+    }
+  }, [identity, loadStatuses, statusPeerHashes]);
+
+  useEffect(() => {
+    void syncStatusFeedFromRelay();
+    const intervalId = window.setInterval(() => {
+      void syncStatusFeedFromRelay();
+    }, 60000);
+    return () => window.clearInterval(intervalId);
+  }, [syncStatusFeedFromRelay]);
+
+  useEffect(() => {
+    if (!selectedStatusSenderHash) return;
+    if (
+      selectedStatusSenderHash !== identity.pubkeyHash &&
+      !statusPeerHashes.includes(selectedStatusSenderHash)
+    ) {
+      setSelectedStatusSenderHash(null);
+    }
+  }, [identity.pubkeyHash, selectedStatusSenderHash, statusPeerHashes]);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const ringtoneIntervalRef = useRef<number | null>(null);
 
@@ -1227,7 +1298,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           }
         }
 
-        for (const status of allStatuses) {
+        for (const status of visibleStatuses) {
           const text = textFromMessage(status);
           if (text.toLowerCase().includes(query)) {
             const name =
@@ -1269,7 +1340,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     return () => {
       active = false;
     };
-  }, [allStatuses, chats, communities, contacts, identity.pubkeyHash, searchQuery]);
+  }, [chats, communities, contacts, identity.pubkeyHash, searchQuery, visibleStatuses]);
 
   const sidebarChatItems = useMemo<ChatListModel[]>(() => {
     const groupItems = chats.map((chat) => {
@@ -2582,12 +2653,27 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     
     await nadaDb.messages.put(record);
     setAllStatuses(prev => [record, ...prev]);
+
+    const relayBaseUrl = getRelayHttpBaseUrl();
+    if (relayBaseUrl) {
+      void fetch(new URL("/api/v1/statuses", relayBaseUrl), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          sender: identity.pubkeyHash,
+          timestamp,
+          ciphertext,
+          ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+        })
+      }).catch(() => {});
+    }
     
-    contacts.forEach(contact => {
+    statusPeerHashes.forEach((recipientHash) => {
       sendEnvelope({
         type: "message",
         id,
-        recipient: contact.pubkeyHash,
+        recipient: recipientHash,
         sender: identity.pubkeyHash,
         timestamp,
         ciphertext,
@@ -2676,11 +2762,23 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       );
     }
 
-    contacts.forEach((contact) => {
+    const relayBaseUrl = getRelayHttpBaseUrl();
+    if (relayBaseUrl) {
+      void fetch(new URL("/api/v1/statuses/delete", relayBaseUrl), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: status.id,
+          sender: identity.pubkeyHash
+        })
+      }).catch(() => {});
+    }
+
+    statusPeerHashes.forEach((recipientHash) => {
       sendEnvelope({
         type: "message",
         id: crypto.randomUUID(),
-        recipient: contact.pubkeyHash,
+        recipient: recipientHash,
         sender: identity.pubkeyHash,
         timestamp,
         ciphertext,
@@ -3643,7 +3741,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             <StatusView 
               identity={identity}
               contacts={contacts}
-              statuses={allStatuses}
+              statuses={visibleStatuses}
               onPostStatus={() => setPanel("status_create")}
               onViewStatus={(hash) => setSelectedStatusSenderHash(hash)}
             />
@@ -4119,7 +4217,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                 ? "My Status" 
                 : contacts.find(c => c.pubkeyHash === selectedStatusSenderHash)?.localDisplayName || "Someone"
             }
-            statuses={allStatuses
+            statuses={visibleStatuses
               .filter(s => s.senderPubkeyHash === selectedStatusSenderHash)
               .sort((a, b) => b.createdAt - a.createdAt)}
             onClose={() => setSelectedStatusSenderHash(null)}
