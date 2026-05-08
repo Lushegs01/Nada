@@ -193,4 +193,18 @@ create table if not exists push_subscriptions (
 
 create unique index if not exists push_subscriptions_endpoint_idx on push_subscriptions(endpoint);
 create index if not exists push_subscriptions_pubkey_idx on push_subscriptions(pubkey_hash);
+
+create table if not exists status_updates (
+  id uuid primary key,
+  sender_pubkey_hash text not null,
+  ciphertext text not null,
+  dev_plaintext text,
+  created_at_ms bigint not null,
+  expires_at_ms bigint not null,
+  updated_at timestamptz not null
+);
+
+create index if not exists status_updates_sender_created_idx
+  on status_updates(sender_pubkey_hash, created_at_ms desc);
+create index if not exists status_updates_expires_idx on status_updates(expires_at_ms);
 `;

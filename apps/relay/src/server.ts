@@ -23,6 +23,7 @@ import { registerMonetizationRoutes } from "./monetization-routes";
 import { isOriginAllowed } from "./origin";
 import { createRelayQueue, type RelayQueue } from "./queue";
 import { registerPushRoutes } from "./push-routes";
+import { registerStatusRoutes } from "./status-routes";
 import { registerUploadRoutes } from "./upload-routes";
 
 type ClientSocket = WebSocket;
@@ -64,6 +65,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
   await (app as any).register(websocket);
   await registerMonetizationRoutes(app as any, env);
   await registerPushRoutes(app as any, env);
+  await registerStatusRoutes(app as any, env);
   await registerUploadRoutes(app as any, env);
 
   app.addHook("onClose", async () => {
