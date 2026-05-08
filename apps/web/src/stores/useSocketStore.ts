@@ -15,8 +15,10 @@ import {
   type ReactionEnvelope,
   type TypingEnvelope
 } from "@nada/types";
+import { signIdentityProof } from "@nada/crypto";
 
 import { getRelaySocketUrl } from "@/lib/relay-url";
+import { useIdentityStore } from "@/stores/useIdentityStore";
 
 type ReliableDeliveryStatus = DeliveryStatus | "read";
 type ReliableDeliveryEnvelope = Omit<DeliveryEnvelope, "status"> & {
@@ -144,10 +146,9 @@ export const useSocketStore = create<SocketState>((set, get) => {
       });
 
       socket.addEventListener("open", () => {
-        socket.send(
-          JSON.stringify({ type: "register", pubkeyHash: identity.pubkeyHash })
-        );
-        set({ reconnectAttempt: 0, status: "connected" });
+        // Don't send register here — wait for the server's challenge envelope
+        // and reply with a signed register. Until then we are "connecting".
+        set({ reconnectAttempt: 0 });
       });
 
       socket.addEventListener("message", (event: MessageEvent) => {
@@ -170,6 +171,47 @@ export const useSocketStore = create<SocketState>((set, get) => {
         }
 
         switch (result.data.type) {
+          case "challenge": {
+            const nonce = result.data.nonce;
+            const unlocked = useIdentityStore.getState().unlocked;
+            if (!unlocked) {
+              set({
+                lastError:
+                  "Cannot register with the relay: identity is locked.",
+                status: "error"
+              });
+              socket.close();
+              return;
+            }
+            const timestamp = Date.now();
+            const message = `ws-register:${timestamp}:${unlocked.pubkeyHash}:${nonce}`;
+            void signIdentityProof(unlocked.privateKey, message)
+              .then((signature) => {
+                if (socket.readyState !== WebSocket.OPEN) return;
+                socket.send(
+                  JSON.stringify({
+                    type: "register",
+                    pubkeyHash: unlocked.pubkeyHash,
+                    pubkey: unlocked.pubkey,
+                    signature,
+                    nonce,
+                    timestamp
+                  })
+                );
+              })
+              .catch(() => {
+                set({
+                  lastError: "Failed to sign WebSocket register challenge.",
+                  status: "error"
+                });
+                socket.close();
+              });
+            break;
+          }
+          case "registered": {
+            set({ status: "connected" });
+            break;
+          }
           case "message": {
             const envelope = result.data.envelope;
             set((state) => ({

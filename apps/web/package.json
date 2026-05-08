@@ -20,6 +20,7 @@
     "@nada/db": "workspace:0.1.0",
     "@nada/types": "workspace:0.1.0",
     "@nada/ui": "workspace:0.1.0",
+    "@noble/hashes": "1.8.0",
     "dexie": "4.2.0",
     "framer-motion": "12.23.24",
     "livekit-client": "^2.18.8",

@@ -1,12 +1,12 @@
 // ─── WebRTC Peer Connection Layer ────────────────────────────────────────────
 //
-// TURN credentials come from environment variables — never hardcode them.
-//
-// Set in Render → app-web → Environment:
-//   NEXT_PUBLIC_TURN_USERNAME   = 9800b84976b89f894da35b93
-//   NEXT_PUBLIC_TURN_CREDENTIAL = WcsKs/M2tfnDx1QE
-//
-// For local dev: copy apps/web/.env.local.example → apps/web/.env.local
+// TURN credentials are fetched from the relay at call time using a signed
+// identity proof. The credentials are NOT inlined into the JS bundle anymore;
+// callers must call `prefetchIceServers` (typically right before creating a
+// peer connection) so the relay can rotate / scope credentials per session.
+
+import { useIdentityStore } from "@/stores/useIdentityStore";
+import { getRelayHttpBaseUrl } from "@/lib/relay-url";
 
 export type CallMode = "voice" | "video" | "group";
 
@@ -18,52 +18,88 @@ export interface LocalCallSession {
   remoteStream: MediaStream; // filled incrementally via ontrack
 }
 
-// ── ICE / TURN configuration ──────────────────────────────────────────────────
+interface CachedIceServers {
+  servers: RTCIceServer[];
+  expiresAt: number;
+}
 
-function buildIceServers(): RTCIceServer[] {
-  const turnUser = process.env["NEXT_PUBLIC_TURN_USERNAME"];
-  const turnCred = process.env["NEXT_PUBLIC_TURN_CREDENTIAL"];
+const STUN_FALLBACK: RTCIceServer = {
+  urls: "stun:stun.relay.metered.ca:80"
+};
 
-  // Always include Metered STUN as baseline
-  const servers: RTCIceServer[] = [
-    { urls: "stun:stun.relay.metered.ca:80" }
-  ];
+let cache: CachedIceServers | null = null;
+let inflight: Promise<RTCIceServer[]> | null = null;
 
-  if (turnUser && turnCred) {
-    // Exact ICE server array from Metered dashboard — all 4 endpoints for
-    // maximum NAT traversal coverage across UDP, TCP, and TLS.
-    servers.push(
-      {
-        urls: "turn:global.relay.metered.ca:80",
-        username: turnUser,
-        credential: turnCred
-      },
-      {
-        urls: "turn:global.relay.metered.ca:80?transport=tcp",
-        username: turnUser,
-        credential: turnCred
-      },
-      {
-        urls: "turn:global.relay.metered.ca:443",
-        username: turnUser,
-        credential: turnCred
-      },
-      {
-        // TURNS = TURN over TLS — bypasses the strictest firewalls
-        urls: "turns:global.relay.metered.ca:443?transport=tcp",
-        username: turnUser,
-        credential: turnCred
-      }
-    );
+async function fetchTurnCredentials(): Promise<RTCIceServer[]> {
+  const proof = await useIdentityStore.getState().signProof("turn");
+  if (!proof) {
+    return [STUN_FALLBACK];
   }
 
+  const baseUrl = getRelayHttpBaseUrl();
+  const url = baseUrl
+    ? `${baseUrl}/api/v1/turn/credentials`
+    : "/api/v1/turn/credentials";
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ proof })
+  });
+
+  if (!response.ok) {
+    return [STUN_FALLBACK];
+  }
+
+  const data = (await response.json()) as {
+    username?: string;
+    credential?: string;
+    urls?: string[];
+    ttl?: number;
+  };
+
+  if (!data.username || !data.credential || !Array.isArray(data.urls)) {
+    return [STUN_FALLBACK];
+  }
+
+  const servers: RTCIceServer[] = [STUN_FALLBACK];
+  for (const url of data.urls) {
+    servers.push({
+      urls: url,
+      username: data.username,
+      credential: data.credential
+    });
+  }
   return servers;
 }
 
-export function createPeerConnection(): RTCPeerConnection {
+export async function prefetchIceServers(): Promise<RTCIceServer[]> {
+  if (cache && cache.expiresAt > Date.now() + 30_000) {
+    return cache.servers;
+  }
+  if (inflight) {
+    return inflight;
+  }
+  inflight = (async () => {
+    try {
+      const servers = await fetchTurnCredentials();
+      cache = { servers, expiresAt: Date.now() + 4 * 60 * 1000 };
+      return servers;
+    } catch {
+      return [STUN_FALLBACK];
+    } finally {
+      inflight = null;
+    }
+  })();
+  return inflight;
+}
+
+export async function createPeerConnection(): Promise<RTCPeerConnection> {
+  const servers = await prefetchIceServers();
   return new RTCPeerConnection({
-    iceServers: buildIceServers(),
-    iceTransportPolicy: "all"
+    iceServers: servers,
+    iceTransportPolicy: "all",
+    iceCandidatePoolSize: 4
   });
 }
 
@@ -85,7 +121,7 @@ export async function createLocalCallSession(
         : false
   });
 
-  const peerConnection = createPeerConnection();
+  const peerConnection = await createPeerConnection();
   const remoteStream = new MediaStream();
 
   stream.getTracks().forEach((track) => {
@@ -109,14 +145,22 @@ export function stopLocalCallSession(session: LocalCallSession): void {
 
 // ── Dev diagnostic — run in browser console to verify TURN is wired ──────────
 // import { logIceConfig } from "@/lib/webrtc"; logIceConfig();
-export function logIceConfig(): void {
-  const servers = buildIceServers();
-  const hasTurn = servers.some((s) => String(s.urls).startsWith("turn:") || String(s.urls).startsWith("turns:"));
+export async function logIceConfig(): Promise<void> {
+  const servers = await prefetchIceServers();
+  const hasTurn = servers.some(
+    (s) => String(s.urls).startsWith("turn:") || String(s.urls).startsWith("turns:")
+  );
   console.group("Nada WebRTC ICE Configuration");
-  console.table(servers.map((s) => ({ urls: s.urls, username: (s as RTCIceServer).username ?? "—" })));
-  console.log(hasTurn
-    ? "✅ TURN configured — calls work on all networks"
-    : "⚠️  No TURN — calls may fail on mobile/strict NAT (set NEXT_PUBLIC_TURN_USERNAME + CREDENTIAL)"
+  console.table(
+    servers.map((s) => ({
+      urls: s.urls,
+      username: (s as RTCIceServer).username ?? "—"
+    }))
+  );
+  console.log(
+    hasTurn
+      ? "✅ TURN configured — calls work on all networks"
+      : "⚠️  No TURN — calls may fail on mobile/strict NAT (set TURN_USERNAME/TURN_CREDENTIAL on the relay)"
   );
   console.groupEnd();
 }

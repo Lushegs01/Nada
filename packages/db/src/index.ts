@@ -37,6 +37,13 @@ export const IdentityRecordSchema = z.object({
   pubkey: PublicKeySchema,
   pubkeyHash: PubkeyHashSchema,
   encryptedPrivateKey: z.string().min(1),
+  /**
+   * Locally-cached unencrypted private key (base64, libsodium ORIGINAL).
+   * Required to sign identity-proof challenges (LiveKit/TURN/WS register).
+   * Optional only so legacy IDB rows from before this field existed still
+   * deserialize; new identities always populate it.
+   */
+  localPrivateKey: z.string().min(1).optional(),
   seedBackupStatus: z.enum(["pending", "confirmed"]),
   createdAt: z.number().int().positive()
 });

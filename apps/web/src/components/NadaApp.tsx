@@ -167,6 +167,7 @@ import { createLocalCallSession, type LocalCallSession } from "@/lib/webrtc";
 import type { CallMode } from "@/lib/webrtc";
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
 import { useSocketStore } from "@/stores/useSocketStore";
+import { useIdentityStore } from "@/stores/useIdentityStore";
 
 type Panel =
   | "billing"
@@ -187,6 +188,30 @@ type MessageContextMenuState = {
 
 const PENDING_ENCRYPTED_PAYLOAD = "__pending_encryption__";
 const STATUS_COMMENT_PREFIX = "status-comments:";
+
+// Dev-only debug field that ships plaintext alongside ciphertext in envelopes
+// so local development can read messages without full crypto wired up.
+//
+// SAFETY:
+//  - Must NEVER be enabled on production builds. Requires both the explicit
+//    NEXT_PUBLIC_NADA_DEV_PLAINTEXT="true" opt-in *and* a non-production
+//    NODE_ENV. Misconfigured staging environments without NODE_ENV=production
+//    no longer leak plaintext just because NODE_ENV is missing.
+//  - Production builds should fail fast if the opt-in flag is set; the check
+//    below throws at module load to surface the misconfiguration loudly.
+const NADA_DEV_PLAINTEXT_ENABLED =
+  process.env["NEXT_PUBLIC_NADA_DEV_PLAINTEXT"] === "true" &&
+  process.env["NODE_ENV"] !== "production";
+
+if (
+  process.env["NEXT_PUBLIC_NADA_DEV_PLAINTEXT"] === "true" &&
+  process.env["NODE_ENV"] === "production"
+) {
+  throw new Error(
+    "NEXT_PUBLIC_NADA_DEV_PLAINTEXT must not be enabled on production builds."
+  );
+}
+
 const COMMUNITIES_SETTING_KEY = "communities.v1";
 const REPORTS_SETTING_KEY = "safety.reports.v1";
 const ONBOARDING_DISMISSED_SETTING_KEY = "onboarding.dismissed.v1";
@@ -737,6 +762,7 @@ export function NadaApp(): JSX.Element {
   const isOnline = useOnlineStatus();
   const connect = useSocketStore((state) => state.connect);
   const disconnect = useSocketStore((state) => state.disconnect);
+  const setUnlocked = useIdentityStore((state) => state.setUnlocked);
 
   useEffect(() => {
     let active = true;
@@ -747,13 +773,22 @@ export function NadaApp(): JSX.Element {
       }
 
       setIdentity(record ?? null);
+      if (record?.localPrivateKey) {
+        setUnlocked({
+          pubkey: record.pubkey,
+          pubkeyHash: record.pubkeyHash,
+          privateKey: record.localPrivateKey
+        });
+      } else {
+        setUnlocked(null);
+      }
       setIsLoading(false);
     });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [setUnlocked]);
 
   useEffect(() => {
     if (!identity) {
@@ -766,9 +801,19 @@ export function NadaApp(): JSX.Element {
     };
   }, [connect, disconnect, identity]);
 
-  const handleComplete = useCallback((nextIdentity: IdentityRecord) => {
-    setIdentity(nextIdentity);
-  }, []);
+  const handleComplete = useCallback(
+    (nextIdentity: IdentityRecord) => {
+      setIdentity(nextIdentity);
+      if (nextIdentity.localPrivateKey) {
+        setUnlocked({
+          pubkey: nextIdentity.pubkey,
+          pubkeyHash: nextIdentity.pubkeyHash,
+          privateKey: nextIdentity.localPrivateKey
+        });
+      }
+    },
+    [setUnlocked]
+  );
 
   if (isLoading) {
     return <Splash />;
@@ -879,6 +924,7 @@ function Onboarding({
       pubkey: anonymousIdentity.pubkey,
       pubkeyHash: anonymousIdentity.pubkeyHash,
       encryptedPrivateKey: anonymousIdentity.encryptedPrivateKey,
+      localPrivateKey: anonymousIdentity.privateKey,
       seedBackupStatus: "pending",
       createdAt: anonymousIdentity.createdAt
     });
@@ -2583,7 +2629,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           ciphertext: msg.encryptedPayload,
           messageKind: msg.kind,
           ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
-          ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: msg.body } : {})
+          ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: msg.body } : {})
         };
 
         const sent = sendEnvelope(envelope);
@@ -2631,7 +2677,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           ...(msg.mentions && msg.mentions.length > 0 ? { mentions: msg.mentions } : {}),
           ...(msg.expiresAt ? { expiresAt: msg.expiresAt } : {}),
           ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
-          ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: msg.body } : {})
+          ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: msg.body } : {})
         };
         
         const sent = sendGroupEnvelope(groupEnvelope);
@@ -2712,7 +2758,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ...(message.mentions?.length ? { mentions: message.mentions } : {}),
         ...(message.expiresAt ? { expiresAt: message.expiresAt } : {}),
         ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: message.body } : {})
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: message.body } : {})
       });
     } else if (contact) {
       sent = sendEnvelope({
@@ -2724,7 +2770,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ciphertext,
         messageKind,
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: message.body } : {})
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: message.body } : {})
       });
     }
 
@@ -2889,14 +2935,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ...(mentions.length > 0 ? { mentions } : {}),
         ...(expiresAt ? { expiresAt } : {})
       };
-      const groupEnvelope: GroupMessageEnvelope =
-        process.env["NODE_ENV"] === "production"
-          ? baseEnvelope
-          : {
-              ...baseEnvelope,
-              // ⚠️ MVP_ONLY — replace before production
-              devPlaintext: body
-            };
+      const groupEnvelope: GroupMessageEnvelope = NADA_DEV_PLAINTEXT_ENABLED
+        ? {
+            ...baseEnvelope,
+            // ⚠️ MVP_ONLY — replace before production
+            devPlaintext: body
+          }
+        : baseEnvelope;
       sent = sendGroupEnvelope(groupEnvelope);
     } else if (activeContact) {
       const baseEnvelope = {
@@ -2909,14 +2954,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         messageKind: "text" as const,
         ...(replySnapshot ? { replyTo: replySnapshot } : {})
       };
-      const envelope: MessageEnvelope =
-        process.env["NODE_ENV"] === "production"
-          ? baseEnvelope
-          : {
-              ...baseEnvelope,
-              // ⚠️ MVP_ONLY — replace before production
-              devPlaintext: body
-            };
+      const envelope: MessageEnvelope = NADA_DEV_PLAINTEXT_ENABLED
+        ? {
+            ...baseEnvelope,
+            // ⚠️ MVP_ONLY — replace before production
+            devPlaintext: body
+          }
+        : baseEnvelope;
       sent = sendEnvelope(envelope);
     }
 
@@ -2984,14 +3028,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         timestamp, ciphertext, messageKind: "poll" as const,
         ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {})
       };
-      const groupEnvelope: GroupMessageEnvelope = process.env["NODE_ENV"] === "production" ? baseEnvelope : { ...baseEnvelope, devPlaintext: body };
+      const groupEnvelope: GroupMessageEnvelope = NADA_DEV_PLAINTEXT_ENABLED ? { ...baseEnvelope, devPlaintext: body } : baseEnvelope;
       sent = sendGroupEnvelope(groupEnvelope);
     } else if (selectedContact) {
       const baseEnvelope = {
         type: "message" as const, id, recipient: selectedContact.pubkeyHash, sender: identity.pubkeyHash,
         timestamp, ciphertext, messageKind: "poll" as const
       };
-      const envelope: MessageEnvelope = process.env["NODE_ENV"] === "production" ? baseEnvelope : { ...baseEnvelope, devPlaintext: body };
+      const envelope: MessageEnvelope = NADA_DEV_PLAINTEXT_ENABLED ? { ...baseEnvelope, devPlaintext: body } : baseEnvelope;
       sent = sendEnvelope(envelope);
     }
 
@@ -3048,7 +3092,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           sender: identity.pubkeyHash,
           timestamp,
           ciphertext,
-          ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+          ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
         })
       }).catch(() => {});
     }
@@ -3062,7 +3106,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         timestamp,
         ciphertext,
         messageKind: "status",
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
       });
     });
     
@@ -3110,7 +3154,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         timestamp,
         ciphertext,
         messageKind: "system",
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
       });
     }
     showToast("Comment added.");
@@ -3157,7 +3201,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         timestamp,
         ciphertext,
         messageKind: "system",
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
       });
     }
     return record;
@@ -3214,7 +3258,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         timestamp,
         ciphertext,
         messageKind: "system",
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
       });
     });
     showToast("Status deleted.");
@@ -3360,7 +3404,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ciphertext,
         messageKind,
         ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {}),
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {}),
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {}),
         ...(replyToId ? { replyToId } : {}),
         ...(replySnapshot ? { replyTo: replySnapshot } : {}),
         ...(expiresAt ? { expiresAt } : {})
@@ -3375,7 +3419,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ciphertext,
         messageKind,
         ...(replySnapshot ? { replyTo: replySnapshot } : {}),
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
       });
     }
 
@@ -3492,7 +3536,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ciphertext,
         messageKind: "voice_note",
         ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {}),
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: structuredBody } : {}),
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: structuredBody } : {}),
         ...(replyToId ? { replyToId } : {}),
         ...(replySnapshot ? { replyTo: replySnapshot } : {}),
         ...(expiresAt ? { expiresAt } : {})
@@ -3507,7 +3551,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ciphertext,
         messageKind: "voice_note",
         ...(replySnapshot ? { replyTo: replySnapshot } : {}),
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: structuredBody } : {})
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: structuredBody } : {})
       });
     }
 
@@ -3802,7 +3846,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         ciphertext,
         messageKind,
         senderKeyPackage: targetGroup.groupSenderKey,
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: bodyToForward } : {})
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: bodyToForward } : {})
       };
 
       const record: MessageRecord = {
@@ -3835,7 +3879,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         timestamp,
         ciphertext,
         messageKind,
-        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: bodyToForward } : {})
+        ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: bodyToForward } : {})
       };
       const record: MessageRecord = {
         id: envelopeId,
@@ -3981,7 +4025,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           ciphertext,
           messageKind: "system",
           ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
-          ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+          ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
         });
       }
 

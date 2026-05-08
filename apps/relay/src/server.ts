@@ -2,7 +2,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
 import fastify, { type FastifyInstance } from "fastify";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 
 import {
@@ -18,20 +18,31 @@ import {
 } from "@nada/types";
 
 import type { RelayEnv } from "./env";
+import { verifyIdentityProof } from "./identity-proof";
 import { createLoggerOption } from "./logger";
 import { registerMonetizationRoutes } from "./monetization-routes";
 import { isOriginAllowed } from "./origin";
 import { createRelayQueue, type RelayQueue } from "./queue";
 import { registerPushRoutes } from "./push-routes";
 import { registerStatusRoutes } from "./status-routes";
+import { registerTurnRoutes } from "./turn-routes";
 import { registerUploadRoutes } from "./upload-routes";
 
 type ClientSocket = WebSocket;
 
+interface PendingHandshake {
+  nonce: string;
+  issuedAt: number;
+}
+
 interface SessionRegistry {
   socketsByPubkeyHash: Map<PubkeyHash, Set<ClientSocket>>;
   pubkeyHashBySocket: Map<ClientSocket, PubkeyHash>;
+  /** Sockets that have opened but not yet completed register handshake. */
+  pendingHandshakes: Map<ClientSocket, PendingHandshake>;
 }
+
+const HANDSHAKE_TIMEOUT_MS = 30_000;
 
 interface PushPayload {
   title: string;
@@ -50,7 +61,8 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
   });
   const sessions: SessionRegistry = {
     socketsByPubkeyHash: new Map(),
-    pubkeyHashBySocket: new Map()
+    pubkeyHashBySocket: new Map(),
+    pendingHandshakes: new Map()
   };
 
   await (app as any).register(cors, {
@@ -66,6 +78,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
   await registerMonetizationRoutes(app as any, env);
   await registerPushRoutes(app as any, env);
   await registerStatusRoutes(app as any, env);
+  await registerTurnRoutes(app as any, env);
   await registerUploadRoutes(app as any, env);
 
   app.addHook("onClose", async () => {
@@ -84,6 +97,19 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
       return;
     }
 
+    const nonce = randomBytes(32).toString("base64");
+    sessions.pendingHandshakes.set(connection.socket, {
+      nonce,
+      issuedAt: Date.now()
+    });
+    connection.socket.send(JSON.stringify({ type: "challenge", nonce }));
+
+    const handshakeTimer = setTimeout(() => {
+      if (sessions.pendingHandshakes.has(connection.socket)) {
+        connection.socket.close(1008, "Handshake timeout");
+      }
+    }, HANDSHAKE_TIMEOUT_MS);
+
     connection.socket.on("message", (raw) => {
       void handleSocketMessage(
         connection.socket,
@@ -95,6 +121,14 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     });
 
     connection.socket.on("close", () => {
+      clearTimeout(handshakeTimer);
+      sessions.pendingHandshakes.delete(connection.socket);
+      unregisterSocket(connection.socket, sessions);
+    });
+
+    connection.socket.on("error", () => {
+      clearTimeout(handshakeTimer);
+      sessions.pendingHandshakes.delete(connection.socket);
       unregisterSocket(connection.socket, sessions);
     });
   });
@@ -124,11 +158,71 @@ async function handleSocketMessage(
   }
 
   if ("type" in result.data && result.data.type === "register") {
-    registerSocket(socket, result.data.pubkeyHash, sessions);
-    socket.send(
-      JSON.stringify({ type: "registered", pubkeyHash: result.data.pubkeyHash })
+    const pending = sessions.pendingHandshakes.get(socket);
+    if (!pending) {
+      sendSocketError(
+        socket,
+        "no_pending_handshake",
+        "Register received without a server-issued challenge."
+      );
+      socket.close(1008, "No pending handshake");
+      return;
+    }
+
+    const verification = verifyIdentityProof(
+      {
+        pubkey: result.data.pubkey,
+        pubkeyHash: result.data.pubkeyHash,
+        signature: result.data.signature,
+        timestamp: result.data.timestamp
+      },
+      { context: "ws-register", binding: pending.nonce }
     );
-    await drainQueuedMessages(result.data.pubkeyHash, socket, queue);
+
+    if (!verification.ok || result.data.nonce !== pending.nonce) {
+      sendSocketError(
+        socket,
+        "register_proof_invalid",
+        "Identity proof failed verification."
+      );
+      socket.close(1008, "Register proof invalid");
+      return;
+    }
+
+    sessions.pendingHandshakes.delete(socket);
+    registerSocket(socket, verification.pubkeyHash, sessions);
+    socket.send(
+      JSON.stringify({ type: "registered", pubkeyHash: verification.pubkeyHash })
+    );
+    await drainQueuedMessages(verification.pubkeyHash, socket, queue);
+    return;
+  }
+
+  // Any envelope type other than register requires the socket to have already
+  // completed the challenge-response handshake.
+  if (!sessions.pubkeyHashBySocket.has(socket)) {
+    sendSocketError(
+      socket,
+      "not_registered",
+      "Sign-challenge handshake required before sending envelopes."
+    );
+    socket.close(1008, "Not registered");
+    return;
+  }
+
+  const authenticatedPubkeyHash = sessions.pubkeyHashBySocket.get(socket);
+  if (!authenticatedPubkeyHash) {
+    return;
+  }
+
+  // Outbound `sender` fields must match the authenticated pubkeyHash so a
+  // malicious client can't impersonate someone else by spoofing the field.
+  if ("sender" in result.data && result.data.sender !== authenticatedPubkeyHash) {
+    sendSocketError(
+      socket,
+      "sender_mismatch",
+      "Envelope sender does not match the authenticated identity."
+    );
     return;
   }
 
