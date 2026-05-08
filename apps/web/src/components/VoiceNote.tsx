@@ -20,21 +20,83 @@ function formatDur(totalSeconds: number): string {
 export function VoiceNoteBubble({
   src,
   durationSeconds,
-  outbound
+  outbound,
+  activePlaybackId,
+  autoPlayToken = 0,
+  onPlaybackEnd,
+  onPlaybackStart,
+  playbackId
 }: {
   src: string;
   durationSeconds: number;
   outbound: boolean;
+  activePlaybackId?: string | null;
+  autoPlayToken?: number;
+  onPlaybackEnd?: (playbackId: string) => void;
+  onPlaybackStart?: (playbackId: string) => void;
+  playbackId?: string;
 }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
+  const lastAutoPlayTokenRef = useRef(0);
+  const pendingAutoPlayRef = useRef(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(Math.max(durationSeconds, 0));
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [fallbackMode, setFallbackMode] = useState(false);
+
+  const notifyPlaybackStart = useCallback(() => {
+    if (playbackId) {
+      onPlaybackStart?.(playbackId);
+    }
+  }, [onPlaybackStart, playbackId]);
+
+  const notifyPlaybackEnd = useCallback(() => {
+    if (playbackId) {
+      onPlaybackEnd?.(playbackId);
+    }
+  }, [onPlaybackEnd, playbackId]);
+
+  const playCurrent = useCallback((): boolean => {
+    if (error) return false;
+    notifyPlaybackStart();
+
+    if (fallbackMode) {
+      const audio = audioRef.current;
+      if (!audio) return false;
+      void audio.play().catch(() => setError(true));
+      return true;
+    }
+
+    const ws = wavesurfer.current;
+    if (!ws || loading) return false;
+    void ws.play().catch(() => setError(true));
+    return true;
+  }, [error, fallbackMode, loading, notifyPlaybackStart]);
+
+  const pauseCurrent = useCallback((): void => {
+    if (fallbackMode) {
+      audioRef.current?.pause();
+      return;
+    }
+    wavesurfer.current?.pause();
+  }, [fallbackMode]);
+
+  const seekToTime = useCallback((nextTime: number): void => {
+    const bounded = Math.min(Math.max(nextTime, 0), Math.max(duration, 0));
+    setCurrentTime(bounded);
+    if (fallbackMode) {
+      const audio = audioRef.current;
+      if (audio) audio.currentTime = bounded;
+      return;
+    }
+    if (wavesurfer.current && duration > 0) {
+      wavesurfer.current.seekTo(bounded / duration);
+    }
+  }, [duration, fallbackMode]);
 
   useEffect(() => {
     if (!src || !containerRef.current) {
@@ -87,6 +149,11 @@ export function VoiceNoteBubble({
           ? nextDuration
           : Math.max(durationSeconds, 0)
       );
+      if (pendingAutoPlayRef.current) {
+        pendingAutoPlayRef.current = false;
+        notifyPlaybackStart();
+        void ws.play().catch(() => setError(true));
+      }
     });
     ws.on("error", () => {
       if (src.startsWith("data:") || src.startsWith("blob:")) {
@@ -102,6 +169,7 @@ export function VoiceNoteBubble({
       setIsPlaying(false);
       setCurrentTime(0);
       ws.seekTo(0);
+      notifyPlaybackEnd();
     });
     ws.on("timeupdate", (cur) => setCurrentTime(cur));
 
@@ -113,26 +181,56 @@ export function VoiceNoteBubble({
       }
       wavesurfer.current = null;
     };
-  }, [durationSeconds, src, outbound]);
+  }, [durationSeconds, notifyPlaybackEnd, notifyPlaybackStart, src, outbound]);
+
+  useEffect(() => {
+    if (!playbackId || activePlaybackId === playbackId) return;
+    if (isPlaying) {
+      pauseCurrent();
+    }
+  }, [activePlaybackId, isPlaying, pauseCurrent, playbackId]);
+
+  useEffect(() => {
+    if (
+      !playbackId ||
+      activePlaybackId !== playbackId ||
+      !autoPlayToken ||
+      autoPlayToken === lastAutoPlayTokenRef.current
+    ) {
+      return;
+    }
+
+    lastAutoPlayTokenRef.current = autoPlayToken;
+    pendingAutoPlayRef.current = true;
+    if (playCurrent()) {
+      pendingAutoPlayRef.current = false;
+    }
+  }, [activePlaybackId, autoPlayToken, playbackId, playCurrent]);
 
   function togglePlay(): void {
     if (fallbackMode) {
       const audio = audioRef.current;
       if (!audio) return;
       if (audio.paused) {
-        void audio.play().catch(() => setError(true));
+        void playCurrent();
       } else {
-        audio.pause();
+        pauseCurrent();
       }
       return;
     }
 
     if (wavesurfer.current && !error) {
-      wavesurfer.current.playPause();
+      if (isPlaying) {
+        pauseCurrent();
+      } else {
+        void playCurrent();
+      }
     }
   }
 
-  const displayDuration = isPlaying ? currentTime : duration;
+  const displayDuration = isPlaying || currentTime > 0 ? currentTime : duration;
+  const seekMax = Math.max(duration, 1);
+  const seekValue = Math.min(currentTime, seekMax);
 
   if (error && !fallbackMode) {
     return (
@@ -152,6 +250,7 @@ export function VoiceNoteBubble({
         onEnded={() => {
           setIsPlaying(false);
           setCurrentTime(0);
+          notifyPlaybackEnd();
         }}
         onLoadedMetadata={(event) => {
           const nextDuration = event.currentTarget.duration;
@@ -213,6 +312,19 @@ export function VoiceNoteBubble({
             ref={containerRef}
             aria-label="Voice note waveform"
             className={cn("h-9 w-full transition-opacity", (loading || fallbackMode) && "opacity-0")}
+          />
+          <input
+            aria-label="Seek voice note"
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-wait"
+            disabled={loading && !fallbackMode}
+            max={seekMax}
+            min={0}
+            onChange={(event) => seekToTime(Number(event.currentTarget.value))}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            step={0.1}
+            type="range"
+            value={seekValue}
           />
         </div>
         <span

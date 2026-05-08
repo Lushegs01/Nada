@@ -170,6 +170,7 @@ type Panel =
   | "billing"
   | "contacts"
   | "group"
+  | "community_create"
   | "migration"
   | "settings"
   | "share"
@@ -183,6 +184,7 @@ type MessageContextMenuState = {
 
 const PENDING_ENCRYPTED_PAYLOAD = "__pending_encryption__";
 const STATUS_COMMENT_PREFIX = "status-comments:";
+const COMMUNITIES_SETTING_KEY = "communities.v1";
 
 type ChatListModel = {
   avatar?: string | undefined;
@@ -229,6 +231,24 @@ type GroupDeletePayload = {
   kind: "group-delete";
   ownerPubkeyHash: string;
   version: 1;
+};
+
+type CommunityRecord = {
+  category: string;
+  createdAt: number;
+  description: string;
+  id: string;
+  memberCount: number;
+  privacy: "open" | "invite-only";
+  title: string;
+  updatedAt: number;
+};
+
+type CommunityDraft = {
+  category: string;
+  description: string;
+  privacy: "open" | "invite-only";
+  title: string;
 };
 
 function mergeMessageRecords(...groups: MessageRecord[][]): MessageRecord[] {
@@ -307,6 +327,47 @@ function parseGroupDeletePayload(body: string): GroupDeletePayload | null {
       : null;
   } catch {
     return null;
+  }
+}
+
+function parseCommunityRecords(raw: string | null): CommunityRecord[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item): CommunityRecord | null => {
+        if (!item || typeof item !== "object") return null;
+        const record = item as Partial<CommunityRecord>;
+        if (
+          typeof record.id !== "string" ||
+          typeof record.title !== "string" ||
+          typeof record.category !== "string" ||
+          typeof record.description !== "string" ||
+          typeof record.createdAt !== "number" ||
+          typeof record.updatedAt !== "number"
+        ) {
+          return null;
+        }
+
+        return {
+          category: record.category,
+          createdAt: record.createdAt,
+          description: record.description,
+          id: record.id,
+          memberCount:
+            typeof record.memberCount === "number" && record.memberCount > 0
+              ? record.memberCount
+              : 1,
+          privacy: record.privacy === "invite-only" ? "invite-only" : "open",
+          title: record.title,
+          updatedAt: record.updatedAt
+        };
+      })
+      .filter((record): record is CommunityRecord => Boolean(record))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch {
+    return [];
   }
 }
 
@@ -691,7 +752,20 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [showGhostModal, showMoodModal, forwardMessageId]);
   const [allStatuses, setAllStatuses] = useState<MessageRecord[]>([]);
+  const [communities, setCommunities] = useState<CommunityRecord[]>([]);
   const [selectedStatusSenderHash, setSelectedStatusSenderHash] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getGlobalSetting(COMMUNITIES_SETTING_KEY).then((value) => {
+      if (active) {
+        setCommunities(parseCommunityRecords(value));
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const loadStatuses = useCallback(async () => {
     const now = Date.now();
@@ -2039,6 +2113,31 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     showToast("Status deleted.");
   };
 
+  const createCommunity = async (draft: CommunityDraft): Promise<void> => {
+    const title = draft.title.trim();
+    const description = draft.description.trim();
+    if (!title || !description) {
+      showToast("Community name and description are required.");
+      return;
+    }
+
+    const now = Date.now();
+    const record: CommunityRecord = {
+      category: draft.category,
+      createdAt: now,
+      description,
+      id: crypto.randomUUID(),
+      memberCount: 1,
+      privacy: draft.privacy,
+      title,
+      updatedAt: now
+    };
+    const next = [record, ...communities].sort((a, b) => b.updatedAt - a.updatedAt);
+    setCommunities(next);
+    await setGlobalSetting(COMMUNITIES_SETTING_KEY, JSON.stringify(next));
+    showToast("Community created.");
+  };
+
   const attachFile = async (file: File): Promise<boolean> => {
     if (!selectedChatId || (!selectedContact && !selectedGroup)) return false;
 
@@ -2863,7 +2962,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
               onPostStatus={() => setPanel("status_create" as Panel)}
               onViewStatus={(hash) => setSelectedStatusSenderHash(hash)}
             />
-          ) : activeTab === "groups" || activeTab === "communities" ? (
+          ) : activeTab === "groups" ? (
             <GroupsHome
               chats={chats}
               contacts={contacts}
@@ -2876,6 +2975,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                 setDisappearingTimer(chat?.disappearingTimer ?? 0);
                 setMessageSearchQuery("");
               }}
+            />
+          ) : activeTab === "communities" ? (
+            <CommunitiesHome
+              communities={communities}
+              onCreateCommunity={() => setPanel("community_create")}
             />
           ) : activeTab === "settings" ? (
             <SettingsDashboardPreview
@@ -3178,6 +3282,17 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             }}
             onCreate={(title, members) => {
               void createGroup(title, members);
+            }}
+          />
+        ) : null}
+        {panel === "community_create" ? (
+          <CommunityCreateSheet
+            onClose={() => {
+              setPanel(null);
+            }}
+            onCreate={(draft) => {
+              void createCommunity(draft);
+              setPanel(null);
             }}
           />
         ) : null}
@@ -3722,6 +3837,11 @@ function ChatPanel({
   const [toast, setToast] = useState<string | null>(null);
   const [deleteSheetMessageId, setDeleteSheetMessageId] = useState<string | null>(null);
   const [messageText, setMessageText] = useState("");
+  const [activeVoiceNoteId, setActiveVoiceNoteId] = useState<string | null>(null);
+  const [voiceAutoplayRequest, setVoiceAutoplayRequest] = useState<{
+    messageId: string;
+    token: number;
+  } | null>(null);
 
   // Sync local input with the message being edited.
   const editingMessageId = editingMessage?.id ?? null;
@@ -3740,6 +3860,19 @@ function ChatPanel({
     onSend(trimmed);
     setMessageText("");
   }, [messageText, onSend]);
+
+  const voiceNoteMessageIds = useMemo(
+    () =>
+      messages
+        .filter(
+          (message) =>
+            !message.deletedAt &&
+            (messageKindFromRecord(message) === "voice_note" ||
+              isVoiceNoteMessage(message.body))
+        )
+        .map((message) => message.id),
+    [messages]
+  );
 
   const handleCancelEdit = useCallback((): void => {
     setMessageText("");
@@ -3861,6 +3994,30 @@ function ChatPanel({
     });
     window.setTimeout(() => highlightMessage(messageId), 420);
   }, [highlightMessage, messageIndexById]);
+
+  const handleVoicePlaybackStart = useCallback((messageId: string): void => {
+    setActiveVoiceNoteId(messageId);
+  }, []);
+
+  const handleVoicePlaybackEnd = useCallback((messageId: string): void => {
+    const currentIndex = voiceNoteMessageIds.indexOf(messageId);
+    const nextMessageId =
+      currentIndex >= 0 ? voiceNoteMessageIds[currentIndex + 1] : undefined;
+
+    if (!nextMessageId) {
+      setActiveVoiceNoteId(null);
+      return;
+    }
+
+    scrollToMessage(nextMessageId);
+    setActiveVoiceNoteId(nextMessageId);
+    window.setTimeout(() => {
+      setVoiceAutoplayRequest({
+        messageId: nextMessageId,
+        token: Date.now()
+      });
+    }, 220);
+  }, [scrollToMessage, voiceNoteMessageIds]);
 
   const closeMessageContextMenu = useCallback((): void => {
     setMessageMenu(null);
@@ -5251,10 +5408,18 @@ function ChatPanel({
                     </div>
                   ) : null}
                   <MessageContent
+                    activeVoiceNoteId={activeVoiceNoteId}
                     message={message}
                     outbound={message.direction === "outbound"}
                     onOpenMedia={setMediaViewer}
                     onReact={onReact}
+                    onVoicePlaybackEnd={handleVoicePlaybackEnd}
+                    onVoicePlaybackStart={handleVoicePlaybackStart}
+                    voiceAutoplayToken={
+                      voiceAutoplayRequest?.messageId === message.id
+                        ? voiceAutoplayRequest.token
+                        : 0
+                    }
                   />
                   {message.mentions?.length ? (
                     <p className="mt-0.5 text-[11px] opacity-60">
@@ -5679,15 +5844,23 @@ function MessageContextAction({
 }
 
 function MessageContent({
+  activeVoiceNoteId,
   message,
   outbound,
   onOpenMedia,
-  onReact
+  onReact,
+  onVoicePlaybackEnd,
+  onVoicePlaybackStart,
+  voiceAutoplayToken = 0
 }: {
+  activeVoiceNoteId?: string | null;
   message: MessageRecord;
   outbound: boolean;
   onOpenMedia: (viewer: { name: string; url: string; mimeType: string }) => void;
   onReact?: (message: MessageRecord, emoji: string) => void;
+  onVoicePlaybackEnd?: (messageId: string) => void;
+  onVoicePlaybackStart?: (messageId: string) => void;
+  voiceAutoplayToken?: number;
 }): JSX.Element {
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -5789,11 +5962,22 @@ function MessageContent({
   if (media) {
     const displayUrl = resolvedUrl ?? media.thumbnailDataUrl ?? media.thumbnailUrl ?? null;
     if (kind === "voice_note" || kind === "audio") {
+      const voicePlaybackProps =
+        kind === "voice_note"
+          ? {
+              activePlaybackId: activeVoiceNoteId ?? null,
+              autoPlayToken: voiceAutoplayToken,
+              playbackId: message.id,
+              ...(onVoicePlaybackEnd ? { onPlaybackEnd: onVoicePlaybackEnd } : {}),
+              ...(onVoicePlaybackStart ? { onPlaybackStart: onVoicePlaybackStart } : {})
+            }
+          : {};
       return resolvedUrl ? (
         <VoiceNoteBubble
           durationSeconds={Math.round(media.duration ?? 0)}
           outbound={outbound}
           src={resolvedUrl}
+          {...voicePlaybackProps}
         />
       ) : (
         <MediaLoadingState error={loadError} label={kind === "voice_note" ? "Voice note" : media.fileName} />
@@ -5876,9 +6060,14 @@ function MessageContent({
     const voice = parseVoiceNoteBody(message.body);
     return (
       <VoiceNoteBubble
+        activePlaybackId={activeVoiceNoteId ?? null}
+        autoPlayToken={voiceAutoplayToken}
         durationSeconds={voice.durationSeconds}
         outbound={outbound}
+        playbackId={message.id}
         src={voice.src}
+        {...(onVoicePlaybackEnd ? { onPlaybackEnd: onVoicePlaybackEnd } : {})}
+        {...(onVoicePlaybackStart ? { onPlaybackStart: onVoicePlaybackStart } : {})}
       />
     );
   }
@@ -7274,6 +7463,235 @@ function SettingsPreviewButton({
         {value}
       </span>
     </button>
+  );
+}
+
+const COMMUNITY_CATEGORY_OPTIONS = [
+  "Tech",
+  "Sports",
+  "Music",
+  "Gaming",
+  "Business",
+  "Education",
+  "Lifestyle",
+  "Local"
+] as const;
+
+function CommunitiesHome({
+  communities,
+  onCreateCommunity
+}: {
+  communities: CommunityRecord[];
+  onCreateCommunity: () => void;
+}): JSX.Element {
+  const featured = [
+    ["Tech Node", "Build, ship, and share anonymous product notes", "Tech"],
+    ["Match Room", "Sports talk without handles or real names", "Sports"],
+    ["Study Circle", "Quiet learning rooms for private progress", "Education"]
+  ];
+
+  return (
+    <div className="flex h-full flex-col overflow-y-auto px-5 pb-24 pt-3 animate-fade-in">
+      <div className="nada-premium-card mb-5 p-5">
+        <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-nada-gold/14 text-nada-gold">
+          <MessageCircle size={24} />
+        </div>
+        <p className="text-[11px] font-bold uppercase text-nada-gold">Communities</p>
+        <h2 className="mt-1 text-[20px] font-bold text-nada-primary">Public interests. Private identity.</h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-nada-text-muted">
+          Create interest spaces like tech, sports, music, or local circles while keeping NADA identity separate from real life.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className="nada-privacy-chip">Topic-based</span>
+          <span className="nada-privacy-chip">Anonymous profile</span>
+          <span className="nada-privacy-chip">Local-first</span>
+        </div>
+        <button
+          className="nada-btn-gold mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-[13px] font-bold"
+          onClick={onCreateCommunity}
+          type="button"
+        >
+          <Plus size={16} />
+          Add community
+        </button>
+      </div>
+
+      <section className="mb-5">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-[11px] font-bold uppercase text-nada-text-muted">My Communities</p>
+          <span className="rounded-full bg-nada-surface-elevated/70 px-2 py-1 text-[10px] font-bold text-nada-secondary/60">
+            {communities.length}
+          </span>
+        </div>
+        {communities.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-nada-border/10 bg-nada-surface-elevated/35 px-4 py-8 text-center">
+            <Users className="mx-auto mb-3 h-7 w-7 text-nada-secondary/35" />
+            <p className="text-[14px] font-bold text-nada-primary">No communities yet</p>
+            <p className="mt-1 text-[12.5px] text-nada-text-muted">
+              Add a tech, sports, music, or local community to begin.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            {communities.map((community) => (
+              <div className="nada-settings-card flex items-center gap-3" key={community.id}>
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-nada-gold/12 text-nada-gold">
+                  <Users size={19} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-bold text-nada-primary">{community.title}</span>
+                  <span className="block truncate text-[12px] text-nada-text-muted">{community.description}</span>
+                  <span className="mt-2 flex flex-wrap gap-1.5">
+                    <span className="rounded-full bg-nada-surface/70 px-2 py-0.5 text-[10px] font-bold text-nada-gold">
+                      {community.category}
+                    </span>
+                    <span className="rounded-full bg-nada-surface/70 px-2 py-0.5 text-[10px] font-bold text-nada-secondary/60">
+                      {community.privacy === "invite-only" ? "Invite-only" : "Open"}
+                    </span>
+                  </span>
+                </span>
+                <span className="text-right text-[11px] font-semibold text-nada-secondary/55">
+                  {community.memberCount} member{community.memberCount === 1 ? "" : "s"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="grid gap-2">
+        <p className="px-1 text-[11px] font-bold uppercase text-nada-text-muted">Explore Templates</p>
+        {featured.map(([name, meta, badge]) => (
+          <div className="nada-settings-card flex items-center gap-3" key={name}>
+            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-nada-accent/12 text-nada-accent">
+              <BarChart2 size={16} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13.5px] font-bold text-nada-primary">{name}</span>
+              <span className="block text-[12px] text-nada-text-muted">{meta}</span>
+            </span>
+            <span className="rounded-full bg-nada-surface/70 px-2 py-1 text-[10px] font-bold text-nada-secondary/60">
+              {badge}
+            </span>
+          </div>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function CommunityCreateSheet({
+  onClose,
+  onCreate
+}: {
+  onClose: () => void;
+  onCreate: (draft: CommunityDraft) => void;
+}): JSX.Element {
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState<string>("Tech");
+  const [description, setDescription] = useState("");
+  const [privacy, setPrivacy] = useState<"open" | "invite-only">("open");
+  const canCreate = title.trim().length > 0 && description.trim().length > 0;
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <Sheet onClose={onClose}>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[11px] font-bold uppercase text-nada-gold">New community</p>
+          <h2 className="text-lg font-semibold text-nada-primary">Add community</h2>
+        </div>
+        <button
+          className="grid h-10 w-10 place-items-center rounded-2xl bg-nada-muted text-nada-secondary"
+          onClick={onClose}
+          type="button"
+        >
+          <X size={18} />
+        </button>
+      </div>
+      <div className="mt-5 space-y-4">
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold text-nada-secondary/70">Community name</span>
+          <input
+            autoFocus
+            className="nada-input-dark h-12 w-full text-[15px]"
+            maxLength={54}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Tech community, Sports hub..."
+            value={title}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold text-nada-secondary/70">Description</span>
+          <textarea
+            className="nada-input-dark min-h-[96px] w-full resize-none px-4 py-3 text-[14px]"
+            maxLength={180}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="What should people talk about here?"
+            value={description}
+          />
+        </label>
+        <div>
+          <span className="mb-2 block text-xs font-semibold text-nada-secondary/70">Category</span>
+          <div className="grid grid-cols-2 gap-2">
+            {COMMUNITY_CATEGORY_OPTIONS.map((option) => (
+              <button
+                className={cn(
+                  "rounded-2xl border px-3 py-2.5 text-sm font-semibold transition",
+                  category === option
+                    ? "border-nada-gold/45 bg-nada-gold/12 text-nada-gold"
+                    : "border-nada-border/10 bg-nada-surface-elevated/45 text-nada-secondary/75"
+                )}
+                key={option}
+                onClick={() => setCategory(option)}
+                type="button"
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="mb-2 block text-xs font-semibold text-nada-secondary/70">Access</span>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              ["open", "Open"],
+              ["invite-only", "Invite-only"]
+            ].map(([value, label]) => (
+              <button
+                className={cn(
+                  "rounded-2xl border px-3 py-3 text-sm font-semibold transition",
+                  privacy === value
+                    ? "border-nada-accent/45 bg-nada-accent/12 text-nada-accent"
+                    : "border-nada-border/10 bg-nada-surface-elevated/45 text-nada-secondary/75"
+                )}
+                key={value}
+                onClick={() => setPrivacy(value as "open" | "invite-only")}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button
+          className="nada-btn-gold flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-bold disabled:opacity-45"
+          disabled={!canCreate}
+          onClick={() => onCreate({ category, description, privacy, title })}
+          type="button"
+        >
+          <Plus size={16} />
+          Create community
+        </button>
+      </div>
+    </Sheet>
   );
 }
 
