@@ -32,6 +32,7 @@ import {
   EyeOff,
   FileText,
   Flame,
+  Flag,
   Ghost,
   Gift,
   Image,
@@ -174,6 +175,7 @@ type Panel =
   | "migration"
   | "settings"
   | "share"
+  | "status_create"
   | null;
 
 type MessageContextMenuState = {
@@ -185,6 +187,9 @@ type MessageContextMenuState = {
 const PENDING_ENCRYPTED_PAYLOAD = "__pending_encryption__";
 const STATUS_COMMENT_PREFIX = "status-comments:";
 const COMMUNITIES_SETTING_KEY = "communities.v1";
+const REPORTS_SETTING_KEY = "safety.reports.v1";
+const ONBOARDING_DISMISSED_SETTING_KEY = "onboarding.dismissed.v1";
+const CALL_RING_TIMEOUT_MS = 45000;
 
 type ChatListModel = {
   avatar?: string | undefined;
@@ -234,14 +239,28 @@ type GroupDeletePayload = {
 };
 
 type CommunityRecord = {
+  admins: string[];
   category: string;
+  channels: Array<{ id: string; title: string }>;
   createdAt: number;
   description: string;
   id: string;
+  joined: boolean;
   memberCount: number;
+  moderators: string[];
+  posts: CommunityPost[];
   privacy: "open" | "invite-only";
   title: string;
+  topics: string[];
   updatedAt: number;
+};
+
+type CommunityPost = {
+  authorName: string;
+  body: string;
+  channelId: string;
+  createdAt: number;
+  id: string;
 };
 
 type CommunityDraft = {
@@ -249,6 +268,30 @@ type CommunityDraft = {
   description: string;
   privacy: "open" | "invite-only";
   title: string;
+};
+
+type SafetyReport = {
+  category: "spam" | "harassment" | "illegal" | "impersonation" | "other";
+  createdAt: number;
+  id: string;
+  notes: string;
+  targetId: string;
+  targetType: "user" | "community" | "status" | "message";
+  title: string;
+};
+
+type ReportTarget = {
+  id: string;
+  title: string;
+  type: SafetyReport["targetType"];
+};
+
+type GlobalSearchResult = {
+  id: string;
+  label: string;
+  meta: string;
+  targetId: string;
+  targetType: "chat" | "group" | "message" | "status" | "community";
 };
 
 function mergeMessageRecords(...groups: MessageRecord[][]): MessageRecord[] {
@@ -351,16 +394,58 @@ function parseCommunityRecords(raw: string | null): CommunityRecord[] {
         }
 
         return {
+          admins: Array.isArray(record.admins)
+            ? record.admins.filter((item): item is string => typeof item === "string")
+            : [],
           category: record.category,
+          channels: Array.isArray(record.channels)
+            ? record.channels
+                .map((channel) => {
+                  if (!channel || typeof channel !== "object") return null;
+                  const item = channel as { id?: unknown; title?: unknown };
+                  return typeof item.id === "string" && typeof item.title === "string"
+                    ? { id: item.id, title: item.title }
+                    : null;
+                })
+                .filter((channel): channel is { id: string; title: string } => Boolean(channel))
+            : [{ id: "general", title: "General" }],
           createdAt: record.createdAt,
           description: record.description,
           id: record.id,
+          joined: record.joined !== false,
           memberCount:
             typeof record.memberCount === "number" && record.memberCount > 0
               ? record.memberCount
               : 1,
+          moderators: Array.isArray(record.moderators)
+            ? record.moderators.filter((item): item is string => typeof item === "string")
+            : [],
+          posts: Array.isArray(record.posts)
+            ? record.posts
+                .map((post) => {
+                  if (!post || typeof post !== "object") return null;
+                  const item = post as Partial<CommunityPost>;
+                  return typeof item.id === "string" &&
+                    typeof item.body === "string" &&
+                    typeof item.authorName === "string" &&
+                    typeof item.channelId === "string" &&
+                    typeof item.createdAt === "number"
+                    ? {
+                        authorName: item.authorName,
+                        body: item.body,
+                        channelId: item.channelId,
+                        createdAt: item.createdAt,
+                        id: item.id
+                      }
+                    : null;
+                })
+                .filter((post): post is CommunityPost => Boolean(post))
+            : [],
           privacy: record.privacy === "invite-only" ? "invite-only" : "open",
           title: record.title,
+          topics: Array.isArray(record.topics)
+            ? record.topics.filter((item): item is string => typeof item === "string")
+            : [],
           updatedAt: record.updatedAt
         };
       })
@@ -369,6 +454,83 @@ function parseCommunityRecords(raw: string | null): CommunityRecord[] {
   } catch {
     return [];
   }
+}
+
+function parseSafetyReports(raw: string | null): SafetyReport[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item): SafetyReport | null => {
+        if (!item || typeof item !== "object") return null;
+        const report = item as Partial<SafetyReport>;
+        if (
+          typeof report.id !== "string" ||
+          typeof report.title !== "string" ||
+          typeof report.targetId !== "string" ||
+          typeof report.notes !== "string" ||
+          typeof report.createdAt !== "number"
+        ) {
+          return null;
+        }
+        return {
+          category:
+            report.category === "spam" ||
+            report.category === "harassment" ||
+            report.category === "illegal" ||
+            report.category === "impersonation"
+              ? report.category
+              : "other",
+          createdAt: report.createdAt,
+          id: report.id,
+          notes: report.notes,
+          targetId: report.targetId,
+          targetType:
+            report.targetType === "community" ||
+            report.targetType === "status" ||
+            report.targetType === "message"
+              ? report.targetType
+              : "user",
+          title: report.title
+        };
+      })
+      .filter((report): report is SafetyReport => Boolean(report))
+      .sort((a, b) => b.createdAt - a.createdAt);
+  } catch {
+    return [];
+  }
+}
+
+function defaultCommunityChannels(category: string): Array<{ id: string; title: string }> {
+  const normalized = category.toLowerCase();
+  if (normalized === "sports") {
+    return [
+      { id: "general", title: "General" },
+      { id: "matches", title: "Matches" },
+      { id: "transfers", title: "Transfers" }
+    ];
+  }
+  if (normalized === "tech") {
+    return [
+      { id: "general", title: "General" },
+      { id: "builds", title: "Builds" },
+      { id: "jobs", title: "Jobs" }
+    ];
+  }
+  return [
+    { id: "general", title: "General" },
+    { id: "announcements", title: "Announcements" },
+    { id: "off-topic", title: "Off-topic" }
+  ];
+}
+
+function defaultCommunityTopics(category: string): string[] {
+  const normalized = category.toLowerCase();
+  if (normalized === "sports") return ["Live games", "Predictions", "Highlights"];
+  if (normalized === "tech") return ["Startups", "AI", "Frontend"];
+  if (normalized === "music") return ["New releases", "Playlists", "Events"];
+  return [category, "Introductions", "Events"];
 }
 
 async function loadStatusComments(statusId: string): Promise<MessageRecord[]> {
@@ -720,6 +882,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [panel, setPanel] = useState<Panel>(null);
   const [replyToId, setReplyToId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [globalSearchResults, setGlobalSearchResults] = useState<GlobalSearchResult[]>([]);
   const [selectedContactHash, setSelectedContactHash] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
@@ -738,6 +901,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [showGhostModal, setShowGhostModal] = useState(false);
   const [showMoodModal, setShowMoodModal] = useState(false);
   const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
+  const [pendingReportTarget, setPendingReportTarget] = useState<ReportTarget | null>(null);
   const [inAppNotification, setInAppNotification] = useState<{ id: string; title: string; body: string; chatId: string } | null>(null);
 
   useEffect(() => {
@@ -753,13 +917,21 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   }, [showGhostModal, showMoodModal, forwardMessageId]);
   const [allStatuses, setAllStatuses] = useState<MessageRecord[]>([]);
   const [communities, setCommunities] = useState<CommunityRecord[]>([]);
+  const [safetyReports, setSafetyReports] = useState<SafetyReport[]>([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [selectedStatusSenderHash, setSelectedStatusSenderHash] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    void getGlobalSetting(COMMUNITIES_SETTING_KEY).then((value) => {
+    void Promise.all([
+      getGlobalSetting(COMMUNITIES_SETTING_KEY),
+      getGlobalSetting(REPORTS_SETTING_KEY),
+      getGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY)
+    ]).then(([communitiesValue, reportsValue, onboardingDismissed]) => {
       if (active) {
-        setCommunities(parseCommunityRecords(value));
+        setCommunities(parseCommunityRecords(communitiesValue));
+        setSafetyReports(parseSafetyReports(reportsValue));
+        setShowOnboarding(onboardingDismissed !== "true");
       }
     });
     return () => {
@@ -777,12 +949,20 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     setAllStatuses(records);
   }, []);
 
-  const showNotification = useCallback((title: string, body: string, chatId: string) => {
+  const showNotification = useCallback((
+    title: string,
+    body: string,
+    chatId: string,
+    options: { critical?: boolean; requireInteraction?: boolean } = {}
+  ) => {
     const id = crypto.randomUUID();
     setInAppNotification({ id, title, body, chatId });
     setTimeout(() => {
       setInAppNotification((current) => current?.id === id ? null : current);
-    }, 4000);
+    }, options.critical ? 7000 : 4000);
+    if ("vibrate" in navigator) {
+      navigator.vibrate(options.critical ? [80, 40, 80] : 18);
+    }
     if (typeof window !== "undefined" && "Notification" in window) {
       const showSystemNotification = () => {
         try {
@@ -790,7 +970,10 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             new Notification(title, {
               body,
               icon: "/logo.png",
-              tag: chatId
+              tag: chatId,
+              ...(options.requireInteraction !== undefined
+                ? { requireInteraction: options.requireInteraction }
+                : {})
             });
           }
         } catch {
@@ -821,6 +1004,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const processedIncoming = useRef<Set<string>>(new Set());
   const processedCallSignals = useRef<Set<string>>(new Set());
   const processedInvite = useRef("");
+  const callRingTimeoutRef = useRef<number | null>(null);
 
   const selectedContact = useMemo(
     () =>
@@ -845,9 +1029,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     [identity.pubkeyHash, selectedContact, selectedGroup]
   );
   const selectedTitle = selectedGroup?.title ?? selectedContact?.localDisplayName ?? "";
-  const selectedSubtitle = selectedGroup
-    ? `${selectedGroup.memberPubkeyHashes.length} members`
-    : (selectedContact?.trustStatus ?? "");
   const replyMessage = useMemo(
     () => messages.find((message) => message.id === replyToId) ?? null,
     [messages, replyToId]
@@ -889,6 +1070,131 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     Object.values(unreadCounts).reduce((acc, count) => acc + count, 0),
     [unreadCounts]
   );
+  const presenceByHash = useMemo(() => {
+    const activeTypingHashes = new Set(Object.values(typingIndicators));
+    const next: Record<string, { label: string; online: boolean }> = {};
+
+    for (const contact of contacts) {
+      const chatId = directChatId(identity.pubkeyHash, contact.pubkeyHash);
+      const lastMessageTs = lastMessages[chatId]?.ts ?? contact.addedAt;
+      const isTyping = activeTypingHashes.has(contact.pubkeyHash);
+      const online = isTyping;
+      next[contact.pubkeyHash] = {
+        label: online
+          ? "online now"
+          : lastMessageTs > 0
+            ? `last active ${formatRelativeTime(lastMessageTs)}`
+            : "last active hidden",
+        online
+      };
+    }
+
+    return next;
+  }, [contacts, identity.pubkeyHash, lastMessages, typingIndicators]);
+  const selectedSubtitle = selectedGroup
+    ? `${selectedGroup.memberPubkeyHashes.length} members`
+    : selectedContact
+      ? `${presenceByHash[selectedContact.pubkeyHash]?.label ?? "last active hidden"} · ${selectedContact.trustStatus}`
+      : "";
+  useEffect(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (query.length < 2) {
+      setGlobalSearchResults([]);
+      return;
+    }
+
+    let active = true;
+    void nadaDb.messages
+      .toArray()
+      .then((records) => {
+        if (!active) return;
+        const recentRecords = records
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .slice(0, 250);
+        const results: GlobalSearchResult[] = [];
+
+        for (const contact of contacts) {
+          const name = contact.localDisplayName;
+          if (name.toLowerCase().includes(query) || contact.pubkeyHash.toLowerCase().includes(query)) {
+            results.push({
+              id: `chat:${contact.pubkeyHash}`,
+              label: name,
+              meta: "Direct chat",
+              targetId: contact.pubkeyHash,
+              targetType: "chat"
+            });
+          }
+        }
+
+        for (const group of chats) {
+          if (group.title.toLowerCase().includes(query)) {
+            results.push({
+              id: `group:${group.id}`,
+              label: group.title,
+              meta: `${group.memberPubkeyHashes.length} members`,
+              targetId: group.id,
+              targetType: "group"
+            });
+          }
+        }
+
+        for (const community of communities) {
+          const haystack = `${community.title} ${community.description} ${community.category} ${community.topics.join(" ")}`.toLowerCase();
+          if (haystack.includes(query)) {
+            results.push({
+              id: `community:${community.id}`,
+              label: community.title,
+              meta: `${community.category} community`,
+              targetId: community.id,
+              targetType: "community"
+            });
+          }
+        }
+
+        for (const status of allStatuses) {
+          const text = textFromMessage(status);
+          if (text.toLowerCase().includes(query)) {
+            const name =
+              status.senderPubkeyHash === identity.pubkeyHash
+                ? "My Status"
+                : contacts.find((contact) => contact.pubkeyHash === status.senderPubkeyHash)
+                    ?.localDisplayName ?? generateRandomUsername(status.senderPubkeyHash);
+            results.push({
+              id: `status:${status.id}`,
+              label: name,
+              meta: text.slice(0, 72) || "Status update",
+              targetId: status.senderPubkeyHash,
+              targetType: "status"
+            });
+          }
+        }
+
+        for (const message of recentRecords) {
+          if (message.deletedAt) continue;
+          const preview = previewForMessage(message);
+          if (!preview.toLowerCase().includes(query)) continue;
+          const contact = contacts.find(
+            (item) => directChatId(identity.pubkeyHash, item.pubkeyHash) === message.chatId
+          );
+          const group = chats.find((item) => item.id === message.chatId);
+          results.push({
+            id: `message:${message.id}`,
+            label: group?.title ?? contact?.localDisplayName ?? "Message",
+            meta: preview.slice(0, 80),
+            targetId: message.id,
+            targetType: "message"
+          });
+          if (results.length >= 12) break;
+        }
+
+        setGlobalSearchResults(results.slice(0, 12));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [allStatuses, chats, communities, contacts, identity.pubkeyHash, searchQuery]);
+
   const sidebarChatItems = useMemo<ChatListModel[]>(() => {
     const groupItems = chats.map((chat) => {
       const chatId = chat.id;
@@ -921,7 +1227,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         initials: contact.localDisplayName.slice(0, 1).toUpperCase(),
         isArchived: archivedChatIds.has(chatId),
         isGroup: false,
-        isOnline: false,
+        isOnline: presenceByHash[contact.pubkeyHash]?.online ?? false,
         isSelected: selectedContactHash === contact.pubkeyHash,
         preview: lastMsg?.body || "Start a conversation",
         sortTs: lastMsg?.ts || contact.addedAt,
@@ -938,6 +1244,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     contacts,
     identity.pubkeyHash,
     lastMessages,
+    presenceByHash,
     selectedContactHash,
     selectedGroupId,
     unreadCounts
@@ -957,6 +1264,62 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     setDashboardToast(msg);
     setTimeout(() => setDashboardToast(null), 2500);
   }, []);
+
+  const handleGlobalSearchSelect = useCallback(async (result: GlobalSearchResult): Promise<void> => {
+    setPanel(null);
+    setSearchQuery("");
+    setGlobalSearchResults([]);
+
+    if (result.targetType === "community") {
+      setSelectedContactHash(null);
+      setSelectedGroupId(null);
+      setActiveTab("communities");
+      return;
+    }
+
+    if (result.targetType === "status") {
+      setSelectedContactHash(null);
+      setSelectedGroupId(null);
+      setActiveTab("status");
+      setSelectedStatusSenderHash(result.targetId);
+      return;
+    }
+
+    if (result.targetType === "group") {
+      const chat = chats.find((group) => group.id === result.targetId);
+      setSelectedContactHash(null);
+      setSelectedGroupId(result.targetId);
+      setDisappearingTimer(chat?.disappearingTimer ?? 0);
+      setActiveTab("chats");
+      return;
+    }
+
+    if (result.targetType === "chat") {
+      setSelectedGroupId(null);
+      setSelectedContactHash(result.targetId);
+      setActiveTab("chats");
+      return;
+    }
+
+    const message = await nadaDb.messages.get(result.targetId);
+    if (!message) return;
+    const group = chats.find((chat) => chat.id === message.chatId);
+    if (group) {
+      setSelectedContactHash(null);
+      setSelectedGroupId(group.id);
+      setDisappearingTimer(group.disappearingTimer ?? 0);
+    } else {
+      const contact = contacts.find(
+        (item) => directChatId(identity.pubkeyHash, item.pubkeyHash) === message.chatId
+      );
+      if (contact) {
+        setSelectedGroupId(null);
+        setSelectedContactHash(contact.pubkeyHash);
+      }
+    }
+    setActiveTab("chats");
+    setMessageSearchQuery(searchQuery.trim());
+  }, [chats, contacts, identity.pubkeyHash, searchQuery]);
 
 
 
@@ -1507,7 +1870,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   }, [groupIncoming, identity, loadStatuses, selectedChatId, selectedGroupId, sendDelivery, showNotification]);
 
   /** Insert a system call-log message bubble into the current chat */
-  const insertCallLogMessage = useCallback(async (callId: string, mode: CallMode, status: "started" | "ended" | "missed", duration?: number): Promise<void> => {
+  const insertCallLogMessage = useCallback(async (callId: string, mode: CallMode, status: "started" | "ended" | "missed" | "declined", duration?: number): Promise<void> => {
     if (!selectedChatId) return;
     const recipientHash = selectedContact?.pubkeyHash ?? selectedGroup?.id ?? identity.pubkeyHash;
     const body = JSON.stringify({ callId, mode, status, duration });
@@ -1542,6 +1905,72 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     }
   }, [selectedChatId, selectedContact, selectedGroup, identity.pubkeyHash, sendEnvelope]);
 
+  const clearCallRingTimeout = useCallback((): void => {
+    if (callRingTimeoutRef.current) {
+      window.clearTimeout(callRingTimeoutRef.current);
+      callRingTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleCallRingTimeout = useCallback(({
+    callId,
+    mode,
+    peerName,
+    peerPubkeyHash,
+    rejectOnTimeout
+  }: {
+    callId: string;
+    mode: CallMode;
+    peerName: string;
+    peerPubkeyHash: string;
+    rejectOnTimeout: boolean;
+  }): void => {
+    clearCallRingTimeout();
+    callRingTimeoutRef.current = window.setTimeout(() => {
+      const call = useCallStore.getState().call;
+      if (!call || call.callId !== callId) return;
+      if (call.phase !== "incoming-ringing" && call.phase !== "outgoing-ringing") return;
+
+      if (rejectOnTimeout) {
+        sendCallSignal({
+          type: "call-signal",
+          id: crypto.randomUUID(),
+          callId,
+          recipient: peerPubkeyHash,
+          sender: identity.pubkeyHash,
+          timestamp: Date.now(),
+          mode,
+          signalType: "reject",
+          payload: "timeout"
+        });
+      }
+
+      callStore.endCall();
+      void nadaDb.calls.update(callId, {
+        endedAt: Date.now(),
+        status: "ended"
+      });
+      void insertCallLogMessage(callId, mode, "missed");
+      showNotification(
+        peerName,
+        rejectOnTimeout ? "Missed encrypted call" : "No answer",
+        directChatId(identity.pubkeyHash, peerPubkeyHash),
+        { critical: true }
+      );
+    }, CALL_RING_TIMEOUT_MS);
+  }, [
+    callStore,
+    clearCallRingTimeout,
+    identity.pubkeyHash,
+    insertCallLogMessage,
+    sendCallSignal,
+    showNotification
+  ]);
+
+  useEffect(() => {
+    return () => clearCallRingTimeout();
+  }, [clearCallRingTimeout]);
+
   useEffect(() => {
     const latestSignal = callSignals.find(
       (signal) =>
@@ -1560,6 +1989,26 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           const contact = contacts.find(c => c.pubkeyHash === latestSignal.sender);
           const callerName = contact?.localDisplayName ?? generateRandomUsername(latestSignal.sender);
           const callChatId = directChatId(identity.pubkeyHash, latestSignal.sender);
+          const existingCall = useCallStore.getState().call;
+          if (
+            existingCall &&
+            existingCall.phase !== "idle" &&
+            existingCall.phase !== "ended" &&
+            existingCall.phase !== "failed"
+          ) {
+            sendCallSignal({
+              type: "call-signal",
+              id: crypto.randomUUID(),
+              callId: latestSignal.callId,
+              recipient: latestSignal.sender,
+              sender: identity.pubkeyHash,
+              timestamp: Date.now(),
+              mode: latestSignal.mode,
+              signalType: "reject",
+              payload: "busy"
+            });
+            break;
+          }
           callStore.receiveIncomingOffer({
             callId: latestSignal.callId,
             mode: latestSignal.mode,
@@ -1570,13 +2019,30 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           showNotification(
             callerName,
             `Incoming ${latestSignal.mode === "video" ? "video" : "voice"} call`,
-            callChatId
+            callChatId,
+            { critical: true, requireInteraction: true }
           );
+          void nadaDb.calls.put({
+            id: latestSignal.callId,
+            chatId: callChatId,
+            peerPubkeyHash: latestSignal.sender,
+            mode: latestSignal.mode,
+            status: "ringing",
+            startedAt: Date.now()
+          });
+          scheduleCallRingTimeout({
+            callId: latestSignal.callId,
+            mode: latestSignal.mode,
+            peerName: callerName,
+            peerPubkeyHash: latestSignal.sender,
+            rejectOnTimeout: true
+          });
           // Log incoming call attempt
           void insertCallLogMessage(latestSignal.callId, latestSignal.mode, "started");
           break;
         }
         case "answer": {
+          clearCallRingTimeout();
           // Caller receives the answer - set remote description on our PC
           const pc = callStore.call?.localSession?.peerConnection;
           if (!pc) break;
@@ -1605,14 +2071,35 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           break;
         }
         case "reject":
+          clearCallRingTimeout();
+          callStore.endCall();
+          showNotification(
+            "Call ended",
+            latestSignal.payload === "busy" ? "The contact is already on a call." : "Call declined.",
+            directChatId(identity.pubkeyHash, latestSignal.sender),
+            { critical: true }
+          );
+          void insertCallLogMessage(latestSignal.callId, latestSignal.mode, "declined");
+          break;
         case "hangup":
+          clearCallRingTimeout();
           callStore.endCall();
           break;
       }
     } catch {
       callStore.failCall("The incoming call signal was invalid.");
     }
-  }, [callSignals, identity.pubkeyHash, contacts, callStore, insertCallLogMessage, showNotification]);
+  }, [
+    callSignals,
+    identity.pubkeyHash,
+    contacts,
+    callStore,
+    clearCallRingTimeout,
+    insertCallLogMessage,
+    scheduleCallRingTimeout,
+    sendCallSignal,
+    showNotification
+  ]);
 
   // ── Offline Message Queue Flush ──────────────────────────────────────────────
   useEffect(() => {
@@ -1982,8 +2469,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     if (!identity) return;
     const id = crypto.randomUUID();
     const timestamp = Date.now();
+    const trimmedText = text.trim();
     const payload = media 
-      ? buildMediaPayload({ media, type: "status" })
+      ? buildMediaPayload({ media, type: "status", ...(trimmedText ? { text: trimmedText } : {}) })
       : buildTextPayload({ text });
     
     const body = encodeMessagePayload({ ...payload, type: "status" as const });
@@ -2123,13 +2611,19 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
     const now = Date.now();
     const record: CommunityRecord = {
+      admins: [identity.pubkeyHash],
       category: draft.category,
+      channels: defaultCommunityChannels(draft.category),
       createdAt: now,
       description,
       id: crypto.randomUUID(),
+      joined: true,
       memberCount: 1,
+      moderators: [],
+      posts: [],
       privacy: draft.privacy,
       title,
+      topics: defaultCommunityTopics(draft.category),
       updatedAt: now
     };
     const next = [record, ...communities].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -2137,6 +2631,47 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     await setGlobalSetting(COMMUNITIES_SETTING_KEY, JSON.stringify(next));
     showToast("Community created.");
   };
+
+  const saveCommunities = useCallback(async (next: CommunityRecord[]) => {
+    const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
+    setCommunities(sorted);
+    await setGlobalSetting(COMMUNITIES_SETTING_KEY, JSON.stringify(sorted));
+  }, []);
+
+  const updateCommunity = useCallback((
+    communityId: string,
+    updater: (community: CommunityRecord) => CommunityRecord
+  ): void => {
+    const next = communities.map((community) =>
+      community.id === communityId ? updater(community) : community
+    );
+    void saveCommunities(next);
+  }, [communities, saveCommunities]);
+
+  const submitSafetyReport = useCallback(async ({
+    category,
+    notes,
+    target
+  }: {
+    category: SafetyReport["category"];
+    notes: string;
+    target: ReportTarget;
+  }): Promise<void> => {
+    const report: SafetyReport = {
+      category,
+      createdAt: Date.now(),
+      id: crypto.randomUUID(),
+      notes: notes.trim(),
+      targetId: target.id,
+      targetType: target.type,
+      title: target.title
+    };
+    const next = [report, ...safetyReports];
+    setSafetyReports(next);
+    await setGlobalSetting(REPORTS_SETTING_KEY, JSON.stringify(next));
+    setPendingReportTarget(null);
+    showNotification("Report saved", `${target.title} was added to your safety log.`, "safety");
+  }, [safetyReports, showNotification]);
 
   const attachFile = async (file: File): Promise<boolean> => {
     if (!selectedChatId || (!selectedContact && !selectedGroup)) return false;
@@ -2408,6 +2943,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
     const callId = crypto.randomUUID();
     try {
+      clearCallRingTimeout();
       const session = await createLocalCallSession(mode, callId);
 
       // Wire ICE candidate forwarding before creating offer
@@ -2462,7 +2998,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       showNotification(
         selectedContact.localDisplayName,
         `Starting ${mode === "video" ? "video" : "voice"} call`,
-        selectedChatId
+        selectedChatId,
+        { critical: true }
       );
 
       await nadaDb.calls.put({
@@ -2487,6 +3024,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         signalType: "offer",
         payload: JSON.stringify(offer)
       });
+      scheduleCallRingTimeout({
+        callId,
+        mode,
+        peerName: selectedContact.localDisplayName,
+        peerPubkeyHash: selectedContact.pubkeyHash,
+        rejectOnTimeout: false
+      });
     } catch {
       callStore.failCall("Could not start media capture.");
     }
@@ -2498,6 +3042,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const mode = activeCall?.mode;
     const startedAt = activeCall?.startedAt;
 
+    clearCallRingTimeout();
     callStore.endCall();
 
     if (callId && mode) {
@@ -2521,6 +3066,33 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         });
       }
     }
+  };
+
+  const rejectIncomingCall = (): void => {
+    const call = useCallStore.getState().call;
+    if (!call || call.phase !== "incoming-ringing") {
+      callStore.endCall();
+      return;
+    }
+
+    clearCallRingTimeout();
+    sendCallSignal({
+      type: "call-signal",
+      id: crypto.randomUUID(),
+      callId: call.callId,
+      recipient: call.peerPubkeyHash,
+      sender: identity.pubkeyHash,
+      timestamp: Date.now(),
+      mode: call.mode,
+      signalType: "reject",
+      payload: "declined"
+    });
+    void nadaDb.calls.update(call.callId, {
+      endedAt: Date.now(),
+      status: "ended"
+    });
+    void insertCallLogMessage(call.callId, call.mode, "declined");
+    callStore.endCall();
   };
 
   /** Delete for me only — soft-delete locally, message stays on remote device */
@@ -2864,7 +3436,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     );
   }, [identity.pubkeyHash, selectedGroup]);
 
-  useEffect(() => {
+  const registerPushNotifications = useCallback(async (): Promise<void> => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
       return;
     }
@@ -2872,7 +3444,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const vapidKey = process.env['NEXT_PUBLIC_VAPID_PUBLIC_KEY'];
     if (!vapidKey) return;
 
-    void navigator.serviceWorker.ready.then(async (registration) => {
+    await navigator.serviceWorker.ready.then(async (registration) => {
       try {
         const existingSub = await registration.pushManager.getSubscription();
         if (existingSub) {
@@ -2924,6 +3496,10 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     });
   }, [identity.pubkeyHash]);
 
+  useEffect(() => {
+    void registerPushNotifications();
+  }, [registerPushNotifications]);
+
   return (
     <div className="nada-app-frame flex h-dvh w-full items-center justify-center overflow-hidden pl-safe-area pr-safe-area">
       <section
@@ -2950,7 +3526,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           headerProps={{
             displayName: displayName,
             activeTab: activeTab,
-            onCameraClick: () => setPanel("status_create" as Panel),
+            onCameraClick: () => setPanel("status_create"),
             onMoreClick: () => setPanel("settings")
           }}
         >
@@ -2959,7 +3535,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
               identity={identity}
               contacts={contacts}
               statuses={allStatuses}
-              onPostStatus={() => setPanel("status_create" as Panel)}
+              onPostStatus={() => setPanel("status_create")}
               onViewStatus={(hash) => setSelectedStatusSenderHash(hash)}
             />
           ) : activeTab === "groups" ? (
@@ -2979,7 +3555,55 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           ) : activeTab === "communities" ? (
             <CommunitiesHome
               communities={communities}
+              identity={identity}
               onCreateCommunity={() => setPanel("community_create")}
+              onCopyInvite={(community) => {
+                const invite = `${window.location.origin}/?community=${encodeURIComponent(community.id)}`;
+                void navigator.clipboard?.writeText(invite);
+                showToast("Community invite copied.");
+              }}
+              onJoinCommunity={(communityId) => {
+                updateCommunity(communityId, (community) => ({
+                  ...community,
+                  joined: true,
+                  memberCount: community.joined ? community.memberCount : community.memberCount + 1,
+                  updatedAt: Date.now()
+                }));
+                showToast("Community joined.");
+              }}
+              onLeaveCommunity={(communityId) => {
+                updateCommunity(communityId, (community) => ({
+                  ...community,
+                  joined: false,
+                  memberCount: Math.max(1, community.memberCount - (community.joined ? 1 : 0)),
+                  updatedAt: Date.now()
+                }));
+                showToast("Community left.");
+              }}
+              onPostCommunity={(communityId, channelId, body) => {
+                updateCommunity(communityId, (community) => ({
+                  ...community,
+                  posts: [
+                    {
+                      authorName: displayName.trim() || generateRandomUsername(identity.pubkeyHash),
+                      body,
+                      channelId,
+                      createdAt: Date.now(),
+                      id: crypto.randomUUID()
+                    },
+                    ...community.posts
+                  ].slice(0, 120),
+                  updatedAt: Date.now()
+                }));
+                showToast("Community post added.");
+              }}
+              onReportCommunity={(community) => {
+                setPendingReportTarget({
+                  id: community.id,
+                  title: community.title,
+                  type: "community"
+                });
+              }}
             />
           ) : activeTab === "settings" ? (
             <SettingsDashboardPreview
@@ -2997,6 +3621,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           ) : (
           <div className="flex flex-col">
             <RelayStatus status={relayStatus} />
+            {searchQuery.trim().length >= 2 ? (
+              <GlobalSearchResults
+                query={searchQuery}
+                results={globalSearchResults}
+                onSelect={(result) => {
+                  void handleGlobalSearchSelect(result);
+                }}
+              />
+            ) : null}
             {archivedCount > 0 ? (
               <ArchivedRow
                 count={archivedCount}
@@ -3214,6 +3847,21 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         onPin={(message) => {
           void pinMessage(message);
         }}
+        onReportMessage={(message) => {
+          setPendingReportTarget({
+            id: message.id,
+            title: previewForMessage(message).slice(0, 64) || "Message",
+            type: "message"
+          });
+        }}
+        onReportPeer={() => {
+          if (!selectedContact) return;
+          setPendingReportTarget({
+            id: selectedContact.pubkeyHash,
+            title: selectedContact.localDisplayName,
+            type: "user"
+          });
+        }}
         pinnedMessageId={chatPref.pinnedMessageId ?? null}
         pinnedMessageBody={chatPref.pinnedMessageBody ?? null}
         wallpaperUrl={chatPref.wallpaperUrl ?? null}
@@ -3333,7 +3981,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             }}
           />
         ) : null}
-        {panel === ("status_create" as Panel) ? (
+        {panel === "status_create" ? (
           <StatusCreateSheet
             onClose={() => setPanel(null)}
             onPost={(text, media) => {
@@ -3373,6 +4021,38 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             }}
           />
         ) : null}
+        {pendingReportTarget ? (
+          <SafetyReportSheet
+            onClose={() => setPendingReportTarget(null)}
+            onSubmit={(category, notes) => {
+              void submitSafetyReport({
+                category,
+                notes,
+                target: pendingReportTarget
+              });
+            }}
+            target={pendingReportTarget}
+          />
+        ) : null}
+        {showOnboarding ? (
+          <LaunchOnboardingSheet
+            contactsCount={contacts.length}
+            groupsCount={chats.length}
+            hasPostedStatus={allStatuses.some((status) => status.senderPubkeyHash === identity.pubkeyHash)}
+            onClose={() => {
+              setShowOnboarding(false);
+              void setGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY, "true");
+            }}
+            onEnableNotifications={() => {
+              void registerPushNotifications();
+            }}
+            onOpenCommunity={() => {
+              setShowOnboarding(false);
+              void setGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY, "true");
+              setActiveTab("communities");
+            }}
+          />
+        ) : null}
       </AnimatePresence>
       <IncomingCallModal
         onAccept={async () => {
@@ -3380,6 +4060,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           if (!snap || !snap.pendingOfferSdp) return;
 
           try {
+            clearCallRingTimeout();
             const session = await createLocalCallSession(snap.mode, snap.callId);
 
             // Wire ICE forwarding on the callee side
@@ -3435,6 +4116,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             await session.peerConnection.setLocalDescription(answer);
 
             callStore.attachLocalSession(session);
+            void nadaDb.calls.update(snap.callId, {
+              status: "active"
+            });
 
             sendCallSignal({
               type: "call-signal",
@@ -3451,7 +4135,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             callStore.failCall("Could not access camera/microphone.");
           }
         }}
-        onReject={() => { endCall(); }}
+        onReject={rejectIncomingCall}
       />
       <VoiceCallOverlay onEnd={endCall} />
       <VideoCallOverlay onEnd={endCall} />
@@ -3714,6 +4398,67 @@ function RelayStatus({ status }: { status: string }): JSX.Element {
   );
 }
 
+function GlobalSearchResults({
+  onSelect,
+  query,
+  results
+}: {
+  onSelect: (result: GlobalSearchResult) => void;
+  query: string;
+  results: GlobalSearchResult[];
+}): JSX.Element {
+  return (
+    <section className="mx-4 mb-3 rounded-2xl border border-nada-border/10 bg-nada-surface-elevated/45 p-2">
+      <div className="mb-1 flex items-center justify-between px-2 py-1">
+        <span className="text-[10.5px] font-bold uppercase text-nada-text-muted">
+          Search results
+        </span>
+        <span className="text-[10px] font-semibold text-nada-secondary/45">
+          {results.length}
+        </span>
+      </div>
+      {results.length === 0 ? (
+        <p className="px-2 pb-2 text-[12px] text-nada-secondary/55">
+          No matches for &quot;{query.trim()}&quot; yet.
+        </p>
+      ) : (
+        <div className="grid gap-1">
+          {results.map((result) => (
+            <button
+              className="flex items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/[0.05]"
+              key={result.id}
+              onClick={() => onSelect(result)}
+              type="button"
+            >
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-nada-accent/12 text-nada-accent">
+                {result.targetType === "community" ? (
+                  <Users size={15} />
+                ) : result.targetType === "status" ? (
+                  <CircleDashed size={15} />
+                ) : result.targetType === "message" ? (
+                  <MessageCircle size={15} />
+                ) : result.targetType === "group" ? (
+                  <Users size={15} />
+                ) : (
+                  <Search size={15} />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-bold text-nada-primary">
+                  {result.label}
+                </span>
+                <span className="block truncate text-[11.5px] text-nada-text-muted">
+                  {result.meta}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 
 
 function ChatPanel({
@@ -3757,6 +4502,8 @@ function ChatPanel({
   onTypingStop,
   onReact,
   onPin,
+  onReportMessage,
+  onReportPeer,
   contacts,
   pinnedMessageId,
   pinnedMessageBody,
@@ -3810,6 +4557,8 @@ function ChatPanel({
   onTyping: (isTyping: boolean) => void;
   onReact: (message: MessageRecord, emoji: string) => void;
   onPin: (message: MessageRecord) => void;
+  onReportMessage: (message: MessageRecord) => void;
+  onReportPeer: () => void;
   pinnedMessageId: string | null;
   pinnedMessageBody: string | null;
   wallpaperUrl: string | null;
@@ -4030,7 +4779,7 @@ function ChatPanel({
     if (message.deletedAt) return;
 
     const menuWidth = 232;
-    const menuHeight = message.direction === "outbound" ? 320 : 276;
+    const menuHeight = message.direction === "outbound" ? 356 : 312;
     const padding = 12;
     const x = Math.min(
       Math.max(point.x, padding),
@@ -4620,6 +5369,16 @@ function ChatPanel({
                     >
                       <ShieldAlert size={14} className="text-nada-gold/80" />
                       Verify key
+                    </button>
+                    <button
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
+                      onClick={() => {
+                        setShowOptions(false);
+                        onReportPeer();
+                      }}
+                    >
+                      <Flag size={14} className="text-nada-danger/70" />
+                      Report user
                     </button>
                     <button
                       className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-danger hover:bg-nada-surface-elevated/40 transition-colors"
@@ -5252,8 +6011,10 @@ function ChatPanel({
               ? `${isVideo ? "Video" : "Voice"} call${durLabel ? ` · ${durLabel}` : ""}`
               : callLog.status === "missed"
                 ? `Missed ${isVideo ? "video" : "voice"} call`
-                : `${isVideo ? "Video" : "Voice"} call started`;
-            const isMissed = callLog.status === "missed";
+                : callLog.status === "declined"
+                  ? `${isVideo ? "Video" : "Voice"} call declined`
+                  : `${isVideo ? "Video" : "Voice"} call started`;
+            const isMissed = callLog.status === "missed" || callLog.status === "declined";
             return (
               <div key={message.id} ref={(el) => setMessageRef(message.id, el)} className="px-3">
                 {showDateSep && (
@@ -5564,6 +6325,14 @@ function ChatPanel({
                   }}
                 />
               ) : null}
+              <MessageContextAction
+                icon={<Flag size={15} />}
+                label="Report"
+                onClick={() => {
+                  onReportMessage(contextMenuMessage);
+                  closeMessageContextMenu();
+                }}
+              />
               <div className="my-1 h-px bg-white/10" />
               <MessageContextAction
                 danger
@@ -6552,21 +7321,25 @@ function GroupSheet({
 
 const BILLING_PLANS: Array<{
   description: string;
+  features: string[];
   label: string;
   plan: PaidBillingPlan;
 }> = [
   {
-    description: "Larger files, longer relay retention, themes, backups.",
+    description: "Launch-ready limits for heavier private messaging.",
+    features: ["Larger files", "Longer voice notes", "Premium themes", "More communities"],
     label: "Pro",
     plan: "pro"
   },
   {
-    description: "Verified anonymous profile, catalog, bot API, ZK analytics.",
+    description: "Advanced anonymous growth tools for creators.",
+    features: ["Verified anonymous profile", "Community catalog", "Bot API", "ZK analytics"],
     label: "Business",
     plan: "business"
   },
   {
-    description: "Self-hosted relay, SLA, admin controls, compliance docs.",
+    description: "Private infrastructure for teams and operators.",
+    features: ["Self-hosted relay", "SLA", "Admin controls", "Compliance notes"],
     label: "Enterprise",
     plan: "enterprise"
   }
@@ -6660,6 +7433,11 @@ function BillingSheet({
               <div>
                 <h3 className="text-sm font-semibold text-nada-primary">{plan.label}</h3>
                 <p className="mt-1 text-xs text-nada-secondary">{plan.description}</p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {plan.features.map((feature) => (
+                    <span className="nada-privacy-chip" key={feature}>{feature}</span>
+                  ))}
+                </div>
               </div>
               <Button
                 onClick={() => {
@@ -7210,6 +7988,183 @@ function Sheet({
   );
 }
 
+function SafetyReportSheet({
+  onClose,
+  onSubmit,
+  target
+}: {
+  onClose: () => void;
+  onSubmit: (category: SafetyReport["category"], notes: string) => void;
+  target: ReportTarget;
+}): JSX.Element {
+  const [category, setCategory] = useState<SafetyReport["category"]>("spam");
+  const [notes, setNotes] = useState("");
+
+  return (
+    <Sheet onClose={onClose}>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[11px] font-bold uppercase text-nada-danger/80">Safety report</p>
+          <h2 className="text-lg font-semibold text-nada-primary">Report {target.type}</h2>
+        </div>
+        <IconButton label="Close" onClick={onClose}>
+          <X size={18} />
+        </IconButton>
+      </div>
+      <div className="mt-5 rounded-2xl border border-red-500/15 bg-red-500/[0.07] p-4">
+        <p className="text-sm font-bold text-nada-primary">{target.title}</p>
+        <p className="mt-1 text-xs leading-relaxed text-nada-secondary/65">
+          Reports are stored in your local safety log so you can block, review, and escalate patterns without mixing them into DMs.
+        </p>
+      </div>
+      <div className="mt-5 grid grid-cols-2 gap-2">
+        {([
+          ["spam", "Spam"],
+          ["harassment", "Harassment"],
+          ["impersonation", "Impersonation"],
+          ["illegal", "Illegal"],
+          ["other", "Other"]
+        ] as Array<[SafetyReport["category"], string]>).map(([value, label]) => (
+          <button
+            className={cn(
+              "rounded-2xl border px-3 py-3 text-sm font-semibold transition",
+              category === value
+                ? "border-red-400/45 bg-red-500/12 text-red-200"
+                : "border-nada-border/10 bg-nada-surface-elevated/45 text-nada-secondary/75"
+            )}
+            key={value}
+            onClick={() => setCategory(value)}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <label className="mt-5 block">
+        <span className="mb-2 block text-xs font-semibold text-nada-secondary/70">Notes</span>
+        <textarea
+          className="nada-input-dark min-h-[112px] w-full resize-none px-4 py-3 text-sm"
+          maxLength={360}
+          onChange={(event) => setNotes(event.target.value)}
+          placeholder="Add context for yourself..."
+          value={notes}
+        />
+      </label>
+      <div className="mt-5 flex gap-3">
+        <button
+          className="flex-1 rounded-2xl bg-nada-muted px-4 py-3 text-sm font-semibold text-nada-secondary"
+          onClick={onClose}
+          type="button"
+        >
+          Cancel
+        </button>
+        <button
+          className="flex-1 rounded-2xl bg-red-500 px-4 py-3 text-sm font-bold text-white"
+          onClick={() => onSubmit(category, notes)}
+          type="button"
+        >
+          Save report
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+function LaunchOnboardingSheet({
+  contactsCount,
+  groupsCount,
+  hasPostedStatus,
+  onClose,
+  onEnableNotifications,
+  onOpenCommunity
+}: {
+  contactsCount: number;
+  groupsCount: number;
+  hasPostedStatus: boolean;
+  onClose: () => void;
+  onEnableNotifications: () => void;
+  onOpenCommunity: () => void;
+}): JSX.Element {
+  const steps = [
+    { done: contactsCount > 0, label: "Add an anonymous contact", meta: "Start a direct encrypted lane." },
+    { done: groupsCount > 0, label: "Create a private group", meta: "Invite-only rooms for trusted people." },
+    { done: hasPostedStatus, label: "Post a status", meta: "Share a vanishing thought." },
+    { done: false, label: "Enable notifications", meta: "Never miss calls or launch messages." }
+  ];
+
+  return (
+    <motion.div
+      animate={{ opacity: 1 }}
+      className="nada-overlay fixed inset-0 z-overlay grid place-items-end p-3 sm:place-items-center"
+      exit={{ opacity: 0 }}
+      initial={{ opacity: 0 }}
+      onClick={onClose}
+    >
+      <motion.div
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        className="w-full max-w-md rounded-3xl border border-nada-border/12 bg-nada-surface p-5 shadow-2xl"
+        exit={{ y: 24, opacity: 0, scale: 0.98 }}
+        initial={{ y: 24, opacity: 0, scale: 0.98 }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-bold uppercase text-nada-gold">Launch setup</p>
+            <h2 className="mt-1 text-xl font-bold text-nada-primary">Make NADA feel alive.</h2>
+            <p className="mt-2 text-sm leading-relaxed text-nada-text-muted">
+              A short setup pass for the anonymous flows people expect on day one.
+            </p>
+          </div>
+          <IconButton label="Close onboarding" onClick={onClose}>
+            <X size={18} />
+          </IconButton>
+        </div>
+        <div className="mt-5 grid gap-2">
+          {steps.map((step) => (
+            <div className="nada-settings-card flex items-center gap-3" key={step.label}>
+              <span
+                className={cn(
+                  "grid h-9 w-9 place-items-center rounded-2xl text-xs font-bold",
+                  step.done ? "bg-emerald-400/14 text-emerald-300" : "bg-nada-accent/12 text-nada-accent"
+                )}
+              >
+                {step.done ? "OK" : "GO"}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-nada-primary">{step.label}</span>
+                <span className="block text-xs text-nada-text-muted">{step.meta}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <button
+            className="rounded-2xl bg-nada-muted px-4 py-3 text-sm font-semibold text-nada-secondary"
+            onClick={onClose}
+            type="button"
+          >
+            Done
+          </button>
+          <button
+            className="rounded-2xl bg-nada-accent px-4 py-3 text-sm font-bold text-white shadow-accent-glow"
+            onClick={onEnableNotifications}
+            type="button"
+          >
+            Enable alerts
+          </button>
+        </div>
+        <button
+          className="mt-3 w-full rounded-2xl border border-nada-gold/20 bg-nada-gold/[0.08] px-4 py-3 text-sm font-bold text-nada-gold"
+          onClick={onOpenCommunity}
+          type="button"
+        >
+          Explore communities
+        </button>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function ConfirmChatActionDialog({
   action,
   chatTitle,
@@ -7479,16 +8434,50 @@ const COMMUNITY_CATEGORY_OPTIONS = [
 
 function CommunitiesHome({
   communities,
-  onCreateCommunity
+  identity,
+  onCopyInvite,
+  onCreateCommunity,
+  onJoinCommunity,
+  onLeaveCommunity,
+  onPostCommunity,
+  onReportCommunity
 }: {
   communities: CommunityRecord[];
+  identity: IdentityRecord;
+  onCopyInvite: (community: CommunityRecord) => void;
   onCreateCommunity: () => void;
+  onJoinCommunity: (communityId: string) => void;
+  onLeaveCommunity: (communityId: string) => void;
+  onPostCommunity: (communityId: string, channelId: string, body: string) => void;
+  onReportCommunity: (community: CommunityRecord) => void;
 }): JSX.Element {
+  const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(communities[0]?.id ?? null);
+  const [selectedChannelId, setSelectedChannelId] = useState("general");
+  const [postDraft, setPostDraft] = useState("");
   const featured = [
     ["Tech Node", "Build, ship, and share anonymous product notes", "Tech"],
     ["Match Room", "Sports talk without handles or real names", "Sports"],
     ["Study Circle", "Quiet learning rooms for private progress", "Education"]
   ];
+  const selectedCommunity =
+    communities.find((community) => community.id === selectedCommunityId) ?? communities[0] ?? null;
+  const visiblePosts = selectedCommunity
+    ? selectedCommunity.posts.filter((post) => post.channelId === selectedChannelId)
+    : [];
+
+  useEffect(() => {
+    if (!selectedCommunity && communities[0]) {
+      setSelectedCommunityId(communities[0].id);
+    }
+  }, [communities, selectedCommunity]);
+
+  useEffect(() => {
+    if (!selectedCommunity) return;
+    const firstChannel = selectedCommunity.channels[0]?.id ?? "general";
+    if (!selectedCommunity.channels.some((channel) => channel.id === selectedChannelId)) {
+      setSelectedChannelId(firstChannel);
+    }
+  }, [selectedChannelId, selectedCommunity]);
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-5 pb-24 pt-3 animate-fade-in">
@@ -7534,7 +8523,18 @@ function CommunitiesHome({
         ) : (
           <div className="grid gap-2">
             {communities.map((community) => (
-              <div className="nada-settings-card flex items-center gap-3" key={community.id}>
+              <button
+                className={cn(
+                  "nada-settings-card flex items-center gap-3 text-left",
+                  selectedCommunity?.id === community.id && "ring-1 ring-nada-gold/25"
+                )}
+                key={community.id}
+                onClick={() => {
+                  setSelectedCommunityId(community.id);
+                  setSelectedChannelId(community.channels[0]?.id ?? "general");
+                }}
+                type="button"
+              >
                 <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-nada-gold/12 text-nada-gold">
                   <Users size={19} />
                 </span>
@@ -7553,11 +8553,135 @@ function CommunitiesHome({
                 <span className="text-right text-[11px] font-semibold text-nada-secondary/55">
                   {community.memberCount} member{community.memberCount === 1 ? "" : "s"}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         )}
       </section>
+
+      {selectedCommunity ? (
+        <section className="mb-5 rounded-3xl border border-nada-border/10 bg-nada-surface-elevated/35 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase text-nada-gold">
+                {selectedCommunity.category} community
+              </p>
+              <h3 className="truncate text-lg font-bold text-nada-primary">{selectedCommunity.title}</h3>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-nada-text-muted">
+                {selectedCommunity.description}
+              </p>
+            </div>
+            <button
+              className="grid h-10 w-10 place-items-center rounded-2xl bg-nada-muted text-nada-secondary"
+              onClick={() => onReportCommunity(selectedCommunity)}
+              type="button"
+            >
+              <Flag size={16} />
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {selectedCommunity.topics.map((topic) => (
+              <span className="nada-privacy-chip" key={topic}>{topic}</span>
+            ))}
+            {selectedCommunity.admins.includes(identity.pubkeyHash) ? (
+              <span className="nada-privacy-chip border-nada-gold/20 bg-nada-gold/[0.08] text-nada-gold">
+                Admin
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button
+              className="flex-1 rounded-2xl border border-nada-border/10 bg-nada-surface px-3 py-2.5 text-sm font-bold text-nada-primary"
+              onClick={() => onCopyInvite(selectedCommunity)}
+              type="button"
+            >
+              Copy invite
+            </button>
+            <button
+              className={cn(
+                "flex-1 rounded-2xl px-3 py-2.5 text-sm font-bold",
+                selectedCommunity.joined
+                  ? "bg-nada-muted text-nada-secondary"
+                  : "bg-nada-accent text-white"
+              )}
+              onClick={() => {
+                if (selectedCommunity.joined) onLeaveCommunity(selectedCommunity.id);
+                else onJoinCommunity(selectedCommunity.id);
+              }}
+              type="button"
+            >
+              {selectedCommunity.joined ? "Leave" : "Join"}
+            </button>
+          </div>
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            {selectedCommunity.channels.map((channel) => (
+              <button
+                className={cn(
+                  "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition",
+                  selectedChannelId === channel.id
+                    ? "bg-nada-gold text-black"
+                    : "bg-nada-surface text-nada-secondary/70"
+                )}
+                key={channel.id}
+                onClick={() => setSelectedChannelId(channel.id)}
+                type="button"
+              >
+                {channel.title}
+              </button>
+            ))}
+          </div>
+          {selectedCommunity.joined ? (
+            <form
+              className="mt-4 flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const body = postDraft.trim();
+                if (!body) return;
+                onPostCommunity(selectedCommunity.id, selectedChannelId, body);
+                setPostDraft("");
+              }}
+            >
+              <input
+                className="nada-input-dark h-11 min-w-0 flex-1 text-sm"
+                maxLength={280}
+                onChange={(event) => setPostDraft(event.target.value)}
+                placeholder="Post to this channel..."
+                value={postDraft}
+              />
+              <button
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-nada-accent text-white disabled:opacity-40"
+                disabled={!postDraft.trim()}
+                type="submit"
+              >
+                <Send size={16} />
+              </button>
+            </form>
+          ) : (
+            <p className="mt-4 rounded-2xl bg-nada-surface/70 px-4 py-3 text-[12.5px] text-nada-text-muted">
+              Join this community to post without exposing a real-world identity.
+            </p>
+          )}
+          <div className="mt-4 grid gap-2">
+            {visiblePosts.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-nada-border/10 px-4 py-6 text-center text-[12.5px] text-nada-text-muted">
+                No posts in this channel yet.
+              </p>
+            ) : (
+              visiblePosts.map((post) => (
+                <article className="rounded-2xl bg-nada-surface/70 px-4 py-3" key={post.id}>
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-nada-gold">{post.authorName}</span>
+                    <span className="text-[10px] text-nada-secondary/45">
+                      {formatRelativeTime(post.createdAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-relaxed text-nada-primary/90">{post.body}</p>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-2">
         <p className="px-1 text-[11px] font-bold uppercase text-nada-text-muted">Explore Templates</p>
@@ -7988,8 +9112,28 @@ function StatusCreateSheet({
   onClose: () => void;
   onPost: (text: string, media?: MediaAttachment) => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [text, setText] = useState("");
+  const [media, setMedia] = useState<MediaAttachment | null>(null);
   const [isPosting, setIsPosting] = useState(false);
+  const canPost = Boolean(text.trim() || media);
+
+  const selectStatusMedia = (file: File): void => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = String(reader.result ?? "");
+      if (!dataUrl) return;
+      setMedia({
+        fileName: file.name,
+        originalName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        size: Math.max(file.size, 1),
+        url: dataUrl,
+        ...(file.type.startsWith("image/") ? { thumbnailDataUrl: dataUrl } : {})
+      });
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -8019,11 +9163,11 @@ function StatusCreateSheet({
         </div>
         <button 
           onClick={() => {
-            if (!text.trim()) return;
+            if (!canPost) return;
             setIsPosting(true);
-            onPost(text);
+            onPost(text, media ?? undefined);
           }}
-          disabled={!text.trim() || isPosting}
+          disabled={!canPost || isPosting}
           className="rounded-full bg-nada-accent px-5 py-2 text-sm font-bold text-white shadow-accent-glow disabled:opacity-50"
         >
           Post
@@ -8041,6 +9185,48 @@ function StatusCreateSheet({
         />
       </div>
       <div className="px-6 pb-8">
+        <input
+          ref={fileInputRef}
+          accept="image/*,video/*,audio/*"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            if (file) selectStatusMedia(file);
+            event.currentTarget.value = "";
+          }}
+          type="file"
+        />
+        {media ? (
+          <div className="mx-auto mb-4 max-w-sm overflow-hidden rounded-3xl border border-white/10 bg-white/[0.06] p-3">
+            {media.mimeType.startsWith("image/") ? (
+              <img
+                alt={media.originalName}
+                className="max-h-56 w-full rounded-2xl object-contain"
+                src={media.url}
+              />
+            ) : media.mimeType.startsWith("video/") ? (
+              <video className="max-h-56 w-full rounded-2xl" controls src={media.url} />
+            ) : (
+              <audio className="w-full" controls src={media.url} />
+            )}
+            <div className="mt-2 flex items-center justify-between gap-3 text-xs text-white/60">
+              <span className="truncate">{media.originalName}</span>
+              <button className="font-bold text-red-200" onClick={() => setMedia(null)} type="button">
+                Remove
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <div className="mx-auto mb-4 flex max-w-sm justify-center gap-2">
+          <button
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 text-sm font-bold text-white/75"
+            onClick={() => fileInputRef.current?.click()}
+            type="button"
+          >
+            <Image size={16} />
+            Add media
+          </button>
+        </div>
         <div className="mx-auto flex max-w-sm flex-wrap justify-center gap-2">
           {["Anonymous", "No screenshots if supported", "Comments in status"].map((label) => (
             <span key={label} className="nada-privacy-chip border-white/10 bg-white/[0.06] text-white/65">{label}</span>
@@ -8136,6 +9322,8 @@ function StatusViewerSheet({
 
   if (!currentStatus) return null;
   const statusText = decodeMessagePayload(currentStatus.body)?.text ?? textFromMessage(currentStatus);
+  const statusMedia = mediaFromMessage(currentStatus);
+  const statusMediaUrl = statusMedia?.url ?? statusMedia?.thumbnailDataUrl ?? statusMedia?.thumbnailUrl ?? null;
   const canDeleteCurrentStatus = currentStatus.senderPubkeyHash === identity.pubkeyHash;
 
   return (
@@ -8218,9 +9406,34 @@ function StatusViewerSheet({
           }}
           type="button"
         />
-        <p className="pointer-events-none relative z-[2] text-3xl font-bold leading-tight max-w-lg">
-          {statusText}
-        </p>
+        <div className="pointer-events-none relative z-[2] flex max-w-2xl flex-col items-center gap-5">
+          {statusMedia && statusMediaUrl ? (
+            statusMedia.mimeType.startsWith("image/") ? (
+              <img
+                alt={statusMedia.originalName}
+                className="max-h-[58vh] max-w-full rounded-3xl object-contain shadow-2xl"
+                src={statusMediaUrl}
+              />
+            ) : statusMedia.mimeType.startsWith("video/") ? (
+              <video
+                className="pointer-events-auto max-h-[58vh] max-w-full rounded-3xl shadow-2xl"
+                controls
+                src={statusMediaUrl}
+              />
+            ) : (
+              <audio className="pointer-events-auto w-[min(88vw,420px)]" controls src={statusMediaUrl} />
+            )
+          ) : null}
+          {statusText && statusText !== currentStatus.body ? (
+            <p className="text-3xl font-bold leading-tight max-w-lg">
+              {statusText}
+            </p>
+          ) : !statusMedia ? (
+            <p className="text-3xl font-bold leading-tight max-w-lg">
+              {statusText}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <div className="z-10 border-t border-white/10 bg-black/80 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">

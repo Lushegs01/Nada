@@ -5,6 +5,8 @@ import { Pause, Play, AlertCircle, Loader2 } from "lucide-react";
 import { cn } from "@nada/ui";
 import WaveSurfer from "wavesurfer.js";
 
+const PLAYBACK_RATES = [1, 1.5, 2] as const;
+
 function formatDur(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
   const s = Math.floor(totalSeconds % 60);
@@ -41,12 +43,14 @@ export function VoiceNoteBubble({
   const wavesurfer = useRef<WaveSurfer | null>(null);
   const lastAutoPlayTokenRef = useRef(0);
   const pendingAutoPlayRef = useRef(false);
+  const playbackRateRef = useRef<(typeof PLAYBACK_RATES)[number]>(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(Math.max(durationSeconds, 0));
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [fallbackMode, setFallbackMode] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState<(typeof PLAYBACK_RATES)[number]>(1);
 
   const notifyPlaybackStart = useCallback(() => {
     if (playbackId) {
@@ -85,6 +89,25 @@ export function VoiceNoteBubble({
     wavesurfer.current?.pause();
   }, [fallbackMode]);
 
+  const applyPlaybackRate = useCallback((rate: number): void => {
+    const audio = audioRef.current;
+    if (audio) audio.playbackRate = rate;
+    const ws = wavesurfer.current as (WaveSurfer & {
+      setPlaybackRate?: (rate: number, preservePitch?: boolean) => void;
+    }) | null;
+    ws?.setPlaybackRate?.(rate, true);
+  }, []);
+
+  const cyclePlaybackRate = useCallback((): void => {
+    setPlaybackRate((current) => {
+      const index = PLAYBACK_RATES.indexOf(current);
+      const next = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length]!;
+      playbackRateRef.current = next;
+      applyPlaybackRate(next);
+      return next;
+    });
+  }, [applyPlaybackRate]);
+
   const seekToTime = useCallback((nextTime: number): void => {
     const bounded = Math.min(Math.max(nextTime, 0), Math.max(duration, 0));
     setCurrentTime(bounded);
@@ -110,6 +133,7 @@ export function VoiceNoteBubble({
     setCurrentTime(0);
     setDuration(Math.max(durationSeconds, 0));
     setLoading(true);
+    applyPlaybackRate(playbackRateRef.current);
 
     const enableAudioFallback = () => {
       wavesurfer.current = null;
@@ -144,6 +168,7 @@ export function VoiceNoteBubble({
     ws.on("ready", () => {
       const nextDuration = ws.getDuration();
       setLoading(false);
+      applyPlaybackRate(playbackRateRef.current);
       setDuration(
         Number.isFinite(nextDuration) && nextDuration > 0
           ? nextDuration
@@ -181,7 +206,12 @@ export function VoiceNoteBubble({
       }
       wavesurfer.current = null;
     };
-  }, [durationSeconds, notifyPlaybackEnd, notifyPlaybackStart, src, outbound]);
+  }, [applyPlaybackRate, durationSeconds, notifyPlaybackEnd, notifyPlaybackStart, src, outbound]);
+
+  useEffect(() => {
+    playbackRateRef.current = playbackRate;
+    applyPlaybackRate(playbackRate);
+  }, [applyPlaybackRate, playbackRate]);
 
   useEffect(() => {
     if (!playbackId || activePlaybackId === playbackId) return;
@@ -242,7 +272,7 @@ export function VoiceNoteBubble({
   }
 
   return (
-    <div className="flex min-w-[240px] max-w-[320px] items-center gap-3">
+    <div className="flex min-w-[260px] max-w-[340px] items-center gap-3">
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio
         className="hidden"
@@ -336,6 +366,19 @@ export function VoiceNoteBubble({
           {formatDur(displayDuration)}
         </span>
       </div>
+      <button
+        aria-label="Change voice note playback speed"
+        className={cn(
+          "h-8 min-w-11 rounded-full px-2 text-[11px] font-bold transition active:scale-95",
+          outbound
+            ? "bg-white/14 text-white/80 hover:bg-white/24"
+            : "bg-nada-surface/70 text-nada-accent hover:bg-nada-accent/12"
+        )}
+        onClick={cyclePlaybackRate}
+        type="button"
+      >
+        {playbackRate}x
+      </button>
     </div>
   );
 }
