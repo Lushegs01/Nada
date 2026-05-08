@@ -87,6 +87,7 @@ export const GroupMessageEnvelopeSchema = z.object({
   timestamp: z.number().int().positive(),
   ciphertext: z.string().min(1),
   messageKind: MessageKindSchema.optional(),
+  senderKeyPackage: z.string().min(1).optional(),
   devPlaintext: z.string().optional(),
   replyToId: UuidSchema.optional(),
   replyTo: ReplyToMessageSchema.optional(),

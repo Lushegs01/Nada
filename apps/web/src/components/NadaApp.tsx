@@ -190,6 +190,10 @@ const COMMUNITIES_SETTING_KEY = "communities.v1";
 const REPORTS_SETTING_KEY = "safety.reports.v1";
 const ONBOARDING_DISMISSED_SETTING_KEY = "onboarding.dismissed.v1";
 const CALL_RING_TIMEOUT_MS = 45000;
+const GROUP_DECRYPTION_FALLBACK_TEXT =
+  "Encrypted group message unavailable. Ask the creator to send the group invite again.";
+
+type NotificationTone = "message" | "status" | "call" | "end" | "silent";
 
 type ChatListModel = {
   avatar?: string | undefined;
@@ -949,13 +953,83 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     setAllStatuses(records);
   }, []);
 
+  useEffect(() => {
+    void loadStatuses();
+  }, [loadStatuses]);
+
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const ringtoneIntervalRef = useRef<number | null>(null);
+
+  const playNotificationTone = useCallback((tone: NotificationTone): void => {
+    if (tone === "silent" || typeof window === "undefined") return;
+    const AudioContextCtor =
+      window.AudioContext ??
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+
+    try {
+      const context = audioContextRef.current ?? new AudioContextCtor();
+      audioContextRef.current = context;
+      if (context.state === "suspended") {
+        void context.resume().catch(() => {});
+      }
+
+      const now = context.currentTime + 0.02;
+      const patterns: Record<Exclude<NotificationTone, "silent">, Array<[number, number, number]>> = {
+        call: [
+          [0, 560, 0.22],
+          [0.28, 720, 0.24],
+          [0.58, 560, 0.2]
+        ],
+        end: [[0, 240, 0.18]],
+        message: [
+          [0, 720, 0.09],
+          [0.12, 960, 0.12]
+        ],
+        status: [[0, 640, 0.12]]
+      };
+
+      patterns[tone].forEach(([offset, frequency, duration]) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = tone === "call" ? "sine" : "triangle";
+        oscillator.frequency.setValueAtTime(frequency, now + offset);
+        gain.gain.setValueAtTime(0.0001, now + offset);
+        gain.gain.exponentialRampToValueAtTime(0.065, now + offset + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + duration);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(now + offset);
+        oscillator.stop(now + offset + duration + 0.025);
+      });
+    } catch {
+      // Autoplay policies can block AudioContext until the next user gesture.
+    }
+  }, []);
+
+  const stopRingtone = useCallback((): void => {
+    if (!ringtoneIntervalRef.current) return;
+    window.clearInterval(ringtoneIntervalRef.current);
+    ringtoneIntervalRef.current = null;
+  }, []);
+
+  const startRingtone = useCallback((): void => {
+    stopRingtone();
+    playNotificationTone("call");
+    ringtoneIntervalRef.current = window.setInterval(() => {
+      playNotificationTone("call");
+    }, 1500);
+  }, [playNotificationTone, stopRingtone]);
+
   const showNotification = useCallback((
     title: string,
     body: string,
     chatId: string,
-    options: { critical?: boolean; requireInteraction?: boolean } = {}
+    options: { critical?: boolean; requireInteraction?: boolean; tone?: NotificationTone } = {}
   ) => {
     const id = crypto.randomUUID();
+    const tone = options.tone ?? (options.critical ? "call" : "message");
+    playNotificationTone(tone);
     setInAppNotification({ id, title, body, chatId });
     setTimeout(() => {
       setInAppNotification((current) => current?.id === id ? null : current);
@@ -966,7 +1040,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     if (typeof window !== "undefined" && "Notification" in window) {
       const showSystemNotification = () => {
         try {
-          if (Notification.permission === "granted") {
+          const shouldShowSystem =
+            document.visibilityState !== "visible" || Boolean(options.requireInteraction);
+          if (Notification.permission === "granted" && shouldShowSystem) {
             new Notification(title, {
               body,
               icon: "/logo.png",
@@ -990,7 +1066,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         // Keep the in-app notification even when system notifications fail.
       }
     }
-  }, []);
+  }, [playNotificationTone]);
 
   // Mobile UI state
   const [activeFilter] = useState("all");
@@ -1789,11 +1865,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         const senderContact = contactRecords.find(c => c.pubkeyHash === env.sender);
         const title = senderContact?.localDisplayName || generateRandomUsername(env.sender);
         if (env.messageKind === "status") {
-          showNotification(title, "Posted a new status", "status");
+          showNotification(title, "Posted a new status", "status", { tone: "status" });
           return;
         }
         if (env.messageKind === "system") {
-          showNotification(title, "Commented on your status", "status");
+          showNotification(title, "Commented on your status", "status", { tone: "status" });
           return;
         }
         const chatId = directChatId(identity.pubkeyHash, env.sender);
@@ -1945,6 +2021,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         });
       }
 
+      stopRingtone();
       callStore.endCall();
       void nadaDb.calls.update(callId, {
         endedAt: Date.now(),
@@ -1964,12 +2041,16 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     identity.pubkeyHash,
     insertCallLogMessage,
     sendCallSignal,
-    showNotification
+    showNotification,
+    stopRingtone
   ]);
 
   useEffect(() => {
-    return () => clearCallRingTimeout();
-  }, [clearCallRingTimeout]);
+    return () => {
+      clearCallRingTimeout();
+      stopRingtone();
+    };
+  }, [clearCallRingTimeout, stopRingtone]);
 
   useEffect(() => {
     const latestSignal = callSignals.find(
@@ -2016,11 +2097,12 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             peerName: callerName,
             offerSdp: latestSignal.payload
           });
+          startRingtone();
           showNotification(
             callerName,
             `Incoming ${latestSignal.mode === "video" ? "video" : "voice"} call`,
             callChatId,
-            { critical: true, requireInteraction: true }
+            { critical: true, requireInteraction: true, tone: "call" }
           );
           void nadaDb.calls.put({
             id: latestSignal.callId,
@@ -2043,6 +2125,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         }
         case "answer": {
           clearCallRingTimeout();
+          stopRingtone();
           // Caller receives the answer - set remote description on our PC
           const pc = callStore.call?.localSession?.peerConnection;
           if (!pc) break;
@@ -2072,17 +2155,19 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         }
         case "reject":
           clearCallRingTimeout();
+          stopRingtone();
           callStore.endCall();
           showNotification(
             "Call ended",
             latestSignal.payload === "busy" ? "The contact is already on a call." : "Call declined.",
             directChatId(identity.pubkeyHash, latestSignal.sender),
-            { critical: true }
+            { critical: true, tone: "end" }
           );
           void insertCallLogMessage(latestSignal.callId, latestSignal.mode, "declined");
           break;
         case "hangup":
           clearCallRingTimeout();
+          stopRingtone();
           callStore.endCall();
           break;
       }
@@ -2098,7 +2183,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     insertCallLogMessage,
     scheduleCallRingTimeout,
     sendCallSignal,
-    showNotification
+    showNotification,
+    startRingtone,
+    stopRingtone
   ]);
 
   // ── Offline Message Queue Flush ──────────────────────────────────────────────
@@ -2178,6 +2265,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           ...(msg.replyToId ? { replyToId: msg.replyToId } : {}),
           ...(msg.mentions && msg.mentions.length > 0 ? { mentions: msg.mentions } : {}),
           ...(msg.expiresAt ? { expiresAt: msg.expiresAt } : {}),
+          ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
           ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: msg.body } : {})
         };
         
@@ -2340,6 +2428,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         timestamp,
         ciphertext,
         messageKind: "text" as const,
+        ...(activeGroup.groupSenderKey ? { senderKeyPackage: activeGroup.groupSenderKey } : {}),
         ...(replyToId ? { replyToId } : {}),
         ...(replySnapshot ? { replyTo: replySnapshot } : {}),
         ...(mentions.length > 0 ? { mentions } : {}),
@@ -2437,7 +2526,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       const baseEnvelope = {
         type: "group-message" as const,
         id, groupId: selectedGroup.id, recipients, sender: identity.pubkeyHash,
-        timestamp, ciphertext, messageKind: "poll" as const
+        timestamp, ciphertext, messageKind: "poll" as const,
+        ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {})
       };
       const groupEnvelope: GroupMessageEnvelope = process.env["NODE_ENV"] === "production" ? baseEnvelope : { ...baseEnvelope, devPlaintext: body };
       sent = sendGroupEnvelope(groupEnvelope);
@@ -2740,6 +2830,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         timestamp,
         ciphertext,
         messageKind,
+        ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {}),
         ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {}),
         ...(replyToId ? { replyToId } : {}),
         ...(replySnapshot ? { replyTo: replySnapshot } : {}),
@@ -2871,6 +2962,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         timestamp,
         ciphertext,
         messageKind: "voice_note",
+        ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {}),
         ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: structuredBody } : {}),
         ...(replyToId ? { replyToId } : {}),
         ...(replySnapshot ? { replyTo: replySnapshot } : {}),
@@ -2999,8 +3091,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         selectedContact.localDisplayName,
         `Starting ${mode === "video" ? "video" : "voice"} call`,
         selectedChatId,
-        { critical: true }
+        { critical: true, tone: "call" }
       );
+      startRingtone();
 
       await nadaDb.calls.put({
         id: callId,
@@ -3043,6 +3136,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const startedAt = activeCall?.startedAt;
 
     clearCallRingTimeout();
+    stopRingtone();
     callStore.endCall();
 
     if (callId && mode) {
@@ -3076,6 +3170,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     }
 
     clearCallRingTimeout();
+    stopRingtone();
     sendCallSignal({
       type: "call-signal",
       id: crypto.randomUUID(),
@@ -3163,14 +3258,22 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     if (isTargetGroup && targetGroup) {
       if (!targetGroup.groupSenderKey) return;
       const envelopeId = crypto.randomUUID();
+      const timestamp = Date.now();
+      const messageKind = messageKindFromRecord(original);
+      const ciphertext = JSON.stringify(
+        await encryptGroupMessage(bodyToForward, targetGroup.groupSenderKey)
+      );
       const payload: GroupMessageEnvelope = {
         type: "group-message",
         id: envelopeId,
         groupId: targetGroup.id,
-        recipients: targetGroup.memberPubkeyHashes,
+        recipients: targetGroup.memberPubkeyHashes.filter((member) => member !== identity.pubkeyHash),
         sender: identity.pubkeyHash,
-        timestamp: Date.now(),
-        ciphertext: bodyToForward // This needs to be re-encrypted technically, but for now we forward the raw body which will be encrypted by sendGroupEnvelope wrapper if needed
+        timestamp,
+        ciphertext,
+        messageKind,
+        senderKeyPackage: targetGroup.groupSenderKey,
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: bodyToForward } : {})
       };
 
       const record: MessageRecord = {
@@ -3179,11 +3282,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         senderPubkeyHash: identity.pubkeyHash,
         recipientPubkeyHash: targetGroup.id,
         body: bodyToForward,
-        createdAt: Date.now(),
-        status: "local",
+        createdAt: timestamp,
+        status: "sent",
         direction: "outbound",
-        kind: "text",
-        encryptedPayload: ""
+        kind: messageKind,
+        encryptedPayload: ciphertext
       };
       await nadaDb.messages.add(record);
       if (targetGroup.id === selectedChatId) {
@@ -3192,13 +3295,18 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       sendGroupEnvelope(payload);
     } else if (targetPeer) {
       const envelopeId = crypto.randomUUID();
+      const timestamp = Date.now();
+      const messageKind = messageKindFromRecord(original);
+      const ciphertext = await mockEncryptMessage(bodyToForward);
       const payload: MessageEnvelope = {
         type: "message",
         id: envelopeId,
         sender: identity.pubkeyHash,
         recipient: targetPeer.pubkeyHash,
-        timestamp: Date.now(),
-        ciphertext: bodyToForward
+        timestamp,
+        ciphertext,
+        messageKind,
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: bodyToForward } : {})
       };
       const record: MessageRecord = {
         id: envelopeId,
@@ -3206,11 +3314,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         senderPubkeyHash: identity.pubkeyHash,
         recipientPubkeyHash: targetPeer.pubkeyHash,
         body: bodyToForward,
-        createdAt: Date.now(),
+        createdAt: timestamp,
         status: "queued",
         direction: "outbound",
-        kind: "text",
-        encryptedPayload: ""
+        kind: messageKind,
+        encryptedPayload: ciphertext
       };
       await nadaDb.messages.add(record);
       if (targetChatId === selectedChatId) {
@@ -3343,6 +3451,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           timestamp,
           ciphertext,
           messageKind: "system",
+          ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
           ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
         });
       }
@@ -3561,6 +3670,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                 const invite = `${window.location.origin}/?community=${encodeURIComponent(community.id)}`;
                 void navigator.clipboard?.writeText(invite);
                 showToast("Community invite copied.");
+              }}
+              onDeleteCommunity={(communityId) => {
+                const community = communities.find((item) => item.id === communityId);
+                void saveCommunities(communities.filter((item) => item.id !== communityId));
+                showToast(community ? `${community.title} deleted.` : "Community deleted.");
               }}
               onJoinCommunity={(communityId) => {
                 updateCommunity(communityId, (community) => ({
@@ -4061,6 +4175,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
           try {
             clearCallRingTimeout();
+            stopRingtone();
             const session = await createLocalCallSession(snap.mode, snap.callId);
 
             // Wire ICE forwarding on the callee side
@@ -8437,6 +8552,7 @@ function CommunitiesHome({
   identity,
   onCopyInvite,
   onCreateCommunity,
+  onDeleteCommunity,
   onJoinCommunity,
   onLeaveCommunity,
   onPostCommunity,
@@ -8446,6 +8562,7 @@ function CommunitiesHome({
   identity: IdentityRecord;
   onCopyInvite: (community: CommunityRecord) => void;
   onCreateCommunity: () => void;
+  onDeleteCommunity: (communityId: string) => void;
   onJoinCommunity: (communityId: string) => void;
   onLeaveCommunity: (communityId: string) => void;
   onPostCommunity: (communityId: string, channelId: string, body: string) => void;
@@ -8454,6 +8571,10 @@ function CommunitiesHome({
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(communities[0]?.id ?? null);
   const [selectedChannelId, setSelectedChannelId] = useState("general");
   const [postDraft, setPostDraft] = useState("");
+  const [pendingCommunityAction, setPendingCommunityAction] = useState<{
+    action: "delete" | "leave";
+    community: CommunityRecord;
+  } | null>(null);
   const featured = [
     ["Tech Node", "Build, ship, and share anonymous product notes", "Tech"],
     ["Match Room", "Sports talk without handles or real names", "Sports"],
@@ -8461,6 +8582,9 @@ function CommunitiesHome({
   ];
   const selectedCommunity =
     communities.find((community) => community.id === selectedCommunityId) ?? communities[0] ?? null;
+  const selectedCommunityIsAdmin = Boolean(
+    selectedCommunity?.admins.includes(identity.pubkeyHash)
+  );
   const visiblePosts = selectedCommunity
     ? selectedCommunity.posts.filter((post) => post.channelId === selectedChannelId)
     : [];
@@ -8605,7 +8729,12 @@ function CommunitiesHome({
                   : "bg-nada-accent text-white"
               )}
               onClick={() => {
-                if (selectedCommunity.joined) onLeaveCommunity(selectedCommunity.id);
+                if (selectedCommunity.joined) {
+                  setPendingCommunityAction({
+                    action: "leave",
+                    community: selectedCommunity
+                  });
+                }
                 else onJoinCommunity(selectedCommunity.id);
               }}
               type="button"
@@ -8613,6 +8742,21 @@ function CommunitiesHome({
               {selectedCommunity.joined ? "Leave" : "Join"}
             </button>
           </div>
+          {selectedCommunityIsAdmin ? (
+            <button
+              className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-red-400/20 bg-red-500/10 text-sm font-bold text-red-200 transition hover:bg-red-500/15"
+              onClick={() => {
+                setPendingCommunityAction({
+                  action: "delete",
+                  community: selectedCommunity
+                });
+              }}
+              type="button"
+            >
+              <Trash2 size={16} />
+              Delete community
+            </button>
+          ) : null}
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
             {selectedCommunity.channels.map((channel) => (
               <button
@@ -8682,6 +8826,86 @@ function CommunitiesHome({
           </div>
         </section>
       ) : null}
+
+      <AnimatePresence>
+        {pendingCommunityAction ? (
+          <motion.div
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 z-[1200] grid place-items-center bg-black/55 p-4 backdrop-blur-sm"
+            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            onClick={() => setPendingCommunityAction(null)}
+          >
+            <motion.div
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              className="w-full max-w-sm rounded-3xl border border-nada-border/10 bg-nada-surface p-5 shadow-2xl"
+              exit={{ y: 16, opacity: 0, scale: 0.98 }}
+              initial={{ y: 16, opacity: 0, scale: 0.98 }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center gap-3">
+                <span
+                  className={cn(
+                    "grid h-11 w-11 place-items-center rounded-2xl",
+                    pendingCommunityAction.action === "delete"
+                      ? "bg-red-500/12 text-red-300"
+                      : "bg-nada-accent/12 text-nada-accent"
+                  )}
+                >
+                  {pendingCommunityAction.action === "delete" ? (
+                    <Trash2 size={20} />
+                  ) : (
+                    <Users size={20} />
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <h3 className="truncate text-base font-bold text-nada-primary">
+                    {pendingCommunityAction.action === "delete"
+                      ? "Delete community"
+                      : "Leave community"}
+                  </h3>
+                  <p className="truncate text-xs text-nada-secondary/55">
+                    {pendingCommunityAction.community.title}
+                  </p>
+                </div>
+              </div>
+              <p className="mb-5 text-sm leading-relaxed text-nada-secondary/75">
+                {pendingCommunityAction.action === "delete"
+                  ? "This removes the community from your NADA space and deletes its local posts."
+                  : "You can rejoin later with an invite, but posting will be disabled until then."}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  className="flex-1 rounded-2xl bg-nada-muted px-4 py-3 text-sm font-semibold text-nada-secondary"
+                  onClick={() => setPendingCommunityAction(null)}
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  className={cn(
+                    "flex-1 rounded-2xl px-4 py-3 text-sm font-bold",
+                    pendingCommunityAction.action === "delete"
+                      ? "bg-red-500 text-white"
+                      : "bg-nada-accent text-white"
+                  )}
+                  onClick={() => {
+                    if (pendingCommunityAction.action === "delete") {
+                      onDeleteCommunity(pendingCommunityAction.community.id);
+                    } else {
+                      onLeaveCommunity(pendingCommunityAction.community.id);
+                    }
+                    setPendingCommunityAction(null);
+                  }}
+                  type="button"
+                >
+                  {pendingCommunityAction.action === "delete" ? "Delete" : "Leave"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <section className="grid gap-2">
         <p className="px-1 text-[11px] font-bold uppercase text-nada-text-muted">Explore Templates</p>
@@ -9682,6 +9906,30 @@ async function persistIncomingGroupMessages(
     }
 
     let existingChat = await nadaDb.chats.get(envelope.groupId);
+    const envelopeSenderKey = envelope.senderKeyPackage;
+    const keyRecord = await nadaDb.groupKeys.get(envelope.groupId);
+    const senderKey =
+      envelopeSenderKey ?? existingChat?.groupSenderKey ?? keyRecord?.senderKey;
+
+    if (envelopeSenderKey) {
+      if (!keyRecord || keyRecord.senderKey !== envelopeSenderKey) {
+        await nadaDb.groupKeys.put({
+          groupId: envelope.groupId,
+          senderKey: envelopeSenderKey,
+          createdByPubkeyHash: envelope.sender,
+          createdAt: envelope.timestamp
+        });
+      }
+      if (existingChat && existingChat.groupSenderKey !== envelopeSenderKey) {
+        await nadaDb.chats.update(envelope.groupId, {
+          groupSenderKey: envelopeSenderKey
+        });
+        existingChat = {
+          ...existingChat,
+          groupSenderKey: envelopeSenderKey
+        };
+      }
+    }
 
     // Try to decrypt the group message body
     let body: string;
@@ -9694,8 +9942,6 @@ async function persistIncomingGroupMessages(
           nonce?: unknown;
           version?: unknown;
         };
-        const keyRecord = await nadaDb.groupKeys.get(envelope.groupId);
-        const senderKey = existingChat?.groupSenderKey ?? keyRecord?.senderKey;
         if (
           senderKey &&
           typeof parsed.ciphertext === "string" &&
@@ -9715,11 +9961,11 @@ async function persistIncomingGroupMessages(
         }
       } catch {
         try {
-          body = await mockDecryptMessage(envelope.ciphertext);
-        } catch {
-          body = envelope.ciphertext;
-        }
+        body = await mockDecryptMessage(envelope.ciphertext);
+      } catch {
+          body = GROUP_DECRYPTION_FALLBACK_TEXT;
       }
+    }
     }
 
     const groupDelete = parseGroupDeletePayload(body);
@@ -9747,6 +9993,7 @@ async function persistIncomingGroupMessages(
           new Set([identity.pubkeyHash, envelope.sender, ...envelope.recipients])
         ),
         ownerPubkeyHash: envelope.sender,
+        ...(senderKey ? { groupSenderKey: senderKey } : {}),
         createdAt: now,
         updatedAt: envelope.timestamp,
         disappearingTimer: 0

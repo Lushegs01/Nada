@@ -317,9 +317,14 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
   const toggleMute = useCallStore((s) => s.toggleMute);
   const toggleCamera = useCallStore((s) => s.toggleCamera);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const attachedRemoteRef = useRef<MediaStream | null>(null);
+  const attachedRemoteAudioRef = useRef<MediaStream | null>(null);
   const attachedLocalRef = useRef<MediaStream | null>(null);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("user");
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
+  const [showCallMenu, setShowCallMenu] = useState(false);
   const [remoteTrackCount, setRemoteTrackCount] = useState(0);
   const remoteStream = call?.localSession?.remoteStream ?? null;
   const localStream = call?.localSession?.stream ?? null;
@@ -334,6 +339,17 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
       }
       if (callPhase === "active" && remoteEl.paused) {
         remoteEl.play().catch(() => {});
+      }
+    }
+
+    const remoteAudioEl = remoteAudioRef.current;
+    if (remoteAudioEl && remoteStream) {
+      if (attachedRemoteAudioRef.current !== remoteStream) {
+        attachedRemoteAudioRef.current = remoteStream;
+        remoteAudioEl.srcObject = remoteStream;
+      }
+      if (callPhase === "active" && remoteAudioEl.paused) {
+        remoteAudioEl.play().catch(() => {});
       }
     }
 
@@ -370,6 +386,59 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
   const isActive = call.phase === "active";
   const showAvatar = !isActive || remoteTrackCount === 0;
 
+  const switchCamera = async (): Promise<void> => {
+    const activeCall = useCallStore.getState().call;
+    const session = activeCall?.localSession;
+    if (!session || isSwitchingCamera) return;
+
+    const nextMode = facingMode === "user" ? "environment" : "user";
+    setIsSwitchingCamera(true);
+
+    try {
+      const replacementStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: nextMode },
+          height: { ideal: 720 },
+          width: { ideal: 1280 }
+        }
+      });
+      const [nextTrack] = replacementStream.getVideoTracks();
+      if (!nextTrack) {
+        replacementStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      nextTrack.enabled = !activeCall.isCameraOff;
+      const oldTrack = session.stream.getVideoTracks()[0] ?? null;
+      const sender = session.peerConnection
+        .getSenders()
+        .find((item) => item.track?.kind === "video");
+
+      if (sender) {
+        await sender.replaceTrack(nextTrack);
+      } else {
+        session.peerConnection.addTrack(nextTrack, session.stream);
+      }
+
+      if (oldTrack) {
+        session.stream.removeTrack(oldTrack);
+        oldTrack.stop();
+      }
+      session.stream.addTrack(nextTrack);
+      attachedLocalRef.current = null;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = session.stream;
+        await localVideoRef.current.play().catch(() => {});
+      }
+      setFacingMode(nextMode);
+    } catch {
+      window.alert("Could not switch camera on this device.");
+    } finally {
+      setIsSwitchingCamera(false);
+    }
+  };
+
   return (
     <AnimatePresence>
       <motion.div
@@ -383,11 +452,22 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
         <video
           ref={remoteVideoRef}
           autoPlay
+          muted
           playsInline
           className={cn(
             "absolute inset-0 h-full w-full object-cover z-10",
             showAvatar ? "hidden" : "block"
           )}
+        />
+
+        {/* Remote audio path for video calls. Some browsers do not reliably
+            play audio from the video element alone after tracks arrive late. */}
+        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+        <audio
+          ref={remoteAudioRef}
+          autoPlay
+          playsInline
+          style={{ position: "absolute", width: 0, height: 0, opacity: 0 }}
         />
 
         {/* Fallback avatar/status when not yet active or no remote video */}
@@ -475,21 +555,50 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
               variant="neutral"
             />
             <CallControl
-              label="Switch"
+              label={isSwitchingCamera ? "Switching" : "Switch"}
               icon={RotateCcw}
-              onClick={() => window.alert("Camera switching is coming soon.")}
-              active={false}
+              onClick={() => {
+                void switchCamera();
+              }}
+              active={isSwitchingCamera}
               variant="neutral"
             />
-            <button
-              aria-label="More call options"
-              onClick={() => {
-                 window.alert("More call options are coming soon.");
-              }}
-              className="grid h-12 w-12 place-items-center rounded-full bg-white/10 ring-1 ring-white/8 transition-transform hover:scale-105 hover:bg-white/20 active:scale-95 md:h-14 md:w-14"
-            >
-              <MoreHorizontal size={22} className="text-white" />
-            </button>
+            <div className="relative">
+              <button
+                aria-label="More call options"
+                onClick={() => setShowCallMenu((current) => !current)}
+                className="grid h-12 w-12 place-items-center rounded-full bg-white/10 ring-1 ring-white/8 transition-transform hover:scale-105 hover:bg-white/20 active:scale-95 md:h-14 md:w-14"
+              >
+                <MoreHorizontal size={22} className="text-white" />
+              </button>
+              <AnimatePresence>
+                {showCallMenu ? (
+                  <motion.div
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    className="absolute bottom-[68px] right-0 w-52 rounded-2xl border border-white/10 bg-black/70 p-2 text-left shadow-2xl backdrop-blur-xl"
+                    exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                    initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  >
+                    <button
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10"
+                      onClick={() => setShowCallMenu(false)}
+                      type="button"
+                    >
+                      Encryption
+                      <span className="text-nada-gold">Active</span>
+                    </button>
+                    <button
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10"
+                      onClick={() => setShowCallMenu(false)}
+                      type="button"
+                    >
+                      Camera
+                      <span className="text-white/45">{facingMode === "user" ? "Front" : "Back"}</span>
+                    </button>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
             <button
               aria-label="End call"
               onClick={onEnd}
