@@ -190,11 +190,47 @@ const STATUS_COMMENT_PREFIX = "status-comments:";
 const COMMUNITIES_SETTING_KEY = "communities.v1";
 const REPORTS_SETTING_KEY = "safety.reports.v1";
 const ONBOARDING_DISMISSED_SETTING_KEY = "onboarding.dismissed.v1";
+const NOTIFICATION_SETTINGS_KEY = "notifications.settings.v1";
 const CALL_RING_TIMEOUT_MS = 45000;
 const GROUP_DECRYPTION_FALLBACK_TEXT =
   "Encrypted group message unavailable. Ask the creator to send the group invite again.";
 
 type NotificationTone = "message" | "status" | "call" | "end" | "silent";
+type NotificationSoundChoice = "nada" | "glass" | "pulse" | "silent";
+type NotificationRingtoneChoice = "nada" | "orbit" | "pulse" | "silent";
+type NotificationPreviewPrivacy = "full" | "private";
+
+type NotificationSettings = {
+  notificationTone: NotificationSoundChoice;
+  previewPrivacy: NotificationPreviewPrivacy;
+  ringtone: NotificationRingtoneChoice;
+  vibration: boolean;
+};
+
+const NOTIFICATION_SOUND_CHOICES: NotificationSoundChoice[] = [
+  "nada",
+  "glass",
+  "pulse",
+  "silent"
+];
+const NOTIFICATION_RINGTONE_CHOICES: NotificationRingtoneChoice[] = [
+  "nada",
+  "orbit",
+  "pulse",
+  "silent"
+];
+const NOTIFICATION_PREVIEW_PRIVACY_CHOICES: NotificationPreviewPrivacy[] = [
+  "full",
+  "private"
+];
+
+const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  notificationTone: "nada",
+  previewPrivacy: "private",
+  ringtone: "nada",
+  vibration: true
+};
+const STATUS_REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉"] as const;
 
 type ChatListModel = {
   avatar?: string | undefined;
@@ -226,6 +262,14 @@ type StatusCommentPayload = {
   statusId: string;
   statusOwnerPubkeyHash: string;
   text: string;
+  version: 1;
+};
+
+type StatusReactionPayload = {
+  emoji: string;
+  kind: "status-reaction";
+  statusId: string;
+  statusOwnerPubkeyHash: string;
   version: 1;
 };
 
@@ -340,6 +384,28 @@ function parseStatusCommentPayload(body: string): StatusCommentPayload | null {
   }
 }
 
+function parseStatusReactionPayload(body: string): StatusReactionPayload | null {
+  try {
+    const parsed = JSON.parse(body) as Partial<StatusReactionPayload>;
+    return parsed.kind === "status-reaction" &&
+      parsed.version === 1 &&
+      typeof parsed.statusId === "string" &&
+      typeof parsed.statusOwnerPubkeyHash === "string" &&
+      typeof parsed.emoji === "string" &&
+      parsed.emoji.trim().length > 0
+      ? {
+          emoji: parsed.emoji,
+          kind: "status-reaction",
+          statusId: parsed.statusId,
+          statusOwnerPubkeyHash: parsed.statusOwnerPubkeyHash,
+          version: 1
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseStatusDeletePayload(body: string): StatusDeletePayload | null {
   try {
     const parsed = JSON.parse(body) as Partial<StatusDeletePayload>;
@@ -375,6 +441,106 @@ function parseGroupDeletePayload(body: string): GroupDeletePayload | null {
       : null;
   } catch {
     return null;
+  }
+}
+
+function parseNotificationSettings(value: string | null): NotificationSettings {
+  if (!value) {
+    return DEFAULT_NOTIFICATION_SETTINGS;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<NotificationSettings>;
+    return {
+      notificationTone: NOTIFICATION_SOUND_CHOICES.includes(
+        parsed.notificationTone as NotificationSoundChoice
+      )
+        ? (parsed.notificationTone as NotificationSoundChoice)
+        : DEFAULT_NOTIFICATION_SETTINGS.notificationTone,
+      previewPrivacy: NOTIFICATION_PREVIEW_PRIVACY_CHOICES.includes(
+        parsed.previewPrivacy as NotificationPreviewPrivacy
+      )
+        ? (parsed.previewPrivacy as NotificationPreviewPrivacy)
+        : DEFAULT_NOTIFICATION_SETTINGS.previewPrivacy,
+      ringtone: NOTIFICATION_RINGTONE_CHOICES.includes(
+        parsed.ringtone as NotificationRingtoneChoice
+      )
+        ? (parsed.ringtone as NotificationRingtoneChoice)
+        : DEFAULT_NOTIFICATION_SETTINGS.ringtone,
+      vibration:
+        typeof parsed.vibration === "boolean"
+          ? parsed.vibration
+          : DEFAULT_NOTIFICATION_SETTINGS.vibration
+    };
+  } catch {
+    return DEFAULT_NOTIFICATION_SETTINGS;
+  }
+}
+
+function notificationToneLabel(choice: NotificationSoundChoice): string {
+  switch (choice) {
+    case "glass":
+      return "Glass";
+    case "pulse":
+      return "Pulse";
+    case "silent":
+      return "Silent";
+    case "nada":
+    default:
+      return "NADA";
+  }
+}
+
+function notificationRingtoneLabel(choice: NotificationRingtoneChoice): string {
+  switch (choice) {
+    case "orbit":
+      return "Orbit";
+    case "pulse":
+      return "Pulse";
+    case "silent":
+      return "Silent";
+    case "nada":
+    default:
+      return "NADA";
+  }
+}
+
+function deliveryStatusRank(status: MessageRecord["status"]): number {
+  switch (status) {
+    case "read":
+      return 5;
+    case "delivered":
+      return 4;
+    case "sent":
+      return 3;
+    case "queued":
+      return 2;
+    case "failed":
+      return 1;
+    case "local":
+    default:
+      return 0;
+  }
+}
+
+function deliveryStatusDisplay(status: MessageRecord["status"]): {
+  className: string;
+  label: string;
+} {
+  switch (status) {
+    case "read":
+      return { className: "bg-nada-cyan/12 text-nada-cyan", label: "Read" };
+    case "delivered":
+      return { className: "bg-nada-accent/12 text-nada-accent", label: "Delivered" };
+    case "sent":
+      return { className: "bg-white/8 text-white/65", label: "Sent" };
+    case "queued":
+    case "local":
+      return { className: "bg-white/8 text-white/55", label: "Queued" };
+    case "failed":
+      return { className: "bg-red-500/12 text-red-200", label: "Failed" };
+    default:
+      return { className: "bg-white/8 text-white/55", label: "Pending" };
   }
 }
 
@@ -875,6 +1041,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
   const [ghostMode, setGhostMode] = useState(false);
   const [mood, setMood] = useState("Available");
+  const [notificationSettings, setNotificationSettings] =
+    useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
   // ─────────────────────────────────────────────────────────────────────────────
   
   const [chats, setChats] = useState<ChatRecord[]>([]);
@@ -896,6 +1064,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     pinnedMessageId: null, pinnedMessageBody: null, archivedAt: 0, updatedAt: 0
   });
   const [archivedChatIds, setArchivedChatIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [mutedChatIds, setMutedChatIds] = useState<Set<string>>(
     () => new Set()
   );
   const [showArchivedChats, setShowArchivedChats] = useState(false);
@@ -931,12 +1102,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     void Promise.all([
       getGlobalSetting(COMMUNITIES_SETTING_KEY),
       getGlobalSetting(REPORTS_SETTING_KEY),
-      getGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY)
-    ]).then(([communitiesValue, reportsValue, onboardingDismissed]) => {
+      getGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY),
+      getGlobalSetting(NOTIFICATION_SETTINGS_KEY)
+    ]).then(([communitiesValue, reportsValue, onboardingDismissed, notificationSettingsValue]) => {
       if (active) {
         setCommunities(parseCommunityRecords(communitiesValue));
         setSafetyReports(parseSafetyReports(reportsValue));
         setShowOnboarding(onboardingDismissed !== "true");
+        setNotificationSettings(parseNotificationSettings(notificationSettingsValue));
       }
     });
     return () => {
@@ -1032,7 +1205,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const ringtoneIntervalRef = useRef<number | null>(null);
 
   const playNotificationTone = useCallback((tone: NotificationTone): void => {
-    if (tone === "silent" || typeof window === "undefined") return;
+    const soundChoice =
+      tone === "call" ? notificationSettings.ringtone : notificationSettings.notificationTone;
+    if (tone === "silent" || soundChoice === "silent" || typeof window === "undefined") return;
     const AudioContextCtor =
       window.AudioContext ??
       (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -1046,21 +1221,49 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       }
 
       const now = context.currentTime + 0.02;
-      const patterns: Record<Exclude<NotificationTone, "silent">, Array<[number, number, number]>> = {
-        call: [
+      const patterns: Record<string, Array<[number, number, number]>> = {
+        "call-nada": [
           [0, 560, 0.22],
           [0.28, 720, 0.24],
           [0.58, 560, 0.2]
         ],
-        end: [[0, 240, 0.18]],
-        message: [
+        "call-orbit": [
+          [0, 420, 0.2],
+          [0.25, 620, 0.24],
+          [0.52, 840, 0.18]
+        ],
+        "call-pulse": [
+          [0, 520, 0.12],
+          [0.2, 520, 0.12],
+          [0.4, 700, 0.16]
+        ],
+        "end-nada": [[0, 240, 0.18]],
+        "end-glass": [[0, 520, 0.12]],
+        "end-pulse": [[0, 320, 0.1]],
+        "message-nada": [
           [0, 720, 0.09],
           [0.12, 960, 0.12]
         ],
-        status: [[0, 640, 0.12]]
+        "message-glass": [
+          [0, 980, 0.06],
+          [0.08, 1240, 0.09]
+        ],
+        "message-pulse": [
+          [0, 520, 0.08],
+          [0.12, 520, 0.08]
+        ],
+        "status-nada": [[0, 640, 0.12]],
+        "status-glass": [[0, 1040, 0.1]],
+        "status-pulse": [
+          [0, 520, 0.08],
+          [0.11, 680, 0.08]
+        ]
       };
+      const patternKey = `${tone}-${soundChoice}`;
+      const fallbackKey = tone === "call" ? "call-nada" : `${tone}-nada`;
+      const pattern = patterns[patternKey] ?? patterns[fallbackKey] ?? patterns["message-nada"]!;
 
-      patterns[tone].forEach(([offset, frequency, duration]) => {
+      pattern.forEach(([offset, frequency, duration]) => {
         const oscillator = context.createOscillator();
         const gain = context.createGain();
         oscillator.type = tone === "call" ? "sine" : "triangle";
@@ -1076,7 +1279,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     } catch {
       // Autoplay policies can block AudioContext until the next user gesture.
     }
-  }, []);
+  }, [notificationSettings.notificationTone, notificationSettings.ringtone]);
 
   const stopRingtone = useCallback((): void => {
     if (!ringtoneIntervalRef.current) return;
@@ -1084,13 +1287,14 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     ringtoneIntervalRef.current = null;
   }, []);
 
-  const startRingtone = useCallback((): void => {
+  const startRingtone = useCallback((chatId?: string): void => {
+    if (chatId && mutedChatIds.has(chatId)) return;
     stopRingtone();
     playNotificationTone("call");
     ringtoneIntervalRef.current = window.setInterval(() => {
       playNotificationTone("call");
     }, 1500);
-  }, [playNotificationTone, stopRingtone]);
+  }, [mutedChatIds, playNotificationTone, stopRingtone]);
 
   const showNotification = useCallback((
     title: string,
@@ -1098,14 +1302,20 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     chatId: string,
     options: { critical?: boolean; requireInteraction?: boolean; tone?: NotificationTone } = {}
   ) => {
+    if (mutedChatIds.has(chatId)) {
+      return;
+    }
     const id = crypto.randomUUID();
     const tone = options.tone ?? (options.critical ? "call" : "message");
+    const isPreviewPrivate = notificationSettings.previewPrivacy === "private" && !options.critical;
+    const displayTitle = isPreviewPrivate ? "NADA" : title;
+    const displayBody = isPreviewPrivate ? "Open NADA to view this update." : body;
     playNotificationTone(tone);
-    setInAppNotification({ id, title, body, chatId });
+    setInAppNotification({ id, title: displayTitle, body: displayBody, chatId });
     setTimeout(() => {
       setInAppNotification((current) => current?.id === id ? null : current);
     }, options.critical ? 7000 : 4000);
-    if ("vibrate" in navigator) {
+    if (notificationSettings.vibration && "vibrate" in navigator) {
       navigator.vibrate(options.critical ? [80, 40, 80] : 18);
     }
     if (typeof window !== "undefined" && "Notification" in window) {
@@ -1114,8 +1324,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           const shouldShowSystem =
             document.visibilityState !== "visible" || Boolean(options.requireInteraction);
           if (Notification.permission === "granted" && shouldShowSystem) {
-            new Notification(title, {
-              body,
+            new Notification(displayTitle, {
+              body: displayBody,
               icon: "/logo.png",
               tag: chatId,
               ...(options.requireInteraction !== undefined
@@ -1134,10 +1344,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           showSystemNotification();
         }
       } catch {
-        // Keep the in-app notification even when system notifications fail.
+      // Keep the in-app notification even when system notifications fail.
       }
     }
-  }, [playNotificationTone]);
+  }, [
+    mutedChatIds,
+    notificationSettings.previewPrivacy,
+    notificationSettings.vibration,
+    playNotificationTone
+  ]);
 
   // Mobile UI state
   const [activeFilter] = useState("all");
@@ -1412,6 +1627,17 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     setTimeout(() => setDashboardToast(null), 2500);
   }, []);
 
+  const saveNotificationSettings = useCallback(async (
+    nextSettings: NotificationSettings
+  ): Promise<void> => {
+    setNotificationSettings(nextSettings);
+    await setGlobalSetting(
+      NOTIFICATION_SETTINGS_KEY,
+      JSON.stringify(nextSettings)
+    );
+    showToast("Notification settings saved.");
+  }, [showToast]);
+
   const handleGlobalSearchSelect = useCallback(async (result: GlobalSearchResult): Promise<void> => {
     setPanel(null);
     setSearchQuery("");
@@ -1483,10 +1709,42 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   // Mark current chat as read when selected or when new messages arrive
   useEffect(() => {
     if (!selectedChatId) return;
-    void markChatAsRead(selectedChatId).then(() => {
+    let active = true;
+
+    void loadMessagesForChat(selectedChatId).then(async (records) => {
+      const unread = records.filter(
+        (message) =>
+          message.direction === "inbound" &&
+          !message.readAt &&
+          message.senderPubkeyHash !== identity.pubkeyHash
+      );
+      const readAt = Date.now();
+      await markChatAsRead(selectedChatId);
+      if (!active) return;
+
       setUnreadCounts((prev) => ({ ...prev, [selectedChatId]: 0 }));
+      if (unread.length > 0) {
+        const readIds = new Set(unread.map((message) => message.id));
+        setMessages((current) =>
+          current.map((message) =>
+            readIds.has(message.id) ? { ...message, readAt } : message
+          )
+        );
+        unread.forEach((message) => {
+          sendDelivery({
+            type: "delivery",
+            id: message.id,
+            recipient: message.senderPubkeyHash,
+            status: "read"
+          });
+        });
+      }
     });
-  }, [selectedChatId, messages.length]);
+
+    return () => {
+      active = false;
+    };
+  }, [identity.pubkeyHash, messages.length, selectedChatId, sendDelivery]);
 
 
   // Typing indicator — compute current chat's typing state
@@ -1684,6 +1942,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     ];
     if (chatIds.length === 0) {
       setArchivedChatIds(new Set());
+      setMutedChatIds(new Set());
       return;
     }
 
@@ -1699,6 +1958,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         new Set(
           records
             .filter(({ pref }) => (pref.archivedAt ?? 0) > 0)
+            .map(({ chatId }) => chatId)
+        )
+      );
+      setMutedChatIds(
+        new Set(
+          records
+            .filter(({ pref }) => isMuted(pref))
             .map(({ chatId }) => chatId)
         )
       );
@@ -1870,7 +2136,18 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
     let active = true;
     void Promise.all(
-      deliveryEntries.map(([id, status]) => nadaDb.messages.update(id, { status }))
+      deliveryEntries.map(async ([id, status]) => {
+        const existing = await nadaDb.messages.get(id);
+        if (!existing) return;
+        const nextStatus = status as MessageRecord["status"];
+        if (deliveryStatusRank(nextStatus) < deliveryStatusRank(existing.status)) {
+          return;
+        }
+        await nadaDb.messages.update(id, {
+          status,
+          ...(status === "read" ? { readAt: Date.now() } : {})
+        });
+      })
     ).then(() => {
       if (!active) {
         return;
@@ -1879,8 +2156,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       setMessages((current) =>
         current.map((message) => {
           const nextStatus = deliveries[message.id];
-          return nextStatus && message.status !== nextStatus
-            ? { ...message, status: nextStatus }
+          const rankedStatus = nextStatus as MessageRecord["status"] | undefined;
+          return rankedStatus &&
+            message.status !== rankedStatus &&
+            deliveryStatusRank(rankedStatus) >= deliveryStatusRank(message.status)
+            ? {
+                ...message,
+                status: rankedStatus,
+                ...(rankedStatus === "read" ? { readAt: Date.now() } : {})
+              }
             : message;
         })
       );
@@ -1940,7 +2224,17 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           return;
         }
         if (env.messageKind === "system") {
-          showNotification(title, "Commented on your status", "status", { tone: "status" });
+          const statusReaction = env.devPlaintext
+            ? parseStatusReactionPayload(env.devPlaintext)
+            : null;
+          showNotification(
+            title,
+            statusReaction
+              ? `Reacted ${statusReaction.emoji} to your status`
+              : "Commented on your status",
+            "status",
+            { tone: "status" }
+          );
           return;
         }
         const chatId = directChatId(identity.pubkeyHash, env.sender);
@@ -2168,7 +2462,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             peerName: callerName,
             offerSdp: latestSignal.payload
           });
-          startRingtone();
+          startRingtone(callChatId);
           showNotification(
             callerName,
             `Incoming ${latestSignal.mode === "video" ? "video" : "voice"} call`,
@@ -2358,6 +2652,96 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       isSubscribed = false;
     };
   }, [relayStatus, identity, chats, sendEnvelope, sendGroupEnvelope]);
+
+  const retryOutboundMessage = async (message: MessageRecord): Promise<void> => {
+    if (message.direction !== "outbound") return;
+
+    const group = chats.find((chat) => chat.id === message.chatId && chat.type === "group");
+    const contact = contacts.find(
+      (item) => directChatId(identity.pubkeyHash, item.pubkeyHash) === message.chatId
+    );
+    if (!group && !contact) {
+      showToast("Could not find the recipient for this message.");
+      return;
+    }
+
+    const retryStatus: MessageRecord["status"] = group ? "local" : "queued";
+    await nadaDb.messages.update(message.id, { status: retryStatus });
+    setMessages((current) =>
+      current.map((item) =>
+        item.id === message.id ? { ...item, status: retryStatus } : item
+      )
+    );
+
+    let ciphertext = message.encryptedPayload;
+    if (!ciphertext || ciphertext === PENDING_ENCRYPTED_PAYLOAD) {
+      try {
+        ciphertext = group?.groupSenderKey
+          ? JSON.stringify(await encryptGroupMessage(message.body, group.groupSenderKey))
+          : await mockEncryptMessage(message.body);
+        await nadaDb.messages.update(message.id, { encryptedPayload: ciphertext });
+      } catch {
+        await nadaDb.messages.update(message.id, { status: "failed" });
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id ? { ...item, status: "failed" } : item
+          )
+        );
+        showToast("Retry failed while preparing the message.");
+        return;
+      }
+    }
+
+    const messageKind = messageKindFromRecord(message);
+    let sent = false;
+    if (group) {
+      const recipients = group.memberPubkeyHashes.filter(
+        (member) => member !== identity.pubkeyHash
+      );
+      sent = sendGroupEnvelope({
+        type: "group-message",
+        id: message.id,
+        groupId: group.id,
+        recipients,
+        sender: identity.pubkeyHash,
+        timestamp: message.createdAt,
+        ciphertext,
+        messageKind,
+        ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+        ...(message.replyToId ? { replyToId: message.replyToId } : {}),
+        ...(message.mentions?.length ? { mentions: message.mentions } : {}),
+        ...(message.expiresAt ? { expiresAt: message.expiresAt } : {}),
+        ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: message.body } : {})
+      });
+    } else if (contact) {
+      sent = sendEnvelope({
+        type: "message",
+        id: message.id,
+        recipient: contact.pubkeyHash,
+        sender: identity.pubkeyHash,
+        timestamp: message.createdAt,
+        ciphertext,
+        messageKind,
+        ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: message.body } : {})
+      });
+    }
+
+    const nextStatus: MessageRecord["status"] = sent ? "sent" : retryStatus;
+    await nadaDb.messages.update(message.id, {
+      encryptedPayload: ciphertext,
+      status: nextStatus
+    });
+    setMessages((current) =>
+      current.map((item) =>
+        item.id === message.id
+          ? { ...item, encryptedPayload: ciphertext, status: nextStatus }
+          : item
+      )
+    );
+    showToast(sent ? "Message resent." : "Message queued for retry.");
+  };
 
   // Helper exposed for ChatPanel's onTyping prop
   const handleTypingStop = useCallback(() => {
@@ -2730,6 +3114,53 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       });
     }
     showToast("Comment added.");
+  };
+
+  const sendStatusReaction = async (
+    status: MessageRecord,
+    emoji: string
+  ): Promise<MessageRecord | null> => {
+    const trimmedEmoji = emoji.trim();
+    if (!trimmedEmoji) return null;
+
+    const id = crypto.randomUUID();
+    const timestamp = Date.now();
+    const payload: StatusReactionPayload = {
+      emoji: trimmedEmoji,
+      kind: "status-reaction",
+      statusId: status.id,
+      statusOwnerPubkeyHash: status.senderPubkeyHash,
+      version: 1
+    };
+    const body = JSON.stringify(payload);
+    const ciphertext = await mockEncryptMessage(body);
+    const record: MessageRecord = {
+      id,
+      chatId: statusCommentChatId(status.id),
+      senderPubkeyHash: identity.pubkeyHash,
+      recipientPubkeyHash: status.senderPubkeyHash,
+      direction: "outbound",
+      kind: "system",
+      body,
+      encryptedPayload: ciphertext,
+      status: "sent",
+      createdAt: timestamp
+    };
+
+    await nadaDb.messages.put(record);
+    if (status.senderPubkeyHash !== identity.pubkeyHash) {
+      sendEnvelope({
+        type: "message",
+        id,
+        recipient: status.senderPubkeyHash,
+        sender: identity.pubkeyHash,
+        timestamp,
+        ciphertext,
+        messageKind: "system",
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+      });
+    }
+    return record;
   };
 
   const deleteStatus = async (status: MessageRecord): Promise<void> => {
@@ -3191,7 +3622,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         selectedChatId,
         { critical: true, tone: "call" }
       );
-      startRingtone();
+      startRingtone(selectedChatId);
 
       await nadaDb.calls.put({
         id: callId,
@@ -3977,6 +4408,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         onReply={(message) => {
           setReplyToId(message.id);
         }}
+        onRetryMessage={(message) => {
+          void retryOutboundMessage(message);
+        }}
         onSend={(text) => {
           void sendMessage(text);
         }}
@@ -4013,7 +4447,17 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           if (!selectedChatId) return;
           const mutedUntil = duration === 0 ? 0 : duration === -1 ? null : Date.now() + duration;
           await setChatPref(selectedChatId, { mutedUntil });
-          setChatPrefState(await getChatPref(selectedChatId));
+          const nextPref = await getChatPref(selectedChatId);
+          setChatPrefState(nextPref);
+          setMutedChatIds((current) => {
+            const next = new Set(current);
+            if (isMuted(nextPref)) {
+              next.add(selectedChatId);
+            } else {
+              next.delete(selectedChatId);
+            }
+            return next;
+          });
         }}
         onClearChat={async () => {
           if (!selectedChatId) return;
@@ -4191,6 +4635,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                 showToast("Couldn't save display name. Please try again.");
               }
             }}
+            notificationSettings={notificationSettings}
+            onNotificationSettingsChange={(nextSettings) => {
+              void saveNotificationSettings(nextSettings);
+            }}
+            onPreviewNotificationTone={(tone) => {
+              playNotificationTone(tone);
+            }}
           />
         ) : null}
         {panel === "status_create" ? (
@@ -4212,6 +4663,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             onDeleteStatus={(status) => {
               void deleteStatus(status);
             }}
+            onReactStatus={(status, emoji) => sendStatusReaction(status, emoji)}
             senderName={
               selectedStatusSenderHash === identity.pubkeyHash 
                 ? "My Status" 
@@ -4694,6 +5146,7 @@ function ChatPanel({
   onEditMessage,
   onMessageSearchChange,
   onReply,
+  onRetryMessage,
   onSend,
   onSendVoiceNote,
   onStartCall,
@@ -4749,6 +5202,7 @@ function ChatPanel({
   onEditMessage: (message: MessageRecord) => void;
   onMessageSearchChange: (value: string) => void;
   onReply: (message: MessageRecord) => void;
+  onRetryMessage: (message: MessageRecord) => void;
   onSend: (text: string) => void;
   onSendVoiceNote: (body: string) => void;
   onStartCall: (mode: CallMode) => void;
@@ -6411,14 +6865,38 @@ function ChatPanel({
                     {message.editedAt ? <span className="italic">edited ·</span> : null}
                     {isVanishing && <Flame size={10} className="opacity-60" />}
                     <span className="tabular-nums">{formatTime(message.createdAt)}</span>
-                    {message.direction === "outbound" && (
-                      <span className={cn(
-                        "ml-0.5 font-bold tracking-tighter",
-                        message.status === "delivered" ? "text-nada-accent" : "text-white/40"
-                      )}>
-                        {message.status === "delivered" ? "✓✓" : "✓"}
-                      </span>
-                    )}
+                    {message.direction === "outbound" ? (
+                      (() => {
+                        const deliveryMeta = deliveryStatusDisplay(message.status);
+                        const isWaiting =
+                          message.status === "queued" || message.status === "local";
+                        const isFailed = message.status === "failed";
+                        return (
+                          <span
+                            className={cn(
+                              "ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-normal",
+                              deliveryMeta.className
+                            )}
+                          >
+                            {isWaiting ? <Clock size={9} /> : null}
+                            {isFailed ? (
+                              <button
+                                className="rounded-full px-0.5 text-red-100 underline decoration-red-200/40 underline-offset-2"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onRetryMessage(message);
+                                }}
+                                type="button"
+                              >
+                                Retry
+                              </button>
+                            ) : (
+                              deliveryMeta.label
+                            )}
+                          </span>
+                        );
+                      })()
+                    ) : null}
                   </div>
 
                 </div>
@@ -7868,7 +8346,10 @@ function SettingsSheet({
   mood,
   onClose,
   displayName,
-  onDisplayNameChange
+  onDisplayNameChange,
+  notificationSettings,
+  onNotificationSettingsChange,
+  onPreviewNotificationTone
 }: {
   identity: IdentityRecord;
   onOpenBilling: () => void;
@@ -7881,6 +8362,9 @@ function SettingsSheet({
   onClose: () => void;
   displayName: string;
   onDisplayNameChange: (name: string) => void;
+  notificationSettings: NotificationSettings;
+  onNotificationSettingsChange: (settings: NotificationSettings) => void;
+  onPreviewNotificationTone: (tone: NotificationTone) => void;
 }): JSX.Element {
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(displayName);
@@ -8036,6 +8520,156 @@ function SettingsSheet({
               {mood}
             </span>
           </button>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-1">
+        <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-nada-secondary/[.40]">
+          Notifications
+        </p>
+        <div className="rounded-2xl border border-nada-border/[.08] p-4" style={{ background: "rgb(var(--nada-surface))" }}>
+          <div className="mb-4 flex items-start gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-nada-accent/12 text-nada-accent">
+              <Bell size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-nada-primary">Push notification settings</p>
+              <p className="mt-0.5 text-xs text-nada-secondary/[.55]">
+                Tune alerts without exposing message content.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-nada-secondary/[.72]">Message tone</span>
+                <button
+                  className="rounded-full bg-white/[.06] px-3 py-1 text-[11px] font-semibold text-nada-accent transition hover:bg-white/[.09]"
+                  onClick={() => onPreviewNotificationTone("message")}
+                  type="button"
+                >
+                  Preview
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {NOTIFICATION_SOUND_CHOICES.map((choice) => (
+                  <button
+                    className={cn(
+                      "rounded-xl border px-3 py-2 text-left text-xs font-semibold transition",
+                      notificationSettings.notificationTone === choice
+                        ? "border-nada-accent/45 bg-nada-accent/15 text-nada-primary"
+                        : "border-white/10 bg-white/[.04] text-nada-secondary/[.72] hover:bg-white/[.07]"
+                    )}
+                    key={choice}
+                    onClick={() =>
+                      onNotificationSettingsChange({
+                        ...notificationSettings,
+                        notificationTone: choice
+                      })
+                    }
+                    type="button"
+                  >
+                    {notificationToneLabel(choice)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-nada-secondary/[.72]">Call ringtone</span>
+                <button
+                  className="rounded-full bg-white/[.06] px-3 py-1 text-[11px] font-semibold text-nada-accent transition hover:bg-white/[.09]"
+                  onClick={() => onPreviewNotificationTone("call")}
+                  type="button"
+                >
+                  Preview
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {NOTIFICATION_RINGTONE_CHOICES.map((choice) => (
+                  <button
+                    className={cn(
+                      "rounded-xl border px-3 py-2 text-left text-xs font-semibold transition",
+                      notificationSettings.ringtone === choice
+                        ? "border-nada-accent/45 bg-nada-accent/15 text-nada-primary"
+                        : "border-white/10 bg-white/[.04] text-nada-secondary/[.72] hover:bg-white/[.07]"
+                    )}
+                    key={choice}
+                    onClick={() =>
+                      onNotificationSettingsChange({
+                        ...notificationSettings,
+                        ringtone: choice
+                      })
+                    }
+                    type="button"
+                  >
+                    {notificationRingtoneLabel(choice)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                className={cn(
+                  "flex items-center justify-between rounded-xl border px-3 py-3 text-left transition",
+                  notificationSettings.vibration
+                    ? "border-nada-accent/35 bg-nada-accent/12"
+                    : "border-white/10 bg-white/[.04]"
+                )}
+                onClick={() =>
+                  onNotificationSettingsChange({
+                    ...notificationSettings,
+                    vibration: !notificationSettings.vibration
+                  })
+                }
+                type="button"
+              >
+                <span>
+                  <span className="block text-xs font-semibold text-nada-primary">Vibration</span>
+                  <span className="mt-0.5 block text-[11px] text-nada-secondary/[.52]">
+                    {notificationSettings.vibration ? "On" : "Off"}
+                  </span>
+                </span>
+                <span className={cn(
+                  "h-5 w-9 rounded-full p-0.5 transition",
+                  notificationSettings.vibration ? "bg-nada-accent" : "bg-white/12"
+                )}>
+                  <span className={cn(
+                    "block h-4 w-4 rounded-full bg-white transition",
+                    notificationSettings.vibration && "translate-x-4"
+                  )} />
+                </span>
+              </button>
+              <button
+                className="rounded-xl border border-white/10 bg-white/[.04] px-3 py-3 text-left transition hover:bg-white/[.07]"
+                onClick={() =>
+                  onNotificationSettingsChange({
+                    ...notificationSettings,
+                    previewPrivacy:
+                      notificationSettings.previewPrivacy === "private" ? "full" : "private"
+                  })
+                }
+                type="button"
+              >
+                <span className="flex items-center gap-2 text-xs font-semibold text-nada-primary">
+                  {notificationSettings.previewPrivacy === "private" ? (
+                    <EyeOff size={14} />
+                  ) : (
+                    <Eye size={14} />
+                  )}
+                  Preview privacy
+                </span>
+                <span className="mt-1 block text-[11px] text-nada-secondary/[.52]">
+                  {notificationSettings.previewPrivacy === "private"
+                    ? "Hide sender and message text"
+                    : "Show notification previews"}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -9564,6 +10198,7 @@ function StatusViewerSheet({
   identity,
   onComment,
   onDeleteStatus,
+  onReactStatus,
   senderName,
   statuses,
   onClose
@@ -9572,6 +10207,7 @@ function StatusViewerSheet({
   identity: IdentityRecord;
   onComment: (status: MessageRecord, text: string) => void;
   onDeleteStatus: (status: MessageRecord) => void;
+  onReactStatus: (status: MessageRecord, emoji: string) => Promise<MessageRecord | null>;
   senderName: string;
   statuses: MessageRecord[];
   onClose: () => void;
@@ -9641,6 +10277,36 @@ function StatusViewerSheet({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
+
+  const commentRecords = useMemo(
+    () => comments.filter((comment) => Boolean(parseStatusCommentPayload(comment.body))),
+    [comments]
+  );
+  const reactionSummary = useMemo(() => {
+    const latestBySender = new Map<string, { createdAt: number; emoji: string }>();
+    comments.forEach((comment) => {
+      const payload = parseStatusReactionPayload(comment.body);
+      if (!payload) return;
+      const existing = latestBySender.get(comment.senderPubkeyHash);
+      if (!existing || comment.createdAt >= existing.createdAt) {
+        latestBySender.set(comment.senderPubkeyHash, {
+          createdAt: comment.createdAt,
+          emoji: payload.emoji
+        });
+      }
+    });
+
+    const counts = new Map<string, number>();
+    latestBySender.forEach(({ emoji }) => {
+      counts.set(emoji, (counts.get(emoji) ?? 0) + 1);
+    });
+
+    return {
+      counts,
+      mine: latestBySender.get(identity.pubkeyHash)?.emoji ?? null,
+      total: latestBySender.size
+    };
+  }, [comments, identity.pubkeyHash]);
 
   if (!currentStatus) return null;
   const statusText = decodeMessagePayload(currentStatus.body)?.text ?? textFromMessage(currentStatus);
@@ -9759,6 +10425,42 @@ function StatusViewerSheet({
       </div>
 
       <div className="z-10 border-t border-white/10 bg-black/80 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1">
+          {STATUS_REACTION_EMOJIS.map((emoji) => {
+            const count = reactionSummary.counts.get(emoji) ?? 0;
+            const isMine = reactionSummary.mine === emoji;
+            return (
+              <button
+                className={cn(
+                  "inline-flex h-10 min-w-10 shrink-0 items-center justify-center gap-1 rounded-full border px-3 text-lg transition",
+                  isMine
+                    ? "border-nada-accent/45 bg-nada-accent/20 text-white shadow-[0_0_24px_rgb(var(--nada-accent)/0.18)]"
+                    : "border-white/10 bg-white/8 text-white/85 hover:bg-white/12"
+                )}
+                key={emoji}
+                onClick={() => {
+                  void onReactStatus(currentStatus, emoji).then((record) => {
+                    if (!record) return;
+                    setComments((current) =>
+                      [...current, record].sort((a, b) => a.createdAt - b.createdAt)
+                    );
+                  });
+                }}
+                type="button"
+              >
+                <span>{emoji}</span>
+                {count > 0 ? (
+                  <span className="text-[11px] font-bold text-white/60">{count}</span>
+                ) : null}
+              </button>
+            );
+          })}
+          {reactionSummary.total > 0 ? (
+            <span className="shrink-0 rounded-full bg-white/8 px-3 py-2 text-xs font-semibold text-white/55">
+              {reactionSummary.total} reaction{reactionSummary.total === 1 ? "" : "s"}
+            </span>
+          ) : null}
+        </div>
         <button
           className="mb-3 flex w-full items-center justify-between rounded-2xl bg-white/8 px-4 py-3 text-left text-sm font-semibold"
           onClick={() => setShowComments((current) => !current)}
@@ -9768,16 +10470,16 @@ function StatusViewerSheet({
             <MessageCircle size={16} />
             Comments
           </span>
-          <span className="text-white/55">{comments.length}</span>
+          <span className="text-white/55">{commentRecords.length}</span>
         </button>
         {showComments ? (
           <div className="mb-3 max-h-44 space-y-2 overflow-y-auto pr-1">
-            {comments.length === 0 ? (
+            {commentRecords.length === 0 ? (
               <p className="py-4 text-center text-xs text-white/45">
                 No comments yet.
               </p>
             ) : (
-              comments.map((comment) => {
+              commentRecords.map((comment) => {
                 const payload = parseStatusCommentPayload(comment.body);
                 const name =
                   comment.senderPubkeyHash === identity.pubkeyHash
@@ -9931,6 +10633,7 @@ async function persistIncomingMessages(
     }
 
     const statusComment = parseStatusCommentPayload(body);
+    const statusReaction = parseStatusReactionPayload(body);
     const statusDelete = parseStatusDeletePayload(body);
     if (statusDelete) {
       if (statusDelete.statusOwnerPubkeyHash === envelope.sender) {
@@ -9947,6 +10650,22 @@ async function persistIncomingMessages(
       await nadaDb.messages.put({
         id: envelope.id,
         chatId: statusCommentChatId(statusComment.statusId),
+        senderPubkeyHash: envelope.sender,
+        recipientPubkeyHash: identity.pubkeyHash,
+        direction: "inbound",
+        kind: "system",
+        body,
+        encryptedPayload: envelope.ciphertext,
+        status: "delivered",
+        createdAt: envelope.timestamp
+      });
+      continue;
+    }
+
+    if (statusReaction) {
+      await nadaDb.messages.put({
+        id: envelope.id,
+        chatId: statusCommentChatId(statusReaction.statusId),
         senderPubkeyHash: envelope.sender,
         recipientPubkeyHash: identity.pubkeyHash,
         direction: "inbound",
