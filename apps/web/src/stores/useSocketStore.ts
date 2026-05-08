@@ -18,6 +18,11 @@ import {
 
 import { getRelaySocketUrl } from "@/lib/relay-url";
 
+type ReliableDeliveryStatus = DeliveryStatus | "read";
+type ReliableDeliveryEnvelope = Omit<DeliveryEnvelope, "status"> & {
+  status: ReliableDeliveryStatus;
+};
+
 type RelayStatus =
   | "idle"
   | "missing-url"
@@ -32,7 +37,7 @@ interface RelayIdentity {
 
 interface SocketState {
   callSignals: CallSignalEnvelope[];
-  deliveries: Record<string, DeliveryStatus>;
+  deliveries: Record<string, ReliableDeliveryStatus>;
   groupIncoming: GroupMessageEnvelope[];
   incoming: MessageEnvelope[];
   sealedIncoming: ProductionEnvelope[];
@@ -61,7 +66,7 @@ interface SocketState {
   sendTyping: (envelope: TypingEnvelope) => boolean;
   sendReaction: (envelope: ReactionEnvelope) => boolean;
   sendDeletion: (envelope: DeletionEnvelope) => boolean;
-  sendDelivery: (envelope: DeliveryEnvelope) => boolean;
+  sendDelivery: (envelope: ReliableDeliveryEnvelope) => boolean;
   setGhostMode: (enabled: boolean) => void;
 }
 

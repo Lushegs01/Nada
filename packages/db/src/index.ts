@@ -73,7 +73,7 @@ export const MessageRecordSchema = z.object({
   kind: MessageKindSchema.default("text"),
   body: z.string(),
   encryptedPayload: z.string().min(1),
-  status: z.enum(["local", "queued", "sent", "delivered", "failed"]),
+  status: z.enum(["local", "queued", "sent", "delivered", "read", "failed"]),
   replyToId: z.string().uuid().optional(),
   replyTo: ReplyToMessageSchema.optional(),
   mentions: z.array(PubkeyHashSchema).optional(),

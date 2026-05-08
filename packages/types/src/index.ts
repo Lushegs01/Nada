@@ -156,6 +156,7 @@ export const DeliveryStatusSchema = z.enum([
   "queued",
   "sent",
   "delivered",
+  "read",
   "failed"
 ]);
 
