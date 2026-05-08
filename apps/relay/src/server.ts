@@ -32,6 +32,15 @@ interface SessionRegistry {
   pubkeyHashBySocket: Map<ClientSocket, PubkeyHash>;
 }
 
+interface PushPayload {
+  title: string;
+  body: string;
+  kind: "message" | "group" | "status" | "comment" | "call" | "encrypted";
+  chatId: string;
+  tag: string;
+  requireInteraction?: boolean;
+}
+
 export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance> {
   const queue = await createRelayQueue(env);
   const app = fastify({
@@ -214,16 +223,14 @@ function routeMessage(
         JSON.stringify({ type: "delivery", id: envelope.id, status: "queued" })
       );
     });
-    void (app as any).sendPushNotification?.(
-      envelope.recipient,
-      JSON.stringify({ title: "New Message", body: "You received a new message." })
-    );
+    queuePush(app, envelope.recipient, buildDirectPushPayload(envelope));
     return;
   }
 
   recipients.forEach((socket) => {
     socket.send(JSON.stringify({ type: "message", envelope }));
   });
+  queuePush(app, envelope.recipient, buildDirectPushPayload(envelope));
 
   const senders = sessions.socketsByPubkeyHash.get(envelope.sender);
   senders?.forEach((socket) => {
@@ -242,16 +249,13 @@ function routeGroupMessage(
   let deliveredCount = 0;
 
   envelope.recipients.forEach((recipient) => {
+    queuePush(app, recipient, buildGroupPushPayload(envelope));
     const sockets = sessions.socketsByPubkeyHash.get(recipient);
     if (!sockets || sockets.size === 0) {
       // Queue for each offline group member individually
       void queue.enqueue(
         recipient,
         JSON.stringify({ type: "group-message", envelope })
-      );
-      void (app as any).sendPushNotification?.(
-        recipient,
-        JSON.stringify({ title: "New Group Message", body: "You received a new message." })
       );
       return;
     }
@@ -279,6 +283,10 @@ function routeCallSignal(
   sessions: SessionRegistry,
   app: FastifyInstance
 ): void {
+  if (envelope.signalType === "offer") {
+    queuePush(app, envelope.recipient, buildCallPushPayload(envelope));
+  }
+
   const recipients = sessions.socketsByPubkeyHash.get(envelope.recipient);
   if (!recipients || recipients.size === 0) {
     const senders = sessions.socketsByPubkeyHash.get(envelope.sender);
@@ -287,12 +295,6 @@ function routeCallSignal(
         JSON.stringify({ type: "delivery", id: envelope.id, status: "failed" })
       );
     });
-    if (envelope.signalType === "offer") {
-      void (app as any).sendPushNotification?.(
-        envelope.recipient,
-        JSON.stringify({ title: "Incoming Call", body: "You have an incoming call." })
-      );
-    }
     return;
   }
 
@@ -387,15 +389,25 @@ async function routeProductionEnvelope(
         status: "queued"
       })
     );
-    void (app as any).sendPushNotification?.(
-      envelope.recipient,
-      JSON.stringify({ title: "New Encrypted Message", body: "You received a new encrypted message." })
-    );
+    queuePush(app, envelope.recipient, {
+      title: "New encrypted message",
+      body: "You received a private NADA message.",
+      chatId: envelope.recipient,
+      kind: "encrypted",
+      tag: `sealed:${envelope.recipient}`
+    });
     return;
   }
 
   recipients.forEach((socket) => {
     socket.send(serialized);
+  });
+  queuePush(app, envelope.recipient, {
+    title: "New encrypted message",
+    body: "You received a private NADA message.",
+    chatId: envelope.recipient,
+    kind: "encrypted",
+    tag: `sealed:${envelope.recipient}`
   });
 }
 
@@ -416,4 +428,63 @@ function sendSocketError(
   message: string
 ): void {
   socket.send(JSON.stringify({ type: "error", code, message }));
+}
+
+function buildDirectPushPayload(envelope: MessageEnvelope): PushPayload {
+  if (envelope.messageKind === "status") {
+    return {
+      title: "New status update",
+      body: "A NADA contact posted a vanishing status.",
+      chatId: "status",
+      kind: "status",
+      tag: `status:${envelope.sender}`
+    };
+  }
+
+  if (envelope.messageKind === "system") {
+    return {
+      title: "New status comment",
+      body: "Someone commented on your status.",
+      chatId: "status",
+      kind: "comment",
+      tag: `comment:${envelope.id}`
+    };
+  }
+
+  return {
+    title: "New NADA message",
+    body: "You received a private message.",
+    chatId: envelope.sender,
+    kind: "message",
+    tag: `message:${envelope.sender}`
+  };
+}
+
+function buildGroupPushPayload(envelope: GroupMessageEnvelope): PushPayload {
+  return {
+    title: "New group message",
+    body: "A private group has a new message.",
+    chatId: envelope.groupId,
+    kind: "group",
+    tag: `group:${envelope.groupId}`
+  };
+}
+
+function buildCallPushPayload(envelope: CallSignalEnvelope): PushPayload {
+  return {
+    title: envelope.mode === "video" ? "Incoming video call" : "Incoming voice call",
+    body: "Tap to open NADA and answer securely.",
+    chatId: envelope.sender,
+    kind: "call",
+    tag: `call:${envelope.callId}`,
+    requireInteraction: true
+  };
+}
+
+function queuePush(
+  app: FastifyInstance,
+  pubkeyHash: string,
+  payload: PushPayload
+): void {
+  void (app as any).sendPushNotification?.(pubkeyHash, JSON.stringify(payload));
 }
