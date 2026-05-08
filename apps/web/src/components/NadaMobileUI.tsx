@@ -103,7 +103,8 @@ export const ChatListItem = ({
   onClick,
   onArchive,
   onDelete,
-  archiveLabel = "Archive"
+  archiveLabel = "Archive",
+  deleteLabel = "Delete"
 }: {
   name: string;
   preview: string;
@@ -120,6 +121,7 @@ export const ChatListItem = ({
   onArchive?: () => void;
   onDelete?: () => void;
   archiveLabel?: string;
+  deleteLabel?: string;
 }) => (
   <div className="relative overflow-hidden border-b border-nada-border/[0.06]">
     <div className="absolute inset-y-0 left-0 flex w-28 items-center justify-start bg-nada-accent/15 pl-4 text-nada-accent">
@@ -131,7 +133,7 @@ export const ChatListItem = ({
     <div className="absolute inset-y-0 right-0 flex w-28 items-center justify-end bg-red-500/15 pr-4 text-red-300">
       <div className="flex flex-col items-center gap-1 text-[10px] font-bold">
         <Trash2 size={18} />
-        Delete
+        {deleteLabel}
       </div>
     </div>
     <motion.button

@@ -83,6 +83,7 @@ import {
   createAnonymousIdentity,
   createSeedPhrase,
   createGroupSenderKey,
+  decryptGroupMessage,
   encryptGroupMessage,
   mockEncryptMessage,
   mockDecryptMessage
@@ -201,7 +202,7 @@ type ChatListModel = {
 };
 
 type PendingChatAction = {
-  action: "archive" | "unarchive" | "delete";
+  action: "archive" | "unarchive" | "delete" | "delete-group";
   chatId: string;
   contactHash?: string;
   groupId?: string;
@@ -213,6 +214,20 @@ type StatusCommentPayload = {
   statusId: string;
   statusOwnerPubkeyHash: string;
   text: string;
+  version: 1;
+};
+
+type StatusDeletePayload = {
+  kind: "status-delete";
+  statusId: string;
+  statusOwnerPubkeyHash: string;
+  version: 1;
+};
+
+type GroupDeletePayload = {
+  groupId: string;
+  kind: "group-delete";
+  ownerPubkeyHash: string;
   version: 1;
 };
 
@@ -249,6 +264,44 @@ function parseStatusCommentPayload(body: string): StatusCommentPayload | null {
           statusId: parsed.statusId,
           statusOwnerPubkeyHash: parsed.statusOwnerPubkeyHash,
           text: parsed.text,
+          version: 1
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseStatusDeletePayload(body: string): StatusDeletePayload | null {
+  try {
+    const parsed = JSON.parse(body) as Partial<StatusDeletePayload>;
+    return parsed.kind === "status-delete" &&
+      parsed.version === 1 &&
+      typeof parsed.statusId === "string" &&
+      typeof parsed.statusOwnerPubkeyHash === "string"
+      ? {
+          kind: "status-delete",
+          statusId: parsed.statusId,
+          statusOwnerPubkeyHash: parsed.statusOwnerPubkeyHash,
+          version: 1
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseGroupDeletePayload(body: string): GroupDeletePayload | null {
+  try {
+    const parsed = JSON.parse(body) as Partial<GroupDeletePayload>;
+    return parsed.kind === "group-delete" &&
+      parsed.version === 1 &&
+      typeof parsed.groupId === "string" &&
+      typeof parsed.ownerPubkeyHash === "string"
+      ? {
+          groupId: parsed.groupId,
+          kind: "group-delete",
+          ownerPubkeyHash: parsed.ownerPubkeyHash,
           version: 1
         }
       : null;
@@ -1347,7 +1400,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         return;
       }
 
-      setChats(chatRecords.filter((chat) => chat.type === "group"));
+      const groupRecords = chatRecords.filter((chat) => chat.type === "group");
+      setChats(groupRecords);
+      if (
+        selectedGroupId &&
+        !groupRecords.some((chat) => chat.id === selectedGroupId)
+      ) {
+        setSelectedGroupId(null);
+        setMessages([]);
+      }
       setMessages((current) =>
         selectedChatId
           ? mergeMessageRecords(
@@ -1369,7 +1430,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     void loadStatuses();
 
     return () => { active = false; };
-  }, [groupIncoming, identity, loadStatuses, selectedChatId, sendDelivery, showNotification]);
+  }, [groupIncoming, identity, loadStatuses, selectedChatId, selectedGroupId, sendDelivery, showNotification]);
 
   /** Insert a system call-log message bubble into the current chat */
   const insertCallLogMessage = useCallback(async (callId: string, mode: CallMode, status: "started" | "ended" | "missed", duration?: number): Promise<void> => {
@@ -1931,6 +1992,51 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       });
     }
     showToast("Comment added.");
+  };
+
+  const deleteStatus = async (status: MessageRecord): Promise<void> => {
+    if (status.senderPubkeyHash !== identity.pubkeyHash) {
+      showToast("Only your own status can be deleted.");
+      return;
+    }
+
+    const payload: StatusDeletePayload = {
+      kind: "status-delete",
+      statusId: status.id,
+      statusOwnerPubkeyHash: identity.pubkeyHash,
+      version: 1
+    };
+    const body = JSON.stringify(payload);
+    const ciphertext = await mockEncryptMessage(body);
+    const timestamp = Date.now();
+
+    await nadaDb.messages.delete(status.id);
+    await nadaDb.messages.where("chatId").equals(statusCommentChatId(status.id)).delete();
+    const remainingOwnStatuses = allStatuses.filter(
+      (record) =>
+        record.id !== status.id &&
+        record.senderPubkeyHash === identity.pubkeyHash
+    );
+    setAllStatuses((current) => current.filter((record) => record.id !== status.id));
+    if (remainingOwnStatuses.length === 0) {
+      setSelectedStatusSenderHash((hash) =>
+        hash === identity.pubkeyHash ? null : hash
+      );
+    }
+
+    contacts.forEach((contact) => {
+      sendEnvelope({
+        type: "message",
+        id: crypto.randomUUID(),
+        recipient: contact.pubkeyHash,
+        sender: identity.pubkeyHash,
+        timestamp,
+        ciphertext,
+        messageKind: "system",
+        ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+      });
+    });
+    showToast("Status deleted.");
   };
 
   const attachFile = async (file: File): Promise<boolean> => {
@@ -2534,9 +2640,75 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       return;
     }
 
+    if (action === "delete-group") {
+      const group = groupId ? chats.find((chat) => chat.id === groupId) : null;
+      if (!group || group.ownerPubkeyHash !== identity.pubkeyHash) {
+        setPendingChatAction(null);
+        showToast("Only the group creator can delete this group.");
+        return;
+      }
+
+      const timestamp = Date.now();
+      const body = JSON.stringify({
+        groupId: group.id,
+        kind: "group-delete",
+        ownerPubkeyHash: identity.pubkeyHash,
+        version: 1
+      } satisfies GroupDeletePayload);
+
+      if (group.groupSenderKey) {
+        const ciphertext = JSON.stringify(
+          await encryptGroupMessage(body, group.groupSenderKey)
+        );
+        const recipients = group.memberPubkeyHashes.filter(
+          (member) => member !== identity.pubkeyHash
+        );
+        sendGroupEnvelope({
+          type: "group-message",
+          id: crypto.randomUUID(),
+          groupId: group.id,
+          recipients,
+          sender: identity.pubkeyHash,
+          timestamp,
+          ciphertext,
+          messageKind: "system",
+          ...(process.env["NODE_ENV"] !== "production" ? { devPlaintext: body } : {})
+        });
+      }
+
+      await nadaDb.messages.where("chatId").equals(group.id).delete();
+      await nadaDb.chatPrefs.delete(group.id);
+      await nadaDb.groupKeys.delete(group.id);
+      await nadaDb.chats.delete(group.id);
+      setChats((current) => current.filter((chat) => chat.id !== group.id));
+      setArchivedChatIds((current) => {
+        const next = new Set(current);
+        next.delete(group.id);
+        return next;
+      });
+      setLastMessages((current) => {
+        const next = { ...current };
+        delete next[group.id];
+        return next;
+      });
+      setUnreadCounts((current) => {
+        const next = { ...current };
+        delete next[group.id];
+        return next;
+      });
+      if (selectedChatId === group.id) {
+        setSelectedGroupId(null);
+        setMessages([]);
+      }
+      setPendingChatAction(null);
+      showToast("Group deleted.");
+      return;
+    }
+
     await nadaDb.messages.where("chatId").equals(chatId).delete();
     await nadaDb.chatPrefs.delete(chatId);
     if (groupId) {
+      await nadaDb.groupKeys.delete(groupId);
       await nadaDb.chats.delete(groupId);
       setChats((current) => current.filter((chat) => chat.id !== groupId));
     }
@@ -2749,6 +2921,11 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                     );
                   })
                   .map((item) => {
+                    const groupRecord = item.groupId
+                      ? chats.find((group) => group.id === item.groupId)
+                      : null;
+                    const itemIsOwnedGroup =
+                      Boolean(groupRecord?.ownerPubkeyHash === identity.pubkeyHash);
                     return (
                       <ChatListItem
                         key={item.chatId}
@@ -2761,6 +2938,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                         isOnline={item.isOnline}
                         {...(item.avatar ? { avatar: item.avatar } : {})}
                         archiveLabel={item.isArchived ? "Unarchive" : "Archive"}
+                        deleteLabel={
+                          item.isGroup
+                            ? itemIsOwnedGroup
+                              ? "Delete group"
+                              : "Leave"
+                            : "Delete"
+                        }
                         onArchive={() =>
                           setPendingChatAction({
                             action: item.isArchived ? "unarchive" : "archive",
@@ -2784,7 +2968,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                         }}
                         onDelete={() =>
                           setPendingChatAction({
-                            action: "delete",
+                            action: item.isGroup && itemIsOwnedGroup ? "delete-group" : "delete",
                             chatId: item.chatId,
                             title: item.title,
                             ...(item.contactHash ? { contactHash: item.contactHash } : {}),
@@ -2809,6 +2993,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       <ChatPanel
         canAttachFile={Boolean(selectedContact || selectedGroup)}
         canCopyGroupInvite={Boolean(selectedGroup?.groupSenderKey)}
+        canDeleteGroup={Boolean(selectedGroup?.ownerPubkeyHash === identity.pubkeyHash)}
         contact={selectedContact}
         disappearingTimer={disappearingTimer}
         editingMessage={editingMessage}
@@ -2857,6 +3042,15 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         }}
         onDeleteForMe={(messageId) => {
           void deleteMessageForMe(messageId);
+        }}
+        onDeleteGroup={() => {
+          if (!selectedGroup) return;
+          setPendingChatAction({
+            action: "delete-group",
+            chatId: selectedGroup.id,
+            groupId: selectedGroup.id,
+            title: selectedGroup.title
+          });
         }}
         replyMessage={replyMessage}
         subtitle={selectedSubtitle}
@@ -3039,6 +3233,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             identity={identity}
             onComment={(status, text) => {
               void sendStatusComment(status, text);
+            }}
+            onDeleteStatus={(status) => {
+              void deleteStatus(status);
             }}
             senderName={
               selectedStatusSenderHash === identity.pubkeyHash 
@@ -3407,6 +3604,7 @@ function RelayStatus({ status }: { status: string }): JSX.Element {
 function ChatPanel({
   canAttachFile,
   canCopyGroupInvite,
+  canDeleteGroup,
   contact,
   disappearingTimer,
   editingMessage,
@@ -3418,6 +3616,7 @@ function ChatPanel({
   onCancelEdit,
   onCancelReply,
   onCopyGroupInvite,
+  onDeleteGroup,
   onDisappearingTimerChange,
   onEditMessage,
   onMessageSearchChange,
@@ -3458,6 +3657,7 @@ function ChatPanel({
 }: {
   canAttachFile: boolean;
   canCopyGroupInvite: boolean;
+  canDeleteGroup: boolean;
   contact: ContactRecord | null;
   disappearingTimer: number;
   editingMessage: MessageRecord | null;
@@ -3469,6 +3669,7 @@ function ChatPanel({
   onCancelEdit: () => void;
   onCancelReply: () => void;
   onCopyGroupInvite: () => void;
+  onDeleteGroup: () => void;
   onDisappearingTimerChange: (value: number) => void;
   onEditMessage: (message: MessageRecord) => void;
   onMessageSearchChange: (value: string) => void;
@@ -4062,6 +4263,93 @@ function ChatPanel({
             >
               <Copy size={16} />
             </IconButton>
+            <div className="relative">
+              <IconButton
+                label="Group options"
+                onClick={() => {
+                  setShowOptions(!showOptions);
+                }}
+              >
+                <MoreVertical size={16} />
+              </IconButton>
+              {showOptions && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => {
+                      setShowOptions(false);
+                    }}
+                  />
+                  <div
+                    className="absolute right-0 top-full z-50 mt-2 w-60 origin-top-right rounded-2xl border border-nada-border/24 py-1.5 animate-scale-in"
+                    style={{
+                      background: "linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.95), rgb(var(--nada-surface) / 0.95))",
+                      backdropFilter: "blur(28px) saturate(150%)",
+                      boxShadow: "0 20px 56px rgba(0,0,0,0.55), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgb(var(--nada-border) / 0.10)"
+                    }}
+                  >
+                    <button
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
+                      onClick={() => {
+                        setShowOptions(false);
+                        setChatSearchActive(true);
+                      }}
+                    >
+                      <Search size={14} className="text-nada-accent/70" />
+                      Search in group
+                    </button>
+                    <button
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
+                      onClick={() => {
+                        setShowOptions(false);
+                        setShowWallpaperPrompt(true);
+                      }}
+                    >
+                      <Image size={14} className="text-nada-accent/70" />
+                      Set group wallpaper
+                    </button>
+                    <button
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
+                      onClick={() => {
+                        setShowOptions(false);
+                        onToggleBlurShield();
+                        if (!blurShieldActive) {
+                          showToast("Privacy shield enabled. Tap messages to reveal.");
+                        }
+                      }}
+                    >
+                      {blurShieldActive ? <Eye size={14} className="text-nada-accent" /> : <EyeOff size={14} className="text-nada-secondary/[.50]" />}
+                      {blurShieldActive ? "Disable privacy shield" : "Enable privacy shield"}
+                    </button>
+                    <button
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-danger hover:bg-nada-surface-elevated/40 transition-colors"
+                      onClick={() => {
+                        setShowOptions(false);
+                        setShowClearModal(true);
+                      }}
+                    >
+                      <Trash2 size={14} className="text-nada-danger/70" />
+                      Clear group chat
+                    </button>
+                    {canDeleteGroup ? (
+                      <>
+                        <div className="my-1 border-t border-nada-border/[.08]" />
+                        <button
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-semibold text-nada-danger hover:bg-red-500/10 transition-colors"
+                          onClick={() => {
+                            setShowOptions(false);
+                            onDeleteGroup();
+                          }}
+                        >
+                          <Trash2 size={14} className="text-nada-danger" />
+                          Delete group
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </>
+              )}
+            </div>
           </>
         ) : (
           <>
@@ -6744,19 +7032,24 @@ function ConfirmChatActionDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }): JSX.Element {
-  const isDelete = action === "delete";
+  const isDelete = action === "delete" || action === "delete-group";
   const copy =
     action === "archive"
       ? "Archive this chat? It will move out of your main chat list."
       : action === "unarchive"
         ? "Unarchive this chat? It will return to your main chat list."
-        : "Delete this chat locally? Messages in this conversation will be removed from this device.";
+        : action === "delete-group"
+          ? "Delete this group? Only the creator can do this. Members will receive a delete notice when they sync."
+          : "Delete this chat locally? Messages in this conversation will be removed from this device.";
   const confirmLabel =
     action === "archive"
       ? "Archive"
       : action === "unarchive"
         ? "Unarchive"
-        : "Delete";
+        : action === "delete-group"
+          ? "Delete group"
+          : "Delete";
+  const title = action === "delete-group" ? "Delete group" : `${confirmLabel} chat`;
 
   return (
     <motion.div
@@ -6784,7 +7077,7 @@ function ConfirmChatActionDialog({
           </div>
           <div className="min-w-0">
             <h3 className="truncate text-base font-bold text-nada-primary">
-              {confirmLabel} chat
+              {title}
             </h3>
             <p className="truncate text-xs text-nada-secondary/55">{chatTitle}</p>
           </div>
@@ -7344,6 +7637,7 @@ function StatusViewerSheet({
   contacts,
   identity,
   onComment,
+  onDeleteStatus,
   senderName,
   statuses,
   onClose
@@ -7351,6 +7645,7 @@ function StatusViewerSheet({
   contacts: ContactRecord[];
   identity: IdentityRecord;
   onComment: (status: MessageRecord, text: string) => void;
+  onDeleteStatus: (status: MessageRecord) => void;
   senderName: string;
   statuses: MessageRecord[];
   onClose: () => void;
@@ -7359,6 +7654,7 @@ function StatusViewerSheet({
   const [commentDraft, setCommentDraft] = useState("");
   const [comments, setComments] = useState<MessageRecord[]>([]);
   const [showComments, setShowComments] = useState(false);
+  const [pendingDeleteStatus, setPendingDeleteStatus] = useState<MessageRecord | null>(null);
   const currentStatus = statuses[currentIndex];
 
   useEffect(() => {
@@ -7422,6 +7718,7 @@ function StatusViewerSheet({
 
   if (!currentStatus) return null;
   const statusText = decodeMessagePayload(currentStatus.body)?.text ?? textFromMessage(currentStatus);
+  const canDeleteCurrentStatus = currentStatus.senderPubkeyHash === identity.pubkeyHash;
 
   return (
     <motion.div
@@ -7458,7 +7755,26 @@ function StatusViewerSheet({
                 <p className="text-[10px] opacity-60">{formatRelativeTime(currentStatus.createdAt)}</p>
              </div>
           </div>
-          <button onClick={onClose}><X size={24} /></button>
+          <div className="flex items-center gap-2">
+            {canDeleteCurrentStatus ? (
+              <button
+                aria-label="Delete status"
+                className="grid h-10 w-10 place-items-center rounded-2xl bg-red-500/12 text-red-200 transition hover:bg-red-500/18"
+                onClick={() => setPendingDeleteStatus(currentStatus)}
+                type="button"
+              >
+                <Trash2 size={18} />
+              </button>
+            ) : null}
+            <button
+              aria-label="Close status"
+              className="grid h-10 w-10 place-items-center rounded-2xl bg-white/8 text-white/80 transition hover:bg-white/12"
+              onClick={onClose}
+              type="button"
+            >
+              <X size={22} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -7578,6 +7894,54 @@ function StatusViewerSheet({
           </button>
         </form>
       </div>
+      <AnimatePresence>
+        {pendingDeleteStatus ? (
+          <motion.div
+            animate={{ opacity: 1 }}
+            className="absolute inset-0 z-[20] grid place-items-center bg-black/55 p-5 backdrop-blur-sm"
+            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            onClick={() => setPendingDeleteStatus(null)}
+          >
+            <motion.div
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              className="w-full max-w-sm rounded-3xl border border-white/10 bg-nada-surface p-5 text-left shadow-2xl"
+              exit={{ y: 12, opacity: 0, scale: 0.98 }}
+              initial={{ y: 12, opacity: 0, scale: 0.98 }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center gap-3">
+                <div className="grid h-11 w-11 place-items-center rounded-2xl bg-red-500/12 text-red-300">
+                  <Trash2 size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-nada-primary">Delete status?</h3>
+                  <p className="text-xs text-nada-secondary/55">This status and its comments will be removed.</p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  className="flex-1 rounded-2xl bg-nada-muted px-4 py-3 text-sm font-semibold text-nada-secondary"
+                  onClick={() => setPendingDeleteStatus(null)}
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="flex-1 rounded-2xl bg-red-500 px-4 py-3 text-sm font-bold text-white"
+                  onClick={() => {
+                    onDeleteStatus(pendingDeleteStatus);
+                    setPendingDeleteStatus(null);
+                  }}
+                  type="button"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -7614,6 +7978,18 @@ async function persistIncomingMessages(
     }
 
     const statusComment = parseStatusCommentPayload(body);
+    const statusDelete = parseStatusDeletePayload(body);
+    if (statusDelete) {
+      if (statusDelete.statusOwnerPubkeyHash === envelope.sender) {
+        await nadaDb.messages.delete(statusDelete.statusId);
+        await nadaDb.messages
+          .where("chatId")
+          .equals(statusCommentChatId(statusDelete.statusId))
+          .delete();
+      }
+      continue;
+    }
+
     if (statusComment) {
       await nadaDb.messages.put({
         id: envelope.id,
@@ -7669,7 +8045,67 @@ async function persistIncomingGroupMessages(
   envelopes: GroupMessageEnvelope[]
 ): Promise<void> {
   for (const envelope of envelopes) {
-    const existingChat = await nadaDb.chats.get(envelope.groupId);
+    const existingMessage = await nadaDb.messages.get(envelope.id);
+    if (existingMessage) {
+      continue;
+    }
+
+    let existingChat = await nadaDb.chats.get(envelope.groupId);
+
+    // Try to decrypt the group message body
+    let body: string;
+    if (envelope.devPlaintext) {
+      body = envelope.devPlaintext;
+    } else {
+      try {
+        const parsed = JSON.parse(envelope.ciphertext) as {
+          ciphertext?: unknown;
+          nonce?: unknown;
+          version?: unknown;
+        };
+        const keyRecord = await nadaDb.groupKeys.get(envelope.groupId);
+        const senderKey = existingChat?.groupSenderKey ?? keyRecord?.senderKey;
+        if (
+          senderKey &&
+          typeof parsed.ciphertext === "string" &&
+          typeof parsed.nonce === "string" &&
+          parsed.version === 1
+        ) {
+          body = await decryptGroupMessage(
+            {
+              ciphertext: parsed.ciphertext,
+              nonce: parsed.nonce,
+              version: 1
+            },
+            senderKey
+          );
+        } else {
+          body = await mockDecryptMessage(envelope.ciphertext);
+        }
+      } catch {
+        try {
+          body = await mockDecryptMessage(envelope.ciphertext);
+        } catch {
+          body = envelope.ciphertext;
+        }
+      }
+    }
+
+    const groupDelete = parseGroupDeletePayload(body);
+    if (groupDelete?.groupId === envelope.groupId) {
+      const ownerHash = existingChat?.ownerPubkeyHash ?? groupDelete.ownerPubkeyHash;
+      if (
+        groupDelete.ownerPubkeyHash === ownerHash &&
+        envelope.sender === ownerHash
+      ) {
+        await nadaDb.messages.where("chatId").equals(envelope.groupId).delete();
+        await nadaDb.chatPrefs.delete(envelope.groupId);
+        await nadaDb.groupKeys.delete(envelope.groupId);
+        await nadaDb.chats.delete(envelope.groupId);
+      }
+      continue;
+    }
+
     if (!existingChat) {
       const now = Date.now();
       await nadaDb.chats.put({
@@ -7684,27 +8120,11 @@ async function persistIncomingGroupMessages(
         updatedAt: envelope.timestamp,
         disappearingTimer: 0
       });
+      existingChat = await nadaDb.chats.get(envelope.groupId);
     } else {
       await nadaDb.chats.update(envelope.groupId, {
         updatedAt: envelope.timestamp
       });
-    }
-
-    const existingMessage = await nadaDb.messages.get(envelope.id);
-    if (existingMessage) {
-      continue;
-    }
-
-    // Try to decrypt the group message body
-    let body: string;
-    if (envelope.devPlaintext) {
-      body = envelope.devPlaintext;
-    } else {
-      try {
-        body = await mockDecryptMessage(envelope.ciphertext);
-      } catch {
-        body = envelope.ciphertext;
-      }
     }
 
     await nadaDb.messages.put({
