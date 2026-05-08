@@ -27,12 +27,14 @@ export function VoiceNoteBubble({
   outbound: boolean;
 }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(Math.max(durationSeconds, 0));
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [fallbackMode, setFallbackMode] = useState(false);
 
   useEffect(() => {
     if (!src || !containerRef.current) {
@@ -41,25 +43,40 @@ export function VoiceNoteBubble({
     }
 
     setError(false);
+    setFallbackMode(false);
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(Math.max(durationSeconds, 0));
     setLoading(true);
 
-    const ws = WaveSurfer.create({
-      container: containerRef.current,
-      waveColor: outbound ? "rgba(255, 255, 255, 0.34)" : "rgba(139, 124, 255, 0.34)",
-      progressColor: outbound ? "rgba(255, 255, 255, 0.96)" : "rgba(245, 182, 66, 0.95)",
-      cursorColor: "transparent",
-      barWidth: 2.5,
-      barGap: 2,
-      barRadius: 2,
-      dragToSeek: true,
-      height: 34,
-      interact: true,
-      normalize: true,
-      url: src
-    });
+    const enableAudioFallback = () => {
+      wavesurfer.current = null;
+      setFallbackMode(true);
+      setError(false);
+      setLoading(false);
+      setDuration(Math.max(durationSeconds, 0));
+    };
+
+    let ws: WaveSurfer;
+    try {
+      ws = WaveSurfer.create({
+        container: containerRef.current,
+        waveColor: outbound ? "rgba(255, 255, 255, 0.34)" : "rgba(139, 124, 255, 0.34)",
+        progressColor: outbound ? "rgba(255, 255, 255, 0.96)" : "rgba(245, 182, 66, 0.95)",
+        cursorColor: "transparent",
+        barWidth: 2.5,
+        barGap: 2,
+        barRadius: 2,
+        dragToSeek: true,
+        height: 34,
+        interact: true,
+        normalize: true,
+        url: src
+      });
+    } catch {
+      enableAudioFallback();
+      return;
+    }
     wavesurfer.current = ws;
 
     ws.on("ready", () => {
@@ -72,6 +89,10 @@ export function VoiceNoteBubble({
       );
     });
     ws.on("error", () => {
+      if (src.startsWith("data:") || src.startsWith("blob:")) {
+        enableAudioFallback();
+        return;
+      }
       setError(true);
       setLoading(false);
     });
@@ -85,12 +106,27 @@ export function VoiceNoteBubble({
     ws.on("timeupdate", (cur) => setCurrentTime(cur));
 
     return () => {
-      ws.destroy();
+      try {
+        ws.destroy();
+      } catch {
+        // WaveSurfer can throw during teardown after decode failures.
+      }
       wavesurfer.current = null;
     };
   }, [durationSeconds, src, outbound]);
 
   function togglePlay(): void {
+    if (fallbackMode) {
+      const audio = audioRef.current;
+      if (!audio) return;
+      if (audio.paused) {
+        void audio.play().catch(() => setError(true));
+      } else {
+        audio.pause();
+      }
+      return;
+    }
+
     if (wavesurfer.current && !error) {
       wavesurfer.current.playPause();
     }
@@ -98,7 +134,7 @@ export function VoiceNoteBubble({
 
   const displayDuration = isPlaying ? currentTime : duration;
 
-  if (error) {
+  if (error && !fallbackMode) {
     return (
       <div className="flex items-center gap-2 text-xs text-red-400 opacity-80">
         <AlertCircle size={14} />
@@ -109,21 +145,41 @@ export function VoiceNoteBubble({
 
   return (
     <div className="flex min-w-[240px] max-w-[320px] items-center gap-3">
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio
+        className="hidden"
+        ref={audioRef}
+        onEnded={() => {
+          setIsPlaying(false);
+          setCurrentTime(0);
+        }}
+        onLoadedMetadata={(event) => {
+          const nextDuration = event.currentTarget.duration;
+          if (Number.isFinite(nextDuration) && nextDuration > 0) {
+            setDuration(nextDuration);
+          }
+        }}
+        onPause={() => setIsPlaying(false)}
+        onPlay={() => setIsPlaying(true)}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        preload="metadata"
+        src={src}
+      />
       {/* Play / Pause button */}
       <button
         aria-label={isPlaying ? "Pause voice note" : "Play voice note"}
         onClick={togglePlay}
-        disabled={loading}
+        disabled={loading && !fallbackMode}
         className={cn(
           "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
           outbound
             ? "bg-white/22 hover:bg-white/32 active:scale-90 text-white"
             : "bg-nada-accent/16 hover:bg-nada-accent/26 active:scale-90 text-nada-accent",
           isPlaying && "shadow-[0_0_0_3px_rgba(255,255,255,0.12)]",
-          loading && "opacity-50 cursor-wait"
+          loading && !fallbackMode && "opacity-50 cursor-wait"
         )}
       >
-        {loading ? (
+        {loading && !fallbackMode ? (
           <Loader2 size={16} className="animate-spin" />
         ) : isPlaying ? (
           <Pause size={16} />
@@ -135,7 +191,7 @@ export function VoiceNoteBubble({
       {/* Waveform + duration */}
       <div className="flex flex-1 flex-col gap-1 overflow-hidden relative">
         <div className="relative h-9 w-full overflow-hidden rounded-lg">
-          {loading ? (
+          {loading || fallbackMode ? (
             <div className="absolute inset-0 flex items-center gap-1.5">
               {Array.from({ length: 24 }, (_, index) => (
                 <span
@@ -146,6 +202,7 @@ export function VoiceNoteBubble({
                   )}
                   style={{
                     animationDelay: `${index * 34}ms`,
+                    animationDuration: fallbackMode ? "900ms" : undefined,
                     height: `${28 + ((index * 17) % 54)}%`
                   }}
                 />
@@ -155,7 +212,7 @@ export function VoiceNoteBubble({
           <div
             ref={containerRef}
             aria-label="Voice note waveform"
-            className={cn("h-9 w-full transition-opacity", loading && "opacity-0")}
+            className={cn("h-9 w-full transition-opacity", (loading || fallbackMode) && "opacity-0")}
           />
         </div>
         <span

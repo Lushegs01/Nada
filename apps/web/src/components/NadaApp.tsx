@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent,
   type ReactNode
 } from "react";
 import Dexie from "dexie";
@@ -657,18 +658,26 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     }, 4000);
     if (typeof window !== "undefined" && "Notification" in window) {
       const showSystemNotification = () => {
-        if (Notification.permission === "granted") {
-          new Notification(title, {
-            body,
-            icon: "/logo.png",
-            tag: chatId
-          });
+        try {
+          if (Notification.permission === "granted") {
+            new Notification(title, {
+              body,
+              icon: "/logo.png",
+              tag: chatId
+            });
+          }
+        } catch {
+          // Some mobile/PWA browsers expose Notification but throw at runtime.
         }
       };
-      if (Notification.permission === "default") {
-        void Notification.requestPermission().then(showSystemNotification);
-      } else {
-        showSystemNotification();
+      try {
+        if (Notification.permission === "default") {
+          void Notification.requestPermission().then(showSystemNotification).catch(() => {});
+        } else {
+          showSystemNotification();
+        }
+      } catch {
+        // Keep the in-app notification even when system notifications fail.
       }
     }
   }, []);
@@ -785,7 +794,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         initials: contact.localDisplayName.slice(0, 1).toUpperCase(),
         isArchived: archivedChatIds.has(chatId),
         isGroup: false,
-        isOnline: true,
+        isOnline: false,
         isSelected: selectedContactHash === contact.pubkeyHash,
         preview: lastMsg?.body || "Start a conversation",
         sortTs: lastMsg?.ts || contact.addedAt,
@@ -1408,60 +1417,65 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     if (!latestSignal) return;
     processedCallSignals.current.add(latestSignal.id);
 
-    switch (latestSignal.signalType) {
-      case "offer": {
-        // Incoming call — store the SDP so the accept handler can use it
-        const contact = contacts.find(c => c.pubkeyHash === latestSignal.sender);
-        const callerName = contact?.localDisplayName ?? generateRandomUsername(latestSignal.sender);
-        const callChatId = directChatId(identity.pubkeyHash, latestSignal.sender);
-        callStore.receiveIncomingOffer({
-          callId: latestSignal.callId,
-          mode: latestSignal.mode,
-          peerPubkeyHash: latestSignal.sender,
-          peerName: callerName,
-          offerSdp: latestSignal.payload
-        });
-        showNotification(
-          callerName,
-          `Incoming ${latestSignal.mode === "video" ? "video" : "voice"} call`,
-          callChatId
-        );
-        // Log incoming call attempt
-        void insertCallLogMessage(latestSignal.callId, latestSignal.mode, "started");
-        break;
-      }
-      case "answer": {
-        // Caller receives the answer — set remote description on our PC
-        const pc = callStore.call?.localSession?.peerConnection;
-        if (!pc) break;
-        const answerSdp = JSON.parse(latestSignal.payload) as RTCSessionDescriptionInit;
-        pc.setRemoteDescription(new RTCSessionDescription(answerSdp))
-          .then(() => {
-            // Flush any ICE candidates that arrived before the answer
-            const pending = callStore.call?.pendingIceCandidates ?? [];
-            pending.forEach(c => void pc.addIceCandidate(new RTCIceCandidate(c)));
-            callStore.clearPendingIce();
-            callStore.setPhase("active");
-            callStore.setStartedAt(Date.now());
-          })
-          .catch(() => callStore.failCall("Failed to set remote description."));
-        break;
-      }
-      case "ice": {
-        const pc = callStore.call?.localSession?.peerConnection;
-        const candidate = JSON.parse(latestSignal.payload) as RTCIceCandidateInit;
-        if (pc && pc.remoteDescription) {
-          void pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } else {
-          // Queue it until remote description is ready
-          callStore.addPendingIce(candidate);
+    try {
+      switch (latestSignal.signalType) {
+        case "offer": {
+          // Incoming call - validate the SDP before opening the ringing UI.
+          JSON.parse(latestSignal.payload) as RTCSessionDescriptionInit;
+          const contact = contacts.find(c => c.pubkeyHash === latestSignal.sender);
+          const callerName = contact?.localDisplayName ?? generateRandomUsername(latestSignal.sender);
+          const callChatId = directChatId(identity.pubkeyHash, latestSignal.sender);
+          callStore.receiveIncomingOffer({
+            callId: latestSignal.callId,
+            mode: latestSignal.mode,
+            peerPubkeyHash: latestSignal.sender,
+            peerName: callerName,
+            offerSdp: latestSignal.payload
+          });
+          showNotification(
+            callerName,
+            `Incoming ${latestSignal.mode === "video" ? "video" : "voice"} call`,
+            callChatId
+          );
+          // Log incoming call attempt
+          void insertCallLogMessage(latestSignal.callId, latestSignal.mode, "started");
+          break;
         }
-        break;
+        case "answer": {
+          // Caller receives the answer - set remote description on our PC
+          const pc = callStore.call?.localSession?.peerConnection;
+          if (!pc) break;
+          const answerSdp = JSON.parse(latestSignal.payload) as RTCSessionDescriptionInit;
+          pc.setRemoteDescription(new RTCSessionDescription(answerSdp))
+            .then(() => {
+              // Flush any ICE candidates that arrived before the answer
+              const pending = callStore.call?.pendingIceCandidates ?? [];
+              pending.forEach(c => void pc.addIceCandidate(new RTCIceCandidate(c)));
+              callStore.clearPendingIce();
+              callStore.setPhase("active");
+              callStore.setStartedAt(Date.now());
+            })
+            .catch(() => callStore.failCall("Failed to set remote description."));
+          break;
+        }
+        case "ice": {
+          const pc = callStore.call?.localSession?.peerConnection;
+          const candidate = JSON.parse(latestSignal.payload) as RTCIceCandidateInit;
+          if (pc && pc.remoteDescription) {
+            void pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } else {
+            // Queue it until remote description is ready
+            callStore.addPendingIce(candidate);
+          }
+          break;
+        }
+        case "reject":
+        case "hangup":
+          callStore.endCall();
+          break;
       }
-      case "reject":
-      case "hangup":
-        callStore.endCall();
-        break;
+    } catch {
+      callStore.failCall("The incoming call signal was invalid.");
     }
   }, [callSignals, identity.pubkeyHash, contacts, callStore, insertCallLogMessage, showNotification]);
 
@@ -1587,16 +1601,24 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
     if (editingMessageId) {
       const editedAt = Date.now();
-      const encryptedPayload = await mockEncryptMessage(trimmed);
+      const existingMessage = messages.find((message) => message.id === editingMessageId);
+      const editedPayload = buildTextPayload({
+        text: trimmed,
+        ...(existingMessage?.replyTo ? { replyTo: existingMessage.replyTo } : {})
+      });
+      const editedBody = encodeMessagePayload(editedPayload);
+      const encryptedPayload = selectedGroup?.groupSenderKey
+        ? JSON.stringify(await encryptGroupMessage(editedBody, selectedGroup.groupSenderKey))
+        : await mockEncryptMessage(editedBody);
       await nadaDb.messages.update(editingMessageId, {
-        body: trimmed,
+        body: editedBody,
         editedAt,
         encryptedPayload
       });
       setMessages((current) =>
         current.map((message) =>
           message.id === editingMessageId
-            ? { ...message, body: trimmed, editedAt, encryptedPayload }
+            ? { ...message, body: editedBody, kind: "text", editedAt, encryptedPayload }
             : message
         )
       );
@@ -3201,6 +3223,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             exit={{ y: -50, opacity: 0 }}
             onClick={() => {
               setInAppNotification(null);
+              if (inAppNotification.chatId === "status") {
+                setSelectedContactHash(null);
+                setSelectedGroupId(null);
+                setPanel(null);
+                setActiveTab("status");
+                return;
+              }
               const isGrp = chats.some(c => c.id === inAppNotification.chatId);
               if (isGrp) {
                 setSelectedContactHash(null);
@@ -3495,7 +3524,7 @@ function ChatPanel({
 
   // Sync local input with the message being edited.
   const editingMessageId = editingMessage?.id ?? null;
-  const editingMessageBody = editingMessage?.body ?? "";
+  const editingMessageBody = editingMessage ? textFromMessage(editingMessage) : "";
   useEffect(() => {
     if (editingMessageId) {
       setMessageText(editingMessageBody);
@@ -5071,7 +5100,8 @@ function ChatPanel({
                   closeMessageContextMenu();
                 }}
               />
-              {contextMenuMessage.direction === "outbound" ? (
+              {contextMenuMessage.direction === "outbound" &&
+              messageKindFromRecord(contextMenuMessage) === "text" ? (
                 <MessageContextAction
                   icon={<Edit3 size={15} />}
                   label="Edit"
@@ -7332,16 +7362,38 @@ function StatusViewerSheet({
   const currentStatus = statuses[currentIndex];
 
   useEffect(() => {
-    if (showComments || commentDraft.trim()) return;
-    const timer = setTimeout(() => {
-      if (currentIndex < statuses.length - 1) {
-        setCurrentIndex(prev => prev + 1);
-      } else {
-        onClose();
+    setCurrentIndex((index) => Math.min(index, Math.max(statuses.length - 1, 0)));
+  }, [statuses.length]);
+
+  const goToPreviousStatus = useCallback(() => {
+    setCurrentIndex((index) => Math.max(index - 1, 0));
+  }, []);
+
+  const goToNextStatus = useCallback(() => {
+    setCurrentIndex((index) => {
+      if (index < statuses.length - 1) {
+        return index + 1;
       }
-    }, 5000);
+      onClose();
+      return index;
+    });
+  }, [onClose, statuses.length]);
+
+  const handleStatusTap = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (showComments) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (event.clientX < rect.left + rect.width / 2) {
+      goToPreviousStatus();
+    } else {
+      goToNextStatus();
+    }
+  }, [goToNextStatus, goToPreviousStatus, showComments]);
+
+  useEffect(() => {
+    if (showComments || commentDraft.trim()) return;
+    const timer = setTimeout(goToNextStatus, 5000);
     return () => clearTimeout(timer);
-  }, [commentDraft, currentIndex, showComments, statuses.length, onClose]);
+  }, [commentDraft, goToNextStatus, showComments]);
 
   useEffect(() => {
     if (!currentStatus) return;
@@ -7369,6 +7421,7 @@ function StatusViewerSheet({
   }, [onClose]);
 
   if (!currentStatus) return null;
+  const statusText = decodeMessagePayload(currentStatus.body)?.text ?? textFromMessage(currentStatus);
 
   return (
     <motion.div
@@ -7384,6 +7437,7 @@ function StatusViewerSheet({
             <div key={i} className="h-1 flex-1 rounded-full bg-white/20 overflow-hidden">
                {i === currentIndex && (
                  <motion.div 
+                   key={currentStatus.id}
                    className="h-full bg-white" 
                    initial={{ width: 0 }} 
                    animate={{ width: "100%" }} 
@@ -7408,9 +7462,30 @@ function StatusViewerSheet({
         </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-6 text-center">
-        <p className="text-3xl font-bold leading-tight max-w-lg">
-          {decodeMessagePayload(currentStatus.body)?.text ?? "..."}
+      <div
+        className="relative flex-1 flex items-center justify-center p-6 text-center"
+        onClick={handleStatusTap}
+      >
+        <button
+          aria-label="Previous status"
+          className="absolute inset-y-0 left-0 z-[1] w-1/2 cursor-pointer bg-transparent"
+          onClick={(event) => {
+            event.stopPropagation();
+            goToPreviousStatus();
+          }}
+          type="button"
+        />
+        <button
+          aria-label="Next status"
+          className="absolute inset-y-0 right-0 z-[1] w-1/2 cursor-pointer bg-transparent"
+          onClick={(event) => {
+            event.stopPropagation();
+            goToNextStatus();
+          }}
+          type="button"
+        />
+        <p className="pointer-events-none relative z-[2] text-3xl font-bold leading-tight max-w-lg">
+          {statusText}
         </p>
       </div>
 
