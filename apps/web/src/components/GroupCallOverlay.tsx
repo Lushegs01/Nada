@@ -9,40 +9,72 @@ import "@livekit/components-styles";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useCallStore } from "@/stores/useCallStore";
+import { useIdentityStore } from "@/stores/useIdentityStore";
 
 export function GroupCallOverlay() {
   const call = useCallStore((s) => s.call);
   const endCall = useCallStore((s) => s.endCall);
+  const signProof = useIdentityStore((s) => s.signProof);
   const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (call?.mode === "group" && call.callId) {
-      const room = call.callId;
-      const username = call.peerName || "Anonymous";
-      fetch(`/api/livekit?room=${room}&username=${encodeURIComponent(username)}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.token) setToken(data.token);
-        })
-        .catch(console.error);
-    } else {
+    if (call?.mode !== "group" || !call.callId) {
       setToken("");
+      setError(null);
+      return;
     }
-  }, [call]);
+
+    const room = call.callId;
+    const controller = new AbortController();
+    setError(null);
+
+    void (async () => {
+      const proof = await signProof("livekit", room);
+      if (controller.signal.aborted) return;
+      if (!proof) {
+        setError("Identity is locked — re-open NADA after creating an identity.");
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/livekit", {
+          method: "POST",
+          signal: controller.signal,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ room, proof })
+        });
+        if (!response.ok) {
+          setError(`LiveKit token request failed (${response.status}).`);
+          return;
+        }
+        const data = (await response.json()) as { token?: string };
+        if (data.token) setToken(data.token);
+        else setError("LiveKit token response was empty.");
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.error(err);
+        setError("Could not reach the LiveKit token endpoint.");
+      }
+    })();
+
+    return () => {
+      controller.abort();
+    };
+  }, [call?.mode, call?.callId, signProof]);
 
   if (!call || call.mode !== "group") return null;
 
   const serverUrl = process.env['NEXT_PUBLIC_LIVEKIT_URL'];
 
-  if (!serverUrl || token === "mock-token-please-set-livekit-keys") {
+  if (!serverUrl || error) {
     return (
       <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-black p-6 text-center text-white">
-        <h2 className="text-2xl font-bold text-red-400 mb-4">Group Calling Not Configured</h2>
+        <h2 className="text-2xl font-bold text-red-400 mb-4">Group Calling Unavailable</h2>
         <p className="text-white/70 max-w-md leading-relaxed">
-          To enable encrypted 10+ person group calling, you must configure a WebRTC SFU backend.
-          We have integrated LiveKit for this purpose. 
-          <br /><br />
-          Add <code>NEXT_PUBLIC_LIVEKIT_URL</code>, <code>LIVEKIT_API_KEY</code>, and <code>LIVEKIT_API_SECRET</code> to your Render environment or local <code>.env</code> file.
+          {error
+            ? error
+            : "Add NEXT_PUBLIC_LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET to your environment to enable encrypted group calls."}
         </p>
         <button onClick={endCall} className="mt-8 rounded-full bg-white/10 px-8 py-3 font-semibold hover:bg-white/20 transition-colors">
           Dismiss

@@ -16,6 +16,9 @@ const EnvSchema = z.object({
   STRIPE_PRICE_PRO: z.string().min(1).optional(),
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  TURN_USERNAME: z.string().min(1).optional(),
+  TURN_CREDENTIAL: z.string().min(1).optional(),
+  TURN_URLS: z.string().min(1).optional(),
   VAPID_PRIVATE_KEY: z.string().min(1).optional(),
   VAPID_PUBLIC_KEY: z.string().min(1).optional(),
   VAPID_SUBJECT: z.string().min(1).optional(),
@@ -38,6 +41,9 @@ export interface RelayEnv {
   stripePricePro: string | undefined;
   stripeSecretKey: string | undefined;
   stripeWebhookSecret: string | undefined;
+  turnUsername: string | undefined;
+  turnCredential: string | undefined;
+  turnUrls: string[];
   vapidPrivateKey: string | undefined;
   vapidPublicKey: string | undefined;
   vapidSubject: string | undefined;
@@ -67,6 +73,18 @@ export function readEnv(): RelayEnv {
     stripePricePro: result.data.STRIPE_PRICE_PRO,
     stripeSecretKey: result.data.STRIPE_SECRET_KEY,
     stripeWebhookSecret: result.data.STRIPE_WEBHOOK_SECRET,
+    turnUsername: result.data.TURN_USERNAME,
+    turnCredential: result.data.TURN_CREDENTIAL,
+    turnUrls: result.data.TURN_URLS
+      ? result.data.TURN_URLS.split(",")
+          .map((u) => u.trim())
+          .filter((u) => u.length > 0)
+      : [
+          "turn:global.relay.metered.ca:80",
+          "turn:global.relay.metered.ca:80?transport=tcp",
+          "turn:global.relay.metered.ca:443",
+          "turns:global.relay.metered.ca:443?transport=tcp"
+        ],
     vapidPrivateKey: result.data.VAPID_PRIVATE_KEY,
     vapidPublicKey: result.data.VAPID_PUBLIC_KEY,
     vapidSubject: result.data.VAPID_SUBJECT ?? "mailto:admin@nada.local",

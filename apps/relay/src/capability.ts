@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 import {
   CapabilityTokenPayloadSchema,
@@ -90,13 +90,23 @@ export function verifyCapabilityToken(
   }
 
   const expectedSignature = signPayload(encodedPayload, secret);
-  if (signature !== expectedSignature) {
+  const sigBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expectedSignature, "utf8");
+  if (
+    sigBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(sigBytes, expectedBytes)
+  ) {
     return null;
   }
 
-  const result = CapabilityTokenPayloadSchema.safeParse(
-    JSON.parse(decodeBase64Url(encodedPayload))
-  );
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeBase64Url(encodedPayload));
+  } catch {
+    return null;
+  }
+
+  const result = CapabilityTokenPayloadSchema.safeParse(parsed);
   if (!result.success || result.data.expiresAt <= Date.now()) {
     return null;
   }

@@ -10,11 +10,6 @@ services:
           name: app-relay
           type: web
           property: host
-      # ── WebRTC TURN (Metered) — set USERNAME + CREDENTIAL in Render dashboard ──
-      - key: NEXT_PUBLIC_TURN_USERNAME
-        sync: false
-      - key: NEXT_PUBLIC_TURN_CREDENTIAL
-        sync: false
 
   - type: web
     name: app-relay
@@ -50,6 +45,16 @@ services:
       - key: CAPABILITY_TOKEN_SECRET
         sync: false
       - key: CAPABILITY_ISSUER_SECRET
+        sync: false
+      # ── WebRTC TURN (Metered) — set USERNAME + CREDENTIAL in Render dashboard.
+      # Credentials are issued via /api/v1/turn/credentials only after the
+      # client proves it owns the requesting pubkey, so they are no longer
+      # bundled into the web app's JS.
+      - key: TURN_USERNAME
+        sync: false
+      - key: TURN_CREDENTIAL
+        sync: false
+      - key: TURN_URLS
         sync: false
       - key: ZERO_LOG_MODE
         value: "true"

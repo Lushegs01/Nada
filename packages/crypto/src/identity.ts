@@ -4,7 +4,15 @@ import { getSodium } from "./sodiumReady";
 export interface AnonymousIdentity {
   pubkey: string;
   pubkeyHash: string;
+  /** Encrypted-at-rest blob keyed by the seed phrase (legacy/MVP). */
   encryptedPrivateKey: string;
+  /**
+   * Raw Ed25519 private key (base64, libsodium ORIGINAL variant). Returned so
+   * the caller can keep it in memory or persist it locally for signing.
+   * The current MVP threat model never decrypts encryptedPrivateKey, so the
+   * caller is expected to persist this alongside the record locally.
+   */
+  privateKey: string;
   createdAt: number;
 }
 
@@ -36,6 +44,7 @@ export async function createAnonymousIdentity(
     pubkey,
     pubkeyHash: await hashPublicKey(pubkey),
     encryptedPrivateKey: await encryptPrivateKey(privateKey, seedPhrase),
+    privateKey,
     createdAt: Date.now()
   };
 }
@@ -111,4 +120,59 @@ export async function decryptPrivateKey(
   );
   const plaintext = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
   return sodium.to_string(plaintext);
+}
+
+// libsodium-wrappers loads asynchronously; every sodium method in this file is
+// called only after getSodium() resolves. Never call sodium at module load time.
+//
+// signIdentityProof signs a server challenge with the user's Ed25519 identity
+// private key. Use it to prove control of a pubkey to authenticated endpoints
+// (LiveKit token issuance, TURN credential issuance, WebSocket register).
+// The caller is responsible for assembling the canonical message string —
+// keep the format (context:timestamp:pubkeyHash[:binding]) in lockstep with
+// the server's identity-proof verifier.
+export async function signIdentityProof(
+  privateKeyBase64: string,
+  message: string
+): Promise<string> {
+  const sodium = await getSodium();
+  const privateKey = sodium.from_base64(
+    privateKeyBase64,
+    sodium.base64_variants.ORIGINAL
+  );
+  const signature = sodium.crypto_sign_detached(
+    sodium.from_string(message),
+    privateKey
+  );
+  return sodium.to_base64(signature, sodium.base64_variants.ORIGINAL);
+}
+
+export interface IdentityProofPayload {
+  pubkey: string;
+  pubkeyHash: string;
+  signature: string;
+  timestamp: number;
+}
+
+// Convenience helper: builds a fully-formed identity proof payload that
+// servers can verify by reconstructing the message from (context, timestamp,
+// pubkeyHash, binding).
+export async function buildIdentityProof(args: {
+  privateKeyBase64: string;
+  pubkey: string;
+  pubkeyHash: string;
+  context: string;
+  binding?: string;
+}): Promise<IdentityProofPayload> {
+  const timestamp = Date.now();
+  const message = `${args.context}:${timestamp}:${args.pubkeyHash}${
+    args.binding ? `:${args.binding}` : ""
+  }`;
+  const signature = await signIdentityProof(args.privateKeyBase64, message);
+  return {
+    pubkey: args.pubkey,
+    pubkeyHash: args.pubkeyHash,
+    signature,
+    timestamp
+  };
 }

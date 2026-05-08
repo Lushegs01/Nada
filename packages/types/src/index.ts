@@ -66,6 +66,15 @@ export const MessagePayloadSchema = z.object({
   replyTo: ReplyToMessageSchema.optional()
 });
 
+// devPlaintext: dev-only debug field that ships plaintext alongside ciphertext
+// so local development can read messages without full crypto wired up. The
+// relay strips this field on production builds (NODE_ENV === "production"
+// gates emission on the client and validation on the relay below).
+const isProductionRuntime = process.env["NODE_ENV"] === "production";
+const devPlaintextField = isProductionRuntime
+  ? z.undefined()
+  : z.string().max(20000).optional();
+
 export const MessageEnvelopeSchema = z.object({
   type: z.literal("message"),
   id: UuidSchema,
@@ -75,7 +84,7 @@ export const MessageEnvelopeSchema = z.object({
   ciphertext: z.string().min(1),
   messageKind: MessageKindSchema.optional(),
   replyTo: ReplyToMessageSchema.optional(),
-  devPlaintext: z.string().optional()
+  devPlaintext: devPlaintextField
 });
 
 export const GroupMessageEnvelopeSchema = z.object({
@@ -88,7 +97,7 @@ export const GroupMessageEnvelopeSchema = z.object({
   ciphertext: z.string().min(1),
   messageKind: MessageKindSchema.optional(),
   senderKeyPackage: z.string().min(1).optional(),
-  devPlaintext: z.string().optional(),
+  devPlaintext: devPlaintextField,
   replyToId: UuidSchema.optional(),
   replyTo: ReplyToMessageSchema.optional(),
   mentions: z.array(PubkeyHashSchema).optional(),
@@ -116,7 +125,19 @@ export const ProductionEnvelopeSchema = z.object({
 
 export const RegisterEnvelopeSchema = z.object({
   type: z.literal("register"),
-  pubkeyHash: PubkeyHashSchema
+  pubkeyHash: PubkeyHashSchema,
+  pubkey: PublicKeySchema,
+  signature: z.string().min(1).max(512),
+  nonce: z.string().min(1).max(256),
+  timestamp: z.number().int().positive()
+});
+
+// Sent by the server immediately after a WebSocket opens. The client must
+// prove ownership of its identity key by signing the nonce before any other
+// envelope will be accepted on this connection.
+export const ChallengeEnvelopeSchema = z.object({
+  type: z.literal("challenge"),
+  nonce: z.string().min(1).max(256)
 });
 
 export const TypingEnvelopeSchema = z.object({
@@ -178,6 +199,7 @@ export const ClientSocketEnvelopeSchema = z.union([
 ]);
 
 export const ServerSocketEnvelopeSchema = z.discriminatedUnion("type", [
+  ChallengeEnvelopeSchema,
   z.object({
     type: z.literal("registered"),
     pubkeyHash: PubkeyHashSchema
@@ -376,6 +398,7 @@ export type GroupMessageEnvelope = z.infer<typeof GroupMessageEnvelopeSchema>;
 export type CallSignalEnvelope = z.infer<typeof CallSignalEnvelopeSchema>;
 export type ProductionEnvelope = z.infer<typeof ProductionEnvelopeSchema>;
 export type RegisterEnvelope = z.infer<typeof RegisterEnvelopeSchema>;
+export type ChallengeEnvelope = z.infer<typeof ChallengeEnvelopeSchema>;
 export type TypingEnvelope = z.infer<typeof TypingEnvelopeSchema>;
 export type ReactionEnvelope = z.infer<typeof ReactionEnvelopeSchema>;
 export type DeliveryEnvelope = {

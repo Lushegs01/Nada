@@ -19,6 +19,7 @@
     "@fastify/websocket": "8.3.1",
     "@nada/db": "workspace:0.1.0",
     "@nada/types": "workspace:0.1.0",
+    "@noble/hashes": "1.8.0",
     "fastify": "4.29.1",
     "pg": "8.16.3",
     "pino": "9.9.0",
