@@ -61,7 +61,7 @@ export default function LaunchPage(): JSX.Element {
       {/* Aurora backdrop */}
       <div className="pointer-events-none absolute inset-0 nada-hero-gradient" />
       <div className="pointer-events-none absolute -top-40 left-1/2 h-[640px] w-[640px] -translate-x-1/2 rounded-full opacity-50 blur-[120px]"
-        style={{ background: "radial-gradient(circle, rgba(139,148,252,0.45) 0%, transparent 70%)" }}
+        style={{ background: "radial-gradient(circle, rgba(30,215,130,0.50) 0%, transparent 70%)" }}
       />
 
       {/* Top bar */}
@@ -128,12 +128,12 @@ export default function LaunchPage(): JSX.Element {
         {/* Phone-style mockup */}
         <div className="relative flex items-center justify-center">
           <div className="absolute inset-0 -z-10 mx-auto h-[420px] max-w-[440px] rounded-[44px] opacity-60 blur-3xl"
-            style={{ background: "radial-gradient(circle, rgba(139,148,252,0.4) 0%, transparent 70%)" }}
+            style={{ background: "radial-gradient(circle, rgba(30,215,130,0.45) 0%, transparent 70%)" }}
           />
           <div className="relative w-full max-w-[440px] rounded-[36px] border border-nada-border/30 p-2 shadow-2xl"
             style={{
               background: "linear-gradient(155deg, rgb(var(--nada-surface-elevated)) 0%, rgb(var(--nada-surface)) 100%)",
-              boxShadow: "0 30px 80px rgba(0,0,0,0.55), 0 12px 32px rgba(88,88,220,0.18), inset 0 1px 0 rgb(var(--nada-border) / 0.10)"
+              boxShadow: "0 30px 80px rgba(0,0,0,0.55), 0 12px 32px rgba(17,167,101,0.22), inset 0 1px 0 rgb(var(--nada-border) / 0.10)"
             }}
           >
             <div className="rounded-[28px] overflow-hidden border border-nada-border/20"
@@ -141,7 +141,7 @@ export default function LaunchPage(): JSX.Element {
             >
               {/* Mock chat header */}
               <div className="flex items-center gap-3 border-b border-nada-border/[0.06] px-4 py-3.5"
-                style={{ background: "rgba(8,10,22,0.6)", backdropFilter: "blur(12px)" }}
+                style={{ background: "rgba(8,9,11,0.62)", backdropFilter: "blur(12px)" }}
               >
                 <div className="grid h-10 w-10 place-items-center rounded-[14px] text-[14px] font-bold text-white nada-logo-aura">
                   N
@@ -179,7 +179,7 @@ export default function LaunchPage(): JSX.Element {
 
               {/* Mock composer */}
               <div className="flex items-center gap-2 border-t border-nada-border/[0.06] px-3 py-3"
-                style={{ background: "rgba(8,10,22,0.6)", backdropFilter: "blur(12px)" }}
+                style={{ background: "rgba(8,9,11,0.62)", backdropFilter: "blur(12px)" }}
               >
                 <div className="flex-1 rounded-full border border-nada-border/30 px-4 py-2.5 text-[12px] text-nada-secondary/70"
                   style={{ background: "rgb(var(--nada-input-bg) / 0.7)" }}
@@ -222,7 +222,7 @@ export default function LaunchPage(): JSX.Element {
                 }}
               >
                 <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
-                  style={{ background: "radial-gradient(circle, rgba(139,148,252,0.25) 0%, transparent 70%)" }}
+                  style={{ background: "radial-gradient(circle, rgba(30,215,130,0.28) 0%, transparent 70%)" }}
                 />
                 <div className="grid h-10 w-10 place-items-center rounded-xl text-[14px] font-bold text-white nada-logo-aura">
                   {idx + 1}
@@ -264,7 +264,7 @@ export default function LaunchPage(): JSX.Element {
                     : "linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.85) 0%, rgb(var(--nada-surface) / 0.85) 100%)",
                   backdropFilter: "blur(20px)",
                   boxShadow: tier.highlight
-                    ? "0 0 0 1px rgba(139,148,252,0.4), 0 16px 40px rgba(88,88,220,0.18), inset 0 1px 0 rgb(var(--nada-border) / 0.10)"
+                    ? "0 0 0 1px rgba(30,215,130,0.45), 0 16px 40px rgba(17,167,101,0.22), inset 0 1px 0 rgb(var(--nada-border) / 0.10)"
                     : "inset 0 1px 0 rgb(var(--nada-border) / 0.08), 0 4px 24px rgba(0,0,0,0.30)"
                 }}
               >

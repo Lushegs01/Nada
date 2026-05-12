@@ -147,8 +147,8 @@ export function VoiceNoteBubble({
     try {
       ws = WaveSurfer.create({
         container: containerRef.current,
-        waveColor: outbound ? "rgba(255, 255, 255, 0.34)" : "rgba(139, 124, 255, 0.34)",
-        progressColor: outbound ? "rgba(255, 255, 255, 0.96)" : "rgba(245, 182, 66, 0.95)",
+        waveColor: outbound ? "rgba(5, 26, 17, 0.45)" : "rgba(30, 215, 130, 0.42)",
+        progressColor: outbound ? "rgba(5, 26, 17, 0.92)" : "rgba(30, 215, 130, 0.95)",
         cursorColor: "transparent",
         barWidth: 2.5,
         barGap: 2,
