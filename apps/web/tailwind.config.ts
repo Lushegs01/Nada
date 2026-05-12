@@ -26,11 +26,11 @@ const config = {
         lg: "0 8px 24px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.30)",
         xl: "0 12px 40px rgb(0 0 0 / 0.65), 0 4px 12px rgb(0 0 0 / 0.40)",
         "2xl": "0 24px 70px rgb(0 0 0 / 0.70), 0 8px 24px rgb(0 0 0 / 0.45)",
-        /* Premium accent glows */
-        "accent-glow":    "0 0 22px rgb(139 124 255 / 0.32)",
-        "accent-glow-lg": "0 0 44px rgb(139 124 255 / 0.26)",
-        "gold-glow":      "0 0 22px rgb(245 182 66 / 0.28)",
-        "gold-glow-lg":   "0 0 44px rgb(245 182 66 / 0.22)",
+        /* Premium accent glows — NADA green */
+        "accent-glow":    "0 0 22px rgb(30 215 130 / 0.40)",
+        "accent-glow-lg": "0 0 44px rgb(30 215 130 / 0.32)",
+        "gold-glow":      "0 0 22px rgb(245 215 90 / 0.28)",
+        "gold-glow-lg":   "0 0 44px rgb(245 215 90 / 0.22)",
         /* Soft hairline */
         hairline:    "inset 0 0 0 1px rgb(255 255 255 / 0.06)",
         "hairline-strong": "inset 0 0 0 1px rgb(255 255 255 / 0.10)",
@@ -151,8 +151,8 @@ const config = {
           "100%": { transform: "scale(1)", opacity: "1" }
         },
         "glow-pulse": {
-          "0%, 100%": { boxShadow: "0 0 0 0 rgba(139,148,252,0.45)" },
-          "50%":       { boxShadow: "0 0 0 14px rgba(139,148,252,0)" }
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(30,215,130,0.55)" },
+          "50%":       { boxShadow: "0 0 0 14px rgba(30,215,130,0)" }
         }
       },
       animation: {
@@ -171,7 +171,7 @@ const config = {
         "safe-bottom": "env(safe-area-inset-bottom)"
       },
       backgroundImage: {
-        "aurora": "radial-gradient(ellipse 70% 50% at 25% 25%, rgba(139, 148, 252, 0.18) 0%, transparent 55%), radial-gradient(ellipse 60% 50% at 80% 30%, rgba(167, 139, 250, 0.14) 0%, transparent 55%), radial-gradient(ellipse 80% 60% at 50% 110%, rgba(88, 88, 220, 0.20) 0%, transparent 60%)",
+        "aurora": "radial-gradient(ellipse 70% 50% at 25% 25%, rgba(30, 215, 130, 0.18) 0%, transparent 55%), radial-gradient(ellipse 60% 50% at 80% 30%, rgba(132, 232, 92, 0.12) 0%, transparent 55%), radial-gradient(ellipse 80% 60% at 50% 110%, rgba(17, 167, 101, 0.18) 0%, transparent 60%)",
         "accent-gradient": "linear-gradient(135deg, rgb(var(--nada-accent)) 0%, rgb(var(--nada-violet)) 50%, rgb(var(--nada-accent-deep)) 100%)"
       },
       zIndex: {

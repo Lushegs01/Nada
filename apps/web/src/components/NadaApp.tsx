@@ -877,18 +877,27 @@ function Splash(): JSX.Element {
   return (
     <main className="relative grid min-h-dvh place-items-center overflow-hidden bg-nada-bg">
       <div className="pointer-events-none absolute inset-0 nada-hero-gradient" />
-      <div className="pointer-events-none absolute -top-32 left-1/2 h-[480px] w-[480px] -translate-x-1/2 rounded-full opacity-50 blur-[100px] animate-aurora"
-        style={{ background: "radial-gradient(circle, rgba(139,148,252,0.4) 0%, transparent 70%)" }}
+      <div
+        className="pointer-events-none absolute -top-32 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full opacity-60 blur-[110px] animate-aurora"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(30,215,130,0.45) 0%, rgba(132,232,92,0.18) 40%, transparent 70%)"
+        }}
       />
-      <div className="relative z-10 flex flex-col items-center gap-8 animate-fade-in">
-        <div className="relative">
-          <div className="absolute inset-0 rounded-[24px] blur-2xl opacity-70 animate-logo-glow nada-logo-aura" />
-          <div className="relative grid h-[76px] w-[76px] place-items-center overflow-hidden rounded-[22px] nada-logo-aura">
+      <div className="relative z-10 flex flex-col items-center gap-9 animate-fade-in">
+        <motion.div
+          initial={{ scale: 0.85, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: "spring", stiffness: 200, damping: 22 }}
+          className="relative"
+        >
+          <div className="absolute inset-0 rounded-[28px] blur-2xl opacity-80 animate-logo-glow nada-logo-aura" />
+          <div className="relative grid h-[84px] w-[84px] place-items-center overflow-hidden rounded-[24px] nada-logo-aura">
             <img src="/logo.png" alt="NADA Logo" className="h-full w-full object-cover" />
           </div>
-        </div>
-        <div className="flex flex-col items-center gap-3">
-          <span className="text-[12px] font-bold uppercase tracking-[0.32em] text-nada-secondary/70">
+        </motion.div>
+        <div className="flex flex-col items-center gap-4">
+          <span className="text-[12px] font-extrabold uppercase tracking-[0.36em] text-nada-accent/85">
             NADA
           </span>
           <div className="flex items-center gap-1.5">
@@ -951,105 +960,157 @@ function Onboarding({
 
   return (
     <section className="relative mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center overflow-hidden px-6 py-12">
-      {/* Aurora backdrop */}
+      {/* Aurora backdrop — NADA green */}
       <div className="pointer-events-none absolute inset-0 nada-hero-gradient" />
-      <div className="pointer-events-none absolute -top-24 left-1/2 h-[420px] w-[420px] -translate-x-1/2 rounded-full opacity-45 blur-[100px] animate-aurora"
-        style={{ background: "radial-gradient(circle, rgba(139,148,252,0.5) 0%, transparent 70%)" }}
+      <div
+        className="pointer-events-none absolute -top-24 left-1/2 h-[460px] w-[460px] -translate-x-1/2 rounded-full opacity-50 blur-[110px] animate-aurora"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(30,215,130,0.55) 0%, transparent 70%)"
+        }}
       />
-      <div className="pointer-events-none absolute -bottom-24 right-0 h-72 w-72 rounded-full opacity-30 blur-3xl"
-        style={{ background: "radial-gradient(circle, rgba(167,139,250,0.5) 0%, transparent 70%)" }}
+      <div
+        className="pointer-events-none absolute -bottom-24 right-0 h-80 w-80 rounded-full opacity-35 blur-3xl"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(132,232,92,0.45) 0%, transparent 70%)"
+        }}
       />
 
       <div className="relative z-10">
         {/* Brand mark */}
-        <div className="mb-8 relative inline-flex animate-scale-in">
-          <div className="absolute inset-0 rounded-[20px] blur-xl opacity-60 nada-logo-aura" />
-          <div className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-[20px] nada-logo-aura">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.85 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: "spring", stiffness: 220, damping: 22 }}
+          className="mb-9 relative inline-flex"
+        >
+          <div className="absolute inset-0 rounded-[22px] blur-xl opacity-70 nada-logo-aura animate-logo-glow" />
+          <div className="relative grid h-[68px] w-[68px] place-items-center overflow-hidden rounded-[22px] nada-logo-aura">
             <img src="/logo.png" alt="NADA Logo" className="h-full w-full object-cover" />
           </div>
-        </div>
+        </motion.div>
 
-        <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-nada-accent/80">NADA</p>
-        <h1 className="mt-3 text-[36px] font-bold leading-[1.05] tracking-tight text-nada-primary text-balance">
-          Anonymous{" "}
-          <span className="nada-accent-text">by default.</span>
-        </h1>
-        <p className="mt-4 max-w-sm text-[15.5px] leading-relaxed text-nada-secondary/85">
-          Your identity is a keypair generated on this device. No phone number,
-          email, or contact upload — ever.
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.32em] text-nada-accent/85">
+          NADA
         </p>
 
         {!draft ? (
-          <div className="mt-10 space-y-3 animate-fade-in">
-            <button
-              className="w-full rounded-2xl py-4 text-[15px] font-semibold text-white nada-btn-gold disabled:opacity-50"
-              disabled={isGenerating}
-              onClick={() => { void generateIdentity(); }}
-            >
-              {isGenerating ? (
-                <span className="inline-flex items-center gap-2">
-                  <Loader2 size={16} className="animate-spin" />
-                  Creating identity…
-                </span>
-              ) : (
-                "Create your identity"
-              )}
-            </button>
-            <p className="text-center text-[12px] text-nada-secondary/60">
-              Generates a seed phrase you can back up and restore.
+          <>
+            <h1 className="mt-3 text-[42px] font-extrabold leading-[1.02] tracking-tight text-nada-primary text-balance">
+              Message Freely.{" "}
+              <span className="nada-accent-text">Stay Unknown.</span>
+            </h1>
+            <p className="mt-4 max-w-sm text-[15.5px] leading-relaxed text-nada-secondary/85">
+              Anonymous conversations with zero pressure. End-to-end encrypted,
+              no phone number, no email — your identity is a keypair on this
+              device.
             </p>
-          </div>
-        ) : (
-          <div className="mt-10 space-y-5 animate-fade-in">
-            {/* Step indicator */}
-            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-nada-secondary/60">
-              <span className="grid h-5 w-5 place-items-center rounded-full bg-nada-accent text-[10px] font-bold text-nada-bg">2</span>
-              <span>Back up your seed phrase</span>
-            </div>
 
-            {/* Seed phrase grid */}
-            <div className="rounded-2xl p-4 nada-surface-elevated">
-              <div className="grid grid-cols-3 gap-2">
-                {seedWords.map((word, index) => (
-                  <div
-                    className="flex items-center gap-1.5 rounded-xl border border-nada-border/22 bg-nada-surface/60 px-2.5 py-2 text-[12.5px] font-medium text-nada-primary"
-                    key={`${word}-${index}`}
-                  >
-                    <span className="text-[10px] font-mono font-semibold text-nada-secondary/55 tabular-nums w-4 text-right">{index + 1}</span>
-                    <span className="truncate">{word}</span>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-3 text-[11.5px] leading-relaxed text-nada-secondary/65">
-                Write these 12 words down in order. Anyone with this phrase can recover this identity.
+            <div className="mt-10 space-y-3 animate-fade-in">
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                whileHover={{ y: -1 }}
+                className="w-full rounded-full py-4 text-[15px] nada-btn-gold disabled:opacity-50"
+                disabled={isGenerating}
+                onClick={() => { void generateIdentity(); }}
+              >
+                {isGenerating ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 size={16} className="animate-spin" />
+                    Creating identity…
+                  </span>
+                ) : (
+                  "Enter as a ghost"
+                )}
+              </motion.button>
+              <p className="text-center text-[12px] text-nada-secondary/60">
+                We generate a seed phrase you can back up and restore.
               </p>
             </div>
 
-            <label className="flex cursor-pointer select-none items-center gap-3 rounded-xl border border-nada-border/22 bg-nada-surface/60 px-4 py-3 text-[13.5px] text-nada-primary/90 transition-colors hover:bg-nada-surface-elevated/50">
-              <input
-                checked={saved}
-                className="h-4 w-4 rounded"
-                style={{ accentColor: "rgb(var(--nada-accent))" }}
-                onChange={(event) => { setSaved(event.target.checked); }}
-                type="checkbox"
-              />
-              I&apos;ve saved my seed phrase somewhere safe
-            </label>
+            {/* Trust pills row */}
+            <div className="mt-10 flex flex-wrap items-center justify-start gap-2">
+              <span className="nada-security-pill">End-to-end encrypted</span>
+              <span className="nada-ghost-badge">No phone · No email</span>
+              <span className="nada-ghost-badge">Keys stay on device</span>
+            </div>
+          </>
+        ) : (
+          <div className="mt-2 animate-fade-in">
+            <h1 className="text-[34px] font-extrabold leading-[1.04] tracking-tight text-nada-primary">
+              Back up your{" "}
+              <span className="nada-accent-text">ghost key</span>
+            </h1>
+            <p className="mt-3 max-w-sm text-[14.5px] leading-relaxed text-nada-secondary/80">
+              These 12 words are the only way to restore your identity. Anyone
+              with this phrase can become you.
+            </p>
 
-            <input
-              className="nada-input-dark h-12 w-full text-[15px]"
-              maxLength={40}
-              onChange={(event) => { setDisplayName(event.target.value); }}
-              placeholder="Display name (optional)"
-              value={displayName}
-            />
-            <button
-              className="w-full rounded-2xl py-4 text-[15px] font-semibold text-white nada-btn-gold disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={!saved}
-              onClick={() => void finish()}
-            >
-              Enter NADA
-            </button>
+            <div className="mt-8 space-y-5">
+              {/* Step indicator */}
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-nada-secondary/60">
+                <span
+                  className="grid h-5 w-5 place-items-center rounded-full text-[10px] font-extrabold"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-violet)))",
+                    color: "#051A11"
+                  }}
+                >
+                  2
+                </span>
+                <span>Seed phrase</span>
+              </div>
+
+              {/* Seed phrase grid */}
+              <div className="rounded-3xl p-5 nada-surface-elevated">
+                <div className="grid grid-cols-3 gap-2">
+                  {seedWords.map((word, index) => (
+                    <div
+                      className="flex items-center gap-1.5 rounded-xl border border-nada-border/[0.08] bg-nada-surface/70 px-2.5 py-2 text-[12.5px] font-medium text-nada-primary"
+                      key={`${word}-${index}`}
+                    >
+                      <span className="w-4 text-right font-mono text-[10px] font-semibold tabular-nums text-nada-accent/70">
+                        {index + 1}
+                      </span>
+                      <span className="truncate">{word}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-[11.5px] leading-relaxed text-nada-secondary/65">
+                  Write these 12 words down in order, somewhere offline.
+                </p>
+              </div>
+
+              <label className="flex cursor-pointer select-none items-center gap-3 rounded-2xl border border-nada-border/[0.08] bg-nada-surface/60 px-4 py-3 text-[13.5px] text-nada-primary/90 transition-colors hover:bg-nada-surface-elevated/55">
+                <input
+                  checked={saved}
+                  className="h-4 w-4 rounded"
+                  style={{ accentColor: "rgb(var(--nada-accent))" }}
+                  onChange={(event) => { setSaved(event.target.checked); }}
+                  type="checkbox"
+                />
+                I&apos;ve saved my seed phrase somewhere safe
+              </label>
+
+              <input
+                className="nada-input-dark h-12 w-full text-[15px]"
+                maxLength={40}
+                onChange={(event) => { setDisplayName(event.target.value); }}
+                placeholder="Display name (optional)"
+                value={displayName}
+              />
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                whileHover={{ y: -1 }}
+                className="w-full rounded-full py-4 text-[15px] nada-btn-gold disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={!saved}
+                onClick={() => void finish()}
+              >
+                Enter NADA
+              </motion.button>
+            </div>
           </div>
         )}
       </div>
@@ -5789,7 +5850,7 @@ function ChatPanel({
         {/* Aurora ambient glow */}
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-30 blur-[120px] animate-aurora"
-            style={{ background: "radial-gradient(circle, rgba(139,148,252,0.5) 0%, transparent 70%)" }}
+            style={{ background: "radial-gradient(circle, rgba(30,215,130,0.55) 0%, transparent 70%)" }}
           />
         </div>
 
@@ -5835,7 +5896,7 @@ function ChatPanel({
           className="absolute inset-0 z-0 pointer-events-none"
           style={{
             backgroundImage:
-              "radial-gradient(circle at 18% 32%, rgba(139,148,252,0.07) 0%, transparent 55%), radial-gradient(circle at 82% 78%, rgba(167,139,250,0.05) 0%, transparent 55%), radial-gradient(circle at 50% 110%, rgba(88,88,220,0.05) 0%, transparent 50%)"
+              "radial-gradient(circle at 18% 32%, rgba(30,215,130,0.07) 0%, transparent 55%), radial-gradient(circle at 82% 78%, rgba(132,232,92,0.05) 0%, transparent 55%), radial-gradient(circle at 50% 110%, rgba(17,167,101,0.06) 0%, transparent 50%)"
           }}
         />
       )}

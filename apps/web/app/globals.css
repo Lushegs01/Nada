@@ -3,57 +3,57 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════
-   NADA Design System v2 — Aurora
-   Refined dark UI with sophisticated indigo / violet accents,
-   layered glassmorphism, and premium typography.
+   NADA Design System v3 — "Ghost"
+   Premium dark, Spotify-grade polish.
+   Original NADA neon-mint accent — NOT Spotify's #1DB954.
    ═══════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 /* ── Design Tokens ──────────────────────────────────────── */
 
 :root,
 .dark,
 [data-theme="dark"] {
-  /* ── Backgrounds — deeper, cooler, more cinematic ── */
-  --nada-bg:               7   10  20;      /* #070A14 */
-  --nada-surface:          13  18  36;      /* #0D1224 */
-  --nada-surface-elevated: 18  26  51;      /* #121A33 */
-  --nada-surface-3:        23  31  58;      /* #171F3A */
+  /* ── Backgrounds — deep charcoal blacks ── */
+  --nada-bg:               8   9   11;      /* #08090B */
+  --nada-surface:          18  18  21;      /* #121215 */
+  --nada-surface-elevated: 26  27  31;      /* #1A1B1F */
+  --nada-surface-3:        33  35  40;      /* #212328 */
 
-  /* ── Text — softened indigo-white for less harshness ── */
-  --nada-primary:          245 247 255;     /* #F5F7FF */
-  --nada-secondary:        203 210 246;     /* #CBD2F6 */
-  --nada-text-muted:       139 147 183;     /* #8B93B7 */
-  --nada-text-faint:       95  102 136;     /* #5F6688 */
+  /* ── Text — clean, soft off-white ── */
+  --nada-primary:          245 247 250;     /* #F5F7FA */
+  --nada-secondary:        168 176 188;     /* #A8B0BC */
+  --nada-text-muted:       125 132 145;     /* #7D8491 */
+  --nada-text-faint:       82  88  100;     /* #525864 */
 
   /* ── UI Chrome ── */
-  --nada-muted:            18  26  51;
+  --nada-muted:            26  27  31;
   --nada-border:           255 255 255;
 
-  /* ── Primary Accent (Aurora indigo→violet) ── */
-  --nada-accent:           139 124 255;     /* #8B7CFF */
-  --nada-accent-soft:      139 124 255;
-  --nada-accent-deep:      91  75  219;     /* #5B4BDB */
-  --nada-violet:           91  75  219;
-  --nada-gold:             245 182 66;      /* #F5B642 */
-  --nada-cyan:             34  211 238;     /* #22D3EE */
+  /* ── Primary Accent — NADA neon mint green ── */
+  --nada-accent:           30  215 130;     /* #1ED782 */
+  --nada-accent-soft:      30  215 130;
+  --nada-accent-deep:      17  167 101;     /* #11A765 */
+  --nada-violet:           132 232 92;      /* #84E85C — lime kicker (legacy var name) */
+  --nada-gold:             245 215 90;      /* #F5D75A */
+  --nada-cyan:             46  223 196;     /* #2EDFC4 */
 
   /* ── Legacy aliases retained for compatibility ── */
-  --nada-gold-dark:        166 112 38;
-  --nada-gold-glow:        245 182 66;
+  --nada-gold-dark:        160 142 60;
+  --nada-gold-glow:        245 215 90;
 
-  /* ── Message Bubbles ── */
-  --nada-sent:             91  75  219;
-  --nada-received:         18  26  51;
+  /* ── Message Bubbles — sent in green gradient ── */
+  --nada-sent:             17  167 101;
+  --nada-received:         26  27  31;
 
   /* ── Semantic ── */
-  --nada-danger:           255 77  94;
-  --nada-success:          41  240 164;
-  --nada-warning:          245 182 66;
-  --nada-overlay:          4   6   16;
+  --nada-danger:           255 89  103;
+  --nada-success:          30  215 130;
+  --nada-warning:          245 215 90;
+  --nada-overlay:          5   6   9;
   --nada-shadow-color:     0   0   0;
-  --nada-input-bg:         12  16  34;
+  --nada-input-bg:         20  21  25;
 }
 
 /* ── Base Reset ─────────────────────────────────────────── */
@@ -85,7 +85,7 @@ body {
   overflow-x: hidden;
 }
 
-/* Subtle ambient grain — adds richness without noise */
+/* Subtle ambient ghost-glow — adds depth without noise */
 body::before {
   content: "";
   position: fixed;
@@ -93,17 +93,17 @@ body::before {
   pointer-events: none;
   z-index: 0;
   background-image:
-    radial-gradient(ellipse 90% 60% at 12% -10%, rgba(139, 148, 252, 0.10) 0%, transparent 60%),
-    radial-gradient(ellipse 80% 60% at 88% 110%, rgba(167, 139, 250, 0.08) 0%, transparent 60%);
+    radial-gradient(ellipse 90% 60% at 12% -10%, rgba(30, 215, 130, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 60% at 88% 110%, rgba(132, 232, 92, 0.05) 0%, transparent 60%);
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
-  letter-spacing: 0;
+  letter-spacing: -0.012em;
 }
 
-h1 { letter-spacing: 0; }
-h2 { letter-spacing: 0; }
+h1 { letter-spacing: -0.018em; }
+h2 { letter-spacing: -0.014em; }
 
 button, input, textarea, select {
   font: inherit;
@@ -112,23 +112,23 @@ button, input, textarea, select {
 
 input::placeholder,
 textarea::placeholder {
-  color: rgb(var(--nada-secondary) / 0.5);
+  color: rgb(var(--nada-secondary) / 0.45);
 }
 
 ::selection {
-  background: rgb(var(--nada-accent) / 0.28);
+  background: rgb(var(--nada-accent) / 0.32);
   color: rgb(var(--nada-primary));
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(139, 148, 252, 0.14);
+  background: rgba(30, 215, 130, 0.16);
   border-radius: 12px;
   transition: background 0.2s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(139, 148, 252, 0.32);
+  background: rgba(30, 215, 130, 0.34);
 }
 
 /* ── Component Layer ────────────────────────────────────── */
@@ -147,32 +147,32 @@ textarea::placeholder {
     background: rgb(var(--nada-surface) / 0.78);
     backdrop-filter: blur(20px) saturate(140%);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
-    border: 1px solid rgb(var(--nada-border) / 0.12);
-    border-radius: 16px;
+    border: 1px solid rgb(var(--nada-border) / 0.06);
+    border-radius: 18px;
   }
 
   .nada-surface-elevated {
     background: linear-gradient(
       155deg,
-      rgb(var(--nada-surface-elevated) / 0.92) 0%,
-      rgb(var(--nada-surface) / 0.92) 100%
+      rgb(var(--nada-surface-elevated) / 0.96) 0%,
+      rgb(var(--nada-surface) / 0.96) 100%
     );
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
-    border: 1px solid rgb(var(--nada-border) / 0.14);
-    border-radius: 16px;
+    border: 1px solid rgb(var(--nada-border) / 0.07);
+    border-radius: 18px;
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
-      0 1px 2px rgb(0 0 0 / 0.40),
-      0 8px 24px rgb(0 0 0 / 0.30);
+      inset 0 1px 0 rgb(var(--nada-border) / 0.05),
+      0 1px 2px rgb(0 0 0 / 0.45),
+      0 12px 32px rgb(0 0 0 / 0.40);
   }
 
   /* ── Sidebar ── */
   .nada-sidebar {
     background: linear-gradient(
       180deg,
-      rgb(var(--nada-surface) / 0.82) 0%,
-      rgb(var(--nada-bg) / 0.92) 100%
+      rgb(var(--nada-surface) / 0.92) 0%,
+      rgb(var(--nada-bg) / 0.96) 100%
     );
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
@@ -183,26 +183,26 @@ textarea::placeholder {
   .nada-chat-bg {
     background-color: rgb(var(--nada-bg));
     background-image:
-      radial-gradient(circle at 18% 32%, rgba(139, 148, 252, 0.08) 0%, transparent 52%),
-      radial-gradient(circle at 82% 78%, rgba(167, 139, 250, 0.06) 0%, transparent 52%),
-      radial-gradient(circle at 50% 110%, rgba(88, 88, 220, 0.05) 0%, transparent 50%);
+      radial-gradient(circle at 18% 32%, rgba(30, 215, 130, 0.06) 0%, transparent 52%),
+      radial-gradient(circle at 82% 78%, rgba(132, 232, 92, 0.04) 0%, transparent 52%),
+      radial-gradient(circle at 50% 110%, rgba(17, 167, 101, 0.05) 0%, transparent 50%);
   }
 
   /* ── Aurora background — for hero / onboarding ── */
   .nada-aurora-bg {
     background:
-      radial-gradient(ellipse 70% 50% at 25% 25%, rgba(139, 148, 252, 0.18) 0%, transparent 55%),
-      radial-gradient(ellipse 60% 50% at 80% 30%, rgba(167, 139, 250, 0.14) 0%, transparent 55%),
-      radial-gradient(ellipse 80% 60% at 50% 110%, rgba(88, 88, 220, 0.20) 0%, transparent 60%),
+      radial-gradient(ellipse 70% 50% at 25% 25%, rgba(30, 215, 130, 0.16) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 50% at 80% 30%, rgba(132, 232, 92, 0.10) 0%, transparent 55%),
+      radial-gradient(ellipse 80% 60% at 50% 110%, rgba(17, 167, 101, 0.16) 0%, transparent 60%),
       rgb(var(--nada-bg));
   }
 
   /* ── Mesh gradient panel — for premium cards ── */
   .nada-mesh-card {
     background:
-      radial-gradient(at 0% 0%, rgba(139, 148, 252, 0.18) 0%, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(167, 139, 250, 0.14) 0%, transparent 50%),
-      radial-gradient(at 100% 100%, rgba(88, 88, 220, 0.16) 0%, transparent 50%),
+      radial-gradient(at 0% 0%, rgba(30, 215, 130, 0.16) 0%, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(132, 232, 92, 0.12) 0%, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(17, 167, 101, 0.14) 0%, transparent 50%),
       rgb(var(--nada-surface));
   }
 
@@ -210,40 +210,40 @@ textarea::placeholder {
   .nada-bubble-sent {
     background: linear-gradient(
       135deg,
-      rgb(139 148 252) 0%,
-      rgb(110 110 240) 50%,
-      rgb(88 88 220) 100%
+      rgb(30 215 130) 0%,
+      rgb(22 195 116) 55%,
+      rgb(17 167 101) 100%
     );
-    color: #ffffff;
+    color: #051A11;
     border-radius: 22px 22px 6px 22px;
     box-shadow:
-      0 1px 2px rgba(0, 0, 0, 0.30),
-      0 6px 18px rgba(88, 88, 220, 0.32),
-      inset 0 1px 0 rgb(var(--nada-border) / 0.10);
-    border: 1px solid rgba(167, 139, 250, 0.22);
+      0 1px 2px rgba(0, 0, 0, 0.40),
+      0 6px 22px rgba(30, 215, 130, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(132, 232, 92, 0.28);
     position: relative;
   }
 
   .nada-bubble-received {
-    background: rgb(var(--nada-surface-elevated) / 0.92);
+    background: rgb(var(--nada-surface-elevated) / 0.94);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     color: rgb(var(--nada-primary));
     border-radius: 22px 22px 22px 6px;
-    border: 1px solid rgb(var(--nada-border) / 0.22);
+    border: 1px solid rgb(var(--nada-border) / 0.07);
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
-      0 1px 2px rgba(0, 0, 0, 0.30),
-      0 4px 12px rgba(0, 0, 0, 0.18);
+      inset 0 1px 0 rgb(var(--nada-border) / 0.05),
+      0 1px 2px rgba(0, 0, 0, 0.40),
+      0 4px 16px rgba(0, 0, 0, 0.30);
     position: relative;
   }
 
   /* ── Inputs ── */
   .nada-input {
-    background: rgb(var(--nada-input-bg) / 0.72);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgb(var(--nada-border) / 0.28);
+    background: rgb(var(--nada-input-bg) / 0.78);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
     border-radius: 14px;
     outline: none;
     color: rgb(var(--nada-primary));
@@ -253,11 +253,11 @@ textarea::placeholder {
   }
 
   .nada-input:focus {
-    background: rgb(var(--nada-input-bg) / 0.92);
+    background: rgb(var(--nada-input-bg) / 0.96);
     border-color: rgb(var(--nada-accent) / 0.55);
     box-shadow:
       0 0 0 4px rgb(var(--nada-accent) / 0.10),
-      0 4px 16px rgb(var(--nada-accent) / 0.14);
+      0 4px 18px rgb(var(--nada-accent) / 0.16);
   }
 
   .nada-input:disabled {
@@ -265,71 +265,71 @@ textarea::placeholder {
     cursor: not-allowed;
   }
 
-  /* ── Buttons ── */
+  /* ── Buttons — premium pill ── */
   .btn-primary {
     background: linear-gradient(
       135deg,
       rgb(var(--nada-accent)) 0%,
       rgb(var(--nada-accent-deep)) 100%
     );
-    color: white;
-    border: 1px solid rgb(var(--nada-accent) / 0.5);
-    border-radius: 14px;
-    font-weight: 600;
+    color: #051A11;
+    border: 1px solid rgb(var(--nada-accent) / 0.45);
+    border-radius: 999px;
+    font-weight: 700;
     font-size: 14px;
-    padding: 12px 22px;
+    padding: 12px 24px;
     cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.10),
-      0 6px 18px rgba(88, 88, 220, 0.34),
-      0 1px 3px rgba(0, 0, 0, 0.30);
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 6px 20px rgba(30, 215, 130, 0.30),
+      0 1px 3px rgba(0, 0, 0, 0.40);
     letter-spacing: -0.011em;
   }
 
   .btn-primary:hover {
-    transform: translateY(-1px);
+    transform: translateY(-1px) scale(1.015);
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.12),
-      0 10px 28px rgba(88, 88, 220, 0.46),
-      0 1px 3px rgba(0, 0, 0, 0.30);
+      inset 0 1px 0 rgba(255, 255, 255, 0.26),
+      0 10px 30px rgba(30, 215, 130, 0.46),
+      0 1px 3px rgba(0, 0, 0, 0.40);
   }
 
   .btn-primary:active {
-    transform: translateY(0);
+    transform: translateY(0) scale(0.98);
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
-      0 2px 8px rgba(88, 88, 220, 0.30);
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 2px 8px rgba(30, 215, 130, 0.34);
   }
 
   .btn-secondary {
     background: rgb(var(--nada-surface-elevated) / 0.7);
     backdrop-filter: blur(12px);
     color: rgb(var(--nada-primary));
-    border: 1px solid rgb(var(--nada-border) / 0.32);
-    border-radius: 14px;
+    border: 1px solid rgb(var(--nada-border) / 0.10);
+    border-radius: 999px;
     font-weight: 600;
     font-size: 14px;
     padding: 12px 22px;
     cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .btn-secondary:hover {
-    background: rgb(var(--nada-surface-3) / 0.9);
-    border-color: rgb(var(--nada-border) / 0.5);
+    background: rgb(var(--nada-surface-3) / 0.92);
+    border-color: rgb(var(--nada-border) / 0.18);
     transform: translateY(-1px);
   }
 
   /* ── Accent badge ── */
   .badge-accent {
     background: rgb(var(--nada-accent));
-    color: rgb(8 10 22);
-    font-weight: 700;
+    color: #051A11;
+    font-weight: 800;
     font-size: 11px;
     padding: 3px 8px;
-    border-radius: 6px;
-    box-shadow: 0 2px 10px rgba(139, 148, 252, 0.35);
+    border-radius: 999px;
+    box-shadow: 0 2px 10px rgba(30, 215, 130, 0.40);
     letter-spacing: -0.01em;
   }
 
@@ -337,28 +337,28 @@ textarea::placeholder {
   .nada-card {
     background: linear-gradient(
       155deg,
-      rgb(var(--nada-surface-elevated) / 0.92) 0%,
-      rgb(var(--nada-surface) / 0.94) 100%
+      rgb(var(--nada-surface-elevated) / 0.94) 0%,
+      rgb(var(--nada-surface) / 0.96) 100%
     );
     backdrop-filter: blur(20px) saturate(140%);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
-    border: 1px solid rgb(var(--nada-border) / 0.22);
+    border: 1px solid rgb(var(--nada-border) / 0.07);
     border-radius: 20px;
     padding: 20px;
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
-      0 4px 24px rgba(0, 0, 0, 0.30);
+      inset 0 1px 0 rgb(var(--nada-border) / 0.05),
+      0 4px 28px rgba(0, 0, 0, 0.40);
   }
 
   /* ── Divider ── */
   .nada-divider {
-    border-color: rgb(var(--nada-border) / 0.18);
+    border-color: rgb(var(--nada-border) / 0.06);
   }
 
-  /* ── Unread badge ── */
+  /* ── Unread badge — green glow ── */
   .nada-badge {
     background: linear-gradient(135deg, rgb(var(--nada-accent)) 0%, rgb(var(--nada-violet)) 100%);
-    color: rgb(8 10 22);
+    color: #051A11;
     font-size: 10px;
     font-weight: 800;
     line-height: 1;
@@ -372,7 +372,7 @@ textarea::placeholder {
     text-align: center;
     box-shadow:
       0 0 0 2px rgb(var(--nada-bg)),
-      0 2px 12px rgba(139, 148, 252, 0.5);
+      0 2px 14px rgba(30, 215, 130, 0.55);
     letter-spacing: -0.3px;
   }
 
@@ -380,14 +380,14 @@ textarea::placeholder {
     content: "";
     position: absolute;
     inset: -3px;
-    border: 2px solid rgb(var(--nada-accent) / 0.6);
+    border: 2px solid rgb(var(--nada-accent) / 0.65);
     border-radius: 999px;
     pointer-events: none;
   }
 
   /* ── Overlay ── */
   .nada-overlay {
-    background: rgba(4, 6, 16, 0.84);
+    background: rgba(5, 6, 9, 0.88);
     backdrop-filter: blur(28px) saturate(120%);
     -webkit-backdrop-filter: blur(28px) saturate(120%);
   }
@@ -396,12 +396,12 @@ textarea::placeholder {
   .nada-input-bar {
     background: linear-gradient(
       to top,
-      rgba(8, 10, 22, 0.98) 0%,
-      rgba(8, 10, 22, 0.84) 100%
+      rgba(8, 9, 11, 0.99) 0%,
+      rgba(8, 9, 11, 0.85) 100%
     );
     backdrop-filter: blur(28px) saturate(140%);
     -webkit-backdrop-filter: blur(28px) saturate(140%);
-    border-top: 1px solid rgb(var(--nada-border) / 0.06);
+    border-top: 1px solid rgb(var(--nada-border) / 0.05);
   }
 
   /* ── Transitions ── */
@@ -423,30 +423,31 @@ textarea::placeholder {
       rgb(var(--nada-surface-elevated)) 0%,
       rgb(var(--nada-surface)) 100%
     );
-    border: 1px solid rgb(var(--nada-border) / 0.12);
-    border-radius: 22px;
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    border-radius: 24px;
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
-      0 24px 80px rgb(var(--nada-shadow-color) / 0.6),
-      0 4px 20px rgb(var(--nada-shadow-color) / 0.4);
+      inset 0 1px 0 rgb(var(--nada-border) / 0.06),
+      0 24px 80px rgb(var(--nada-shadow-color) / 0.7),
+      0 4px 20px rgb(var(--nada-shadow-color) / 0.45);
   }
 
-  /* ── Online status dots ── */
+  /* ── Online status dots — gently breathing ── */
   .nada-status-online {
     width: 10px;
     height: 10px;
     border-radius: 999px;
-    background: rgb(var(--nada-success));
+    background: rgb(var(--nada-accent));
     box-shadow:
       0 0 0 2px rgb(var(--nada-bg)),
-      0 0 10px rgba(52, 211, 153, 0.55);
+      0 0 12px rgba(30, 215, 130, 0.65);
+    animation: nada-breathe 2.4s ease-in-out infinite;
   }
 
   .nada-status-offline {
     width: 10px;
     height: 10px;
     border-radius: 999px;
-    background: rgb(var(--nada-secondary) / 0.32);
+    background: rgb(var(--nada-secondary) / 0.30);
     box-shadow: 0 0 0 2px rgb(var(--nada-bg));
   }
 
@@ -494,11 +495,11 @@ textarea::placeholder {
   .nada-vanish-banner {
     background: linear-gradient(
       90deg,
-      rgb(var(--nada-accent) / 0.12) 0%,
+      rgb(var(--nada-accent) / 0.14) 0%,
       rgb(var(--nada-violet) / 0.06) 50%,
       transparent 100%
     );
-    border-bottom: 1px solid rgb(var(--nada-accent) / 0.20);
+    border-bottom: 1px solid rgb(var(--nada-accent) / 0.22);
     color: rgb(var(--nada-accent));
   }
 
@@ -524,7 +525,7 @@ textarea::placeholder {
     background: rgb(var(--nada-surface-elevated) / 0.8);
     backdrop-filter: blur(8px);
     color: rgb(var(--nada-secondary));
-    border: 1px solid rgb(var(--nada-border) / 0.22);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
   }
 
   /* ── Reaction chips ── */
@@ -535,11 +536,11 @@ textarea::placeholder {
     padding: 3px 9px;
     border-radius: 999px;
     font-size: 12px;
-    background: rgb(var(--nada-surface-elevated) / 0.85);
+    background: rgb(var(--nada-surface-elevated) / 0.88);
     backdrop-filter: blur(8px);
-    border: 1px solid rgb(var(--nada-border) / 0.22);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
     cursor: pointer;
-    transition: all 0.16s ease;
+    transition: all 0.18s ease;
     user-select: none;
     line-height: 1.4;
   }
@@ -547,7 +548,7 @@ textarea::placeholder {
   .nada-reaction-chip:hover {
     background: rgb(var(--nada-muted));
     border-color: rgb(var(--nada-accent) / 0.45);
-    box-shadow: 0 0 16px rgb(var(--nada-accent) / 0.20);
+    box-shadow: 0 0 18px rgb(var(--nada-accent) / 0.20);
     transform: scale(1.06);
   }
 
@@ -561,10 +562,10 @@ textarea::placeholder {
   .nada-pinned-banner {
     background: linear-gradient(
       90deg,
-      rgb(var(--nada-accent) / 0.06),
+      rgb(var(--nada-accent) / 0.07),
       transparent
     );
-    border-bottom: 1px solid rgb(var(--nada-border) / 0.18);
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.06);
     cursor: pointer;
     transition: background 0.15s ease;
   }
@@ -583,9 +584,9 @@ textarea::placeholder {
     font-size: 11px;
     font-family: 'Space Grotesk', monospace;
     font-weight: 500;
-    background: rgb(var(--nada-surface-elevated) / 0.85);
+    background: rgb(var(--nada-surface-elevated) / 0.88);
     color: rgb(var(--nada-secondary));
-    border: 1px solid rgb(var(--nada-border) / 0.22);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
   }
 
   /* Virtualized message viewport */
@@ -596,14 +597,14 @@ textarea::placeholder {
 
   .nada-message-context-menu {
     background:
-      linear-gradient(145deg, rgb(var(--nada-surface-elevated) / 0.82), rgb(var(--nada-surface) / 0.76)),
-      rgb(var(--nada-surface) / 0.88);
-    border: 1px solid rgb(var(--nada-border) / 0.16);
+      linear-gradient(145deg, rgb(var(--nada-surface-elevated) / 0.86), rgb(var(--nada-surface) / 0.80)),
+      rgb(var(--nada-surface) / 0.92);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
     backdrop-filter: blur(26px) saturate(145%);
     -webkit-backdrop-filter: blur(26px) saturate(145%);
     box-shadow:
-      0 18px 60px rgb(0 0 0 / 0.46),
-      0 1px 0 rgb(var(--nada-border) / 0.10) inset,
+      0 18px 60px rgb(0 0 0 / 0.55),
+      0 1px 0 rgb(var(--nada-border) / 0.06) inset,
       0 0 0 1px rgb(var(--nada-accent) / 0.08);
   }
 
@@ -619,12 +620,12 @@ textarea::placeholder {
     border-radius: 999px;
     font-size: 13px;
     font-weight: 500;
-    background: rgb(var(--nada-surface-elevated) / 0.85);
+    background: rgb(var(--nada-surface-elevated) / 0.88);
     backdrop-filter: blur(10px);
-    border: 1px solid rgb(var(--nada-border) / 0.22);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
     color: rgb(var(--nada-primary));
     cursor: pointer;
-    transition: all 0.16s ease;
+    transition: all 0.18s ease;
     white-space: nowrap;
     user-select: none;
     flex-shrink: 0;
@@ -634,51 +635,51 @@ textarea::placeholder {
     background: rgb(var(--nada-accent) / 0.14);
     border-color: rgb(var(--nada-accent) / 0.55);
     color: rgb(var(--nada-accent));
-    box-shadow: 0 0 18px rgb(var(--nada-accent) / 0.20);
+    box-shadow: 0 0 18px rgb(var(--nada-accent) / 0.22);
     transform: translateY(-1px);
   }
 
   .nada-quick-reply:active { transform: scale(0.97); }
 
-  /* ── Premium accent button (legacy alias: nada-btn-gold) ── */
+  /* ── Premium accent button (legacy alias: nada-btn-gold → now NADA green) ── */
   .nada-btn-gold {
     background: linear-gradient(
       135deg,
       rgb(var(--nada-accent)) 0%,
-      rgb(var(--nada-violet)) 50%,
+      rgb(22 195 116) 55%,
       rgb(var(--nada-accent-deep)) 100%
     );
-    color: #ffffff;
-    font-weight: 600;
+    color: #051A11;
+    font-weight: 700;
     border: 1px solid rgb(var(--nada-accent) / 0.45);
-    border-radius: 14px;
+    border-radius: 999px;
     transition: all 0.22s ease;
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.10),
-      0 8px 24px rgba(88, 88, 220, 0.36),
-      0 1px 3px rgba(0, 0, 0, 0.3);
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 8px 24px rgba(30, 215, 130, 0.38),
+      0 1px 3px rgba(0, 0, 0, 0.40);
     letter-spacing: -0.011em;
   }
 
   .nada-btn-gold:hover {
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.12),
-      0 12px 32px rgba(88, 88, 220, 0.48),
-      0 1px 3px rgba(0, 0, 0, 0.3);
-    transform: translateY(-1px);
+      inset 0 1px 0 rgba(255, 255, 255, 0.26),
+      0 12px 34px rgba(30, 215, 130, 0.52),
+      0 1px 3px rgba(0, 0, 0, 0.40);
+    transform: translateY(-1px) scale(1.015);
   }
 
   .nada-btn-gold:active {
-    transform: scale(0.98);
+    transform: scale(0.97);
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.08),
-      0 2px 8px rgba(88, 88, 220, 0.28);
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 2px 8px rgba(30, 215, 130, 0.32);
   }
 
   /* ── Dark input ── */
   .nada-input-dark {
-    background: rgb(var(--nada-input-bg) / 0.85);
-    border: 1px solid rgb(var(--nada-border) / 0.32);
+    background: rgb(var(--nada-input-bg) / 0.92);
+    border: 1px solid rgb(var(--nada-border) / 0.10);
     border-radius: 14px;
     outline: none;
     color: rgb(var(--nada-primary));
@@ -693,7 +694,7 @@ textarea::placeholder {
   }
 
   .nada-input-dark::placeholder {
-    color: rgb(var(--nada-secondary) / 0.5);
+    color: rgb(var(--nada-secondary) / 0.45);
   }
 
   /* ── No scrollbar ── */
@@ -706,9 +707,9 @@ textarea::placeholder {
   /* ── Premium hero gradient ── */
   .nada-hero-gradient {
     background:
-      radial-gradient(ellipse 100% 70% at 50% -10%, rgba(139, 148, 252, 0.30) 0%, transparent 60%),
-      radial-gradient(ellipse 90% 60% at 80% 20%, rgba(167, 139, 250, 0.18) 0%, transparent 55%),
-      radial-gradient(ellipse 70% 50% at 20% 100%, rgba(88, 88, 220, 0.18) 0%, transparent 55%);
+      radial-gradient(ellipse 100% 70% at 50% -10%, rgba(30, 215, 130, 0.28) 0%, transparent 60%),
+      radial-gradient(ellipse 90% 60% at 80% 20%, rgba(132, 232, 92, 0.16) 0%, transparent 55%),
+      radial-gradient(ellipse 70% 50% at 20% 100%, rgba(17, 167, 101, 0.18) 0%, transparent 55%);
     pointer-events: none;
   }
 
@@ -723,28 +724,28 @@ textarea::placeholder {
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: rgb(var(--nada-secondary) / 0.85);
-    background: rgb(var(--nada-surface-elevated) / 0.72);
+    background: rgb(var(--nada-surface-elevated) / 0.78);
     backdrop-filter: blur(10px);
-    border: 1px solid rgb(var(--nada-border) / 0.22);
-    box-shadow: 0 2px 8px rgb(0 0 0 / 0.20);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.30);
   }
 
   /* ── Glassmorphic context menu ── */
   .nada-context-menu {
     background: linear-gradient(
       155deg,
-      rgba(28, 38, 70, 0.78) 0%,
-      rgba(20, 28, 54, 0.82) 100%
+      rgba(26, 27, 31, 0.86) 0%,
+      rgba(18, 18, 21, 0.90) 100%
     );
     backdrop-filter: blur(32px) saturate(160%);
     -webkit-backdrop-filter: blur(32px) saturate(160%);
-    border: 1px solid rgb(var(--nada-border) / 0.16);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
     border-radius: 20px;
     box-shadow:
-      0 0 0 1px rgba(0, 0, 0, 0.4),
-      0 4px 24px rgba(0, 0, 0, 0.45),
-      0 20px 56px rgba(0, 0, 0, 0.55),
-      inset 0 1px 0 rgb(var(--nada-border) / 0.10);
+      0 0 0 1px rgba(0, 0, 0, 0.5),
+      0 4px 24px rgba(0, 0, 0, 0.50),
+      0 20px 56px rgba(0, 0, 0, 0.62),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.06);
     color: rgb(var(--nada-primary));
   }
 
@@ -754,7 +755,7 @@ textarea::placeholder {
     justify-content: space-between;
     gap: 4px;
     padding: 8px 10px;
-    border-bottom: 1px solid rgb(var(--nada-border) / 0.12);
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.06);
   }
 
   .nada-context-menu-reaction {
@@ -798,12 +799,12 @@ textarea::placeholder {
   }
 
   .nada-context-menu-item:hover {
-    background: rgba(139, 148, 252, 0.16);
+    background: rgba(30, 215, 130, 0.14);
     color: rgb(var(--nada-accent));
   }
 
   .nada-context-menu-item:active {
-    background: rgba(139, 148, 252, 0.24);
+    background: rgba(30, 215, 130, 0.22);
   }
 
   .nada-context-menu-item-danger {
@@ -811,7 +812,7 @@ textarea::placeholder {
   }
 
   .nada-context-menu-item-danger:hover {
-    background: rgba(248, 113, 113, 0.14);
+    background: rgba(255, 89, 103, 0.14);
     color: rgb(var(--nada-danger));
   }
 
@@ -829,10 +830,10 @@ textarea::placeholder {
     box-shadow:
       0 0 0 2px rgb(var(--nada-bg)),
       0 0 0 4px rgb(var(--nada-accent) / 0.45),
-      0 0 20px rgb(var(--nada-accent) / 0.25);
+      0 0 22px rgb(var(--nada-accent) / 0.30);
   }
 
-  /* ── Premium accent text gradient ── */
+  /* ── Premium accent text gradient — NADA green ── */
   .nada-accent-text {
     background: linear-gradient(
       135deg,
@@ -847,7 +848,7 @@ textarea::placeholder {
     animation: nada-gradient-shift 6s ease infinite;
   }
 
-  /* ── Logo aura ── */
+  /* ── Logo aura — NADA green glow ── */
   .nada-logo-aura {
     background: linear-gradient(
       145deg,
@@ -856,43 +857,43 @@ textarea::placeholder {
       rgb(var(--nada-accent-deep)) 100%
     );
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.12),
-      0 0 0 1px rgb(var(--nada-border) / 0.12),
-      0 8px 32px rgba(139, 148, 252, 0.40);
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 0 0 1px rgb(var(--nada-border) / 0.08),
+      0 8px 32px rgba(30, 215, 130, 0.46);
   }
 
   /* ── Section / list section ── */
   .nada-section-label {
-    font-size: 10.5px;
-    font-weight: 700;
+    font-size: 11px;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0;
-    color: rgb(var(--nada-secondary) / 0.65);
+    letter-spacing: 0.12em;
+    color: rgb(var(--nada-secondary) / 0.55);
   }
 
   .nada-app-frame {
     background:
-      radial-gradient(circle at 14% 0%, rgb(var(--nada-accent) / 0.12), transparent 34%),
-      radial-gradient(circle at 86% 100%, rgb(var(--nada-gold) / 0.08), transparent 38%),
+      radial-gradient(circle at 14% 0%, rgb(var(--nada-accent) / 0.10), transparent 34%),
+      radial-gradient(circle at 86% 100%, rgb(var(--nada-gold) / 0.06), transparent 38%),
       rgb(var(--nada-bg));
   }
 
   .nada-desktop-shell {
     background:
-      linear-gradient(135deg, rgb(var(--nada-surface) / 0.92), rgb(var(--nada-bg) / 0.96)),
+      linear-gradient(135deg, rgb(var(--nada-surface) / 0.96), rgb(var(--nada-bg) / 0.98)),
       rgb(var(--nada-bg));
-    border: 1px solid rgb(var(--nada-border) / 0.08);
+    border: 1px solid rgb(var(--nada-border) / 0.06);
     box-shadow:
-      0 28px 80px rgba(0, 0, 0, 0.56),
-      0 0 0 1px rgb(var(--nada-border) / 0.04) inset;
+      0 28px 80px rgba(0, 0, 0, 0.62),
+      0 0 0 1px rgb(var(--nada-border) / 0.03) inset;
   }
 
   .nada-chat-header {
     min-height: 76px;
-    background: rgb(var(--nada-bg) / 0.78);
+    background: rgb(var(--nada-bg) / 0.82);
     backdrop-filter: blur(22px) saturate(145%);
     -webkit-backdrop-filter: blur(22px) saturate(145%);
-    border-bottom: 1px solid rgb(var(--nada-border) / 0.08);
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.05);
   }
 
   .nada-security-pill,
@@ -901,7 +902,7 @@ textarea::placeholder {
     align-items: center;
     gap: 7px;
     border-radius: 999px;
-    border: 1px solid rgb(var(--nada-border) / 0.08);
+    border: 1px solid rgb(var(--nada-border) / 0.06);
     background: rgb(var(--nada-surface-elevated) / 0.62);
     color: rgb(var(--nada-secondary) / 0.78);
     font-size: 11.5px;
@@ -914,8 +915,8 @@ textarea::placeholder {
     width: 7px;
     height: 7px;
     border-radius: 999px;
-    background: rgb(var(--nada-cyan));
-    box-shadow: 0 0 12px rgb(var(--nada-cyan) / 0.52);
+    background: rgb(var(--nada-accent));
+    box-shadow: 0 0 12px rgb(var(--nada-accent) / 0.65);
   }
 
   .nada-message-virtuoso {
@@ -931,35 +932,36 @@ textarea::placeholder {
     margin-inline: auto;
   }
 
+  /* Pill-shaped chat composer */
   .nada-composer-input {
-    background: rgb(var(--nada-input-bg) / 0.78);
+    background: rgb(var(--nada-input-bg) / 0.82);
     backdrop-filter: blur(12px) saturate(140%);
     -webkit-backdrop-filter: blur(12px) saturate(140%);
-    border: 1px solid rgb(var(--nada-border) / 0.10);
+    border: 1px solid rgb(var(--nada-border) / 0.07);
     border-radius: 999px;
-    box-shadow: inset 0 1px 0 rgb(var(--nada-border) / 0.05);
+    box-shadow: inset 0 1px 0 rgb(var(--nada-border) / 0.04);
   }
 
   .nada-composer-input:focus {
     border-color: rgb(var(--nada-accent) / 0.55);
     box-shadow:
       0 0 0 4px rgb(var(--nada-accent) / 0.10),
-      inset 0 1px 0 rgb(var(--nada-border) / 0.08);
+      inset 0 1px 0 rgb(var(--nada-border) / 0.06);
   }
 
   .nada-empty-state {
     background:
-      radial-gradient(circle at 50% 35%, rgb(var(--nada-accent) / 0.12), transparent 34%),
-      radial-gradient(circle at 50% 55%, rgb(var(--nada-gold) / 0.08), transparent 28%);
+      radial-gradient(circle at 50% 35%, rgb(var(--nada-accent) / 0.10), transparent 34%),
+      radial-gradient(circle at 50% 55%, rgb(var(--nada-violet) / 0.06), transparent 28%);
   }
 
   .nada-premium-card {
-    background: linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.82), rgb(var(--nada-surface) / 0.68));
-    border: 1px solid rgb(var(--nada-border) / 0.08);
+    background: linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.86), rgb(var(--nada-surface) / 0.72));
+    border: 1px solid rgb(var(--nada-border) / 0.06);
     border-radius: 22px;
     box-shadow:
-      inset 0 1px 0 rgb(var(--nada-border) / 0.06),
-      0 14px 42px rgba(0, 0, 0, 0.22);
+      inset 0 1px 0 rgb(var(--nada-border) / 0.05),
+      0 14px 42px rgba(0, 0, 0, 0.30);
   }
 
   .nada-settings-dashboard {
@@ -970,53 +972,53 @@ textarea::placeholder {
   }
 
   .nada-settings-card {
-    background: rgb(var(--nada-surface-elevated) / 0.56);
-    border: 1px solid rgb(var(--nada-border) / 0.07);
+    background: rgb(var(--nada-surface-elevated) / 0.62);
+    border: 1px solid rgb(var(--nada-border) / 0.06);
     border-radius: 18px;
     padding: 14px;
-    transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
+    transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
   }
 
   .nada-settings-card:hover {
-    background: rgb(var(--nada-surface-elevated) / 0.72);
-    border-color: rgb(var(--nada-border) / 0.12);
+    background: rgb(var(--nada-surface-elevated) / 0.78);
+    border-color: rgb(var(--nada-accent) / 0.18);
     transform: translateY(-1px);
   }
 
   .nada-floating-menu {
     background:
-      linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.92), rgb(var(--nada-surface) / 0.88)),
+      linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.94), rgb(var(--nada-surface) / 0.90)),
       rgb(var(--nada-surface));
-    border: 1px solid rgb(var(--nada-border) / 0.10);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
     backdrop-filter: blur(22px) saturate(145%);
     -webkit-backdrop-filter: blur(22px) saturate(145%);
     box-shadow:
-      0 20px 60px rgb(0 0 0 / 0.42),
-      inset 0 1px 0 rgb(var(--nada-border) / 0.08);
+      0 20px 60px rgb(0 0 0 / 0.50),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.06);
   }
 
   .nada-call-screen {
     background:
       radial-gradient(circle at 50% 24%, rgb(var(--nada-accent) / 0.18), transparent 34%),
-      radial-gradient(circle at 50% 40%, rgb(var(--nada-gold) / 0.10), transparent 28%),
-      linear-gradient(180deg, #070a14 0%, #0d1224 52%, #050711 100%);
+      radial-gradient(circle at 50% 40%, rgb(var(--nada-violet) / 0.10), transparent 28%),
+      linear-gradient(180deg, #08090B 0%, #121215 52%, #05060A 100%);
   }
 
   .nada-call-dock {
-    background: rgb(var(--nada-surface) / 0.74);
-    border: 1px solid rgb(var(--nada-border) / 0.10);
+    background: rgb(var(--nada-surface) / 0.78);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
     border-radius: 999px;
     backdrop-filter: blur(20px) saturate(150%);
     -webkit-backdrop-filter: blur(20px) saturate(150%);
-    box-shadow: 0 22px 70px rgb(0 0 0 / 0.46);
+    box-shadow: 0 22px 70px rgb(0 0 0 / 0.55);
   }
 
   .nada-call-avatar-ring {
     box-shadow:
       0 0 0 1px rgb(var(--nada-border) / 0.10),
       0 0 0 10px rgb(var(--nada-accent) / 0.10),
-      0 0 60px rgb(var(--nada-accent) / 0.32),
-      0 0 90px rgb(var(--nada-gold) / 0.16);
+      0 0 60px rgb(var(--nada-accent) / 0.36),
+      0 0 90px rgb(var(--nada-violet) / 0.18);
   }
 }
 
@@ -1048,13 +1050,13 @@ textarea::placeholder {
 }
 
 @keyframes nada-pulse-ring {
-  0%   { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.50); }
+  0%   { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.55); }
   70%  { box-shadow: 0 0 0 12px rgb(var(--nada-accent) / 0); }
   100% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0); }
 }
 
 @keyframes nada-gold-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.45); }
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.50); }
   50%       { box-shadow: 0 0 0 16px rgb(var(--nada-accent) / 0); }
 }
 
@@ -1073,8 +1075,8 @@ textarea::placeholder {
 }
 
 @keyframes nada-logo-glow {
-  0%, 100% { box-shadow: 0 0 22px rgba(139, 148, 252, 0.36), 0 0 44px rgba(88, 88, 220, 0.18); }
-  50%       { box-shadow: 0 0 44px rgba(139, 148, 252, 0.56), 0 0 88px rgba(88, 88, 220, 0.30); }
+  0%, 100% { box-shadow: 0 0 26px rgba(30, 215, 130, 0.42), 0 0 52px rgba(17, 167, 101, 0.20); }
+  50%       { box-shadow: 0 0 52px rgba(30, 215, 130, 0.66), 0 0 100px rgba(132, 232, 92, 0.32); }
 }
 
 @keyframes nada-float {
@@ -1093,6 +1095,11 @@ textarea::placeholder {
   100% { transform: translate3d(0, 0, 0) rotate(0deg); }
 }
 
+@keyframes nada-breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.12); opacity: 0.85; }
+}
+
 /* ── Utility Layer ──────────────────────────────────────── */
 
 @layer utilities {
@@ -1104,6 +1111,7 @@ textarea::placeholder {
   .animate-logo-glow   { animation: nada-logo-glow 3.2s ease-in-out infinite; }
   .animate-float       { animation: nada-float 5s ease-in-out infinite; }
   .animate-aurora      { animation: nada-aurora-drift 18s ease-in-out infinite; }
+  .animate-breathe     { animation: nada-breathe 2.4s ease-in-out infinite; }
 
   .text-accent       { color: rgb(var(--nada-accent)); }
   .bg-accent         { background-color: rgb(var(--nada-accent)); }
@@ -1119,10 +1127,6 @@ textarea::placeholder {
   .text-pretty  { text-wrap: pretty; }
 
   /* Premium hairline borders */
-  .ring-hairline       { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.10); }
-  .ring-hairline-strong { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.16); }
-
-  [class*="tracking-"] {
-    letter-spacing: 0 !important;
-  }
+  .ring-hairline       { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.08); }
+  .ring-hairline-strong { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.14); }
 }
