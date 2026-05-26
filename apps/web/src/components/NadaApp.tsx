@@ -5355,6 +5355,7 @@ function ChatPanel({
   const [showClearModal, setShowClearModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [showVerifyKeyModal, setShowVerifyKeyModal] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [deleteSheetMessageId, setDeleteSheetMessageId] = useState<string | null>(null);
   const [messageText, setMessageText] = useState("");
@@ -5408,6 +5409,7 @@ function ChatPanel({
       showClearModal ||
       showBlockModal ||
       showProfilePanel ||
+      showVerifyKeyModal ||
       deleteSheetMessageId !== null ||
       messageMenu !== null;
     if (!anyOpen) return;
@@ -5419,6 +5421,7 @@ function ChatPanel({
       else if (showClearModal) setShowClearModal(false);
       else if (showBlockModal) setShowBlockModal(false);
       else if (showProfilePanel) setShowProfilePanel(false);
+      else if (showVerifyKeyModal) setShowVerifyKeyModal(false);
       else if (deleteSheetMessageId !== null) setDeleteSheetMessageId(null);
       else if (messageMenu !== null) setMessageMenu(null);
     };
@@ -5431,6 +5434,7 @@ function ChatPanel({
     showClearModal,
     showBlockModal,
     showProfilePanel,
+    showVerifyKeyModal,
     deleteSheetMessageId,
     messageMenu
   ]);
@@ -6132,16 +6136,18 @@ function ChatPanel({
                       {blurShieldActive ? <Eye size={14} className="text-nada-accent" /> : <EyeOff size={14} className="text-nada-secondary/[.50]" />}
                       {blurShieldActive ? "Disable privacy shield" : "Enable privacy shield"}
                     </button>
-                    <button
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
-                      onClick={() => {
-                        setShowOptions(false);
-                        showToast("Key verification UI is coming soon.");
-                      }}
-                    >
-                      <ShieldAlert size={14} className="text-nada-gold/80" />
-                      Verify key
-                    </button>
+                    {!isGroup && (
+                      <button
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
+                        onClick={() => {
+                          setShowOptions(false);
+                          setShowVerifyKeyModal(true);
+                        }}
+                      >
+                        <ShieldAlert size={14} className="text-nada-gold/80" />
+                        Verify key
+                      </button>
+                    )}
                     <button
                       className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
                       onClick={() => {
@@ -6395,6 +6401,66 @@ function ChatPanel({
                   }}
                 >
                   Clear chat
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Verify key modal */}
+      <AnimatePresence>
+        {showVerifyKeyModal && contact && !isGroup && (
+          <motion.div
+            className="fixed inset-0 z-[900] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowVerifyKeyModal(false)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm rounded-2xl bg-nada-surface border border-nada-border/10 p-6 shadow-2xl"
+              initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            >
+              <div className="mb-4 flex items-center gap-2">
+                <ShieldAlert size={18} className="text-nada-gold/80" />
+                <h3 className="text-lg font-semibold text-nada-primary">Verify safety numbers</h3>
+              </div>
+              <p className="mb-4 text-sm text-nada-secondary">
+                Compare these fingerprints with {title} over another channel (in person, voice call). If they match, this conversation is end-to-end secured.
+              </p>
+              <div className="mb-3">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-nada-secondary/70">{title}</p>
+                <code className="block break-all rounded-xl border border-nada-border/10 bg-black/40 px-3 py-2.5 font-mono text-[12.5px] text-nada-primary">
+                  {contact.pubkeyHash.match(/.{1,5}/g)?.join(" ") ?? contact.pubkeyHash}
+                </code>
+              </div>
+              <div className="mb-5">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-nada-secondary/70">You</p>
+                <code className="block break-all rounded-xl border border-nada-border/10 bg-black/40 px-3 py-2.5 font-mono text-[12.5px] text-nada-primary">
+                  {myPubkeyHash.match(/.{1,5}/g)?.join(" ") ?? myPubkeyHash}
+                </code>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  className="flex-1 rounded-xl px-4 py-2.5 text-sm text-nada-secondary bg-nada-muted hover:bg-nada-border/40 transition-colors"
+                  onClick={() => setShowVerifyKeyModal(false)}
+                >
+                  Close
+                </button>
+                <button
+                  className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-nada-bg bg-nada-accent hover:bg-nada-accent/90 transition-colors"
+                  onClick={() => {
+                    const text = `${title}: ${contact.pubkeyHash}\nYou: ${myPubkeyHash}`;
+                    if (navigator.clipboard?.writeText) {
+                      void navigator.clipboard.writeText(text).then(
+                        () => showToast("Safety numbers copied."),
+                        () => showToast("Copy failed.")
+                      );
+                    } else {
+                      showToast("Clipboard is not available.");
+                    }
+                  }}
+                >
+                  Copy both
                 </button>
               </div>
             </motion.div>

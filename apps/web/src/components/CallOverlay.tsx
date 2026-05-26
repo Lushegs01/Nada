@@ -290,13 +290,6 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
             active={speakerOn}
             variant="neutral"
           />
-          <CallControl
-            label="Video"
-            icon={Video}
-            onClick={() => window.alert("Switching to video during an active voice call is coming soon.")}
-            active={false}
-            variant="neutral"
-          />
           <button
             aria-label="End call"
             onClick={onEnd}
