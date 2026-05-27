@@ -4286,10 +4286,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                 : "syncing"
           }
           headerProps={{
-            displayName: displayName,
-            activeTab: activeTab,
-            onCameraClick: () => setPanel("status_create"),
-            onMoreClick: () => setPanel("settings")
+            activeTab: activeTab
           }}
         >
           {activeTab === "status" ? (
