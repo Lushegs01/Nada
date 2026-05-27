@@ -5885,7 +5885,13 @@ function ChatPanel({
       {wallpaperUrl && <div className="absolute inset-0 bg-black/45 z-0 pointer-events-none" />}
       
       {/* Chat Header */}
-      <header className="nada-chat-header z-header relative flex shrink-0 items-center gap-3 px-3 pl-safe-area pr-safe-area md:px-5">
+      <header
+        className="nada-chat-header z-header relative flex shrink-0 items-center gap-3 md:px-5"
+        style={{
+          paddingLeft: "max(env(safe-area-inset-left), 12px)",
+          paddingRight: "max(env(safe-area-inset-right), 12px)"
+        }}
+      >
         <IconButton className="md:hidden" label="Back" onClick={onBack}>
           <ArrowLeft size={18} />
         </IconButton>
@@ -6874,7 +6880,7 @@ function ChatPanel({
             <div
               key={message.id}
               ref={(el) => setMessageRef(message.id, el)}
-              className={cn("px-1 md:px-2", isFirstInCluster ? "mt-3" : "mt-1")}
+              className={cn("pl-1 pr-3 md:px-2", isFirstInCluster ? "mt-3" : "mt-1")}
             >
               {/* Date separator */}
               {showDateSep && (
