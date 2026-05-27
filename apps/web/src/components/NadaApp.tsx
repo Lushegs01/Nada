@@ -6950,7 +6950,7 @@ function ChatPanel({
                 </div>
                 <div
                   className={cn(
-                    "relative max-w-[min(78%,520px)] text-[14.5px]",
+                    "relative max-w-[min(75%,520px)] text-[14.5px]",
                     message.direction === "outbound"
                       ? cn("nada-bubble-sent", isLastInCluster && "has-tail")
                       : cn("nada-bubble-received", isLastInCluster && "has-tail"),
