@@ -591,7 +591,9 @@ export const MobileHeader = ({
       }}
     >
       <div className="flex min-w-0 items-center gap-3.5">
-        <NadaLogoMark size={40} />
+        <div className="md:hidden">
+          <NadaLogoMark size={40} />
+        </div>
         <div className="flex min-w-0 flex-col leading-tight">
           <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-nada-accent/80">
             {greeting}

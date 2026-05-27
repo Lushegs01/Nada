@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play, AlertCircle, Loader2 } from "lucide-react";
 import { cn } from "@nada/ui";
+import { motion } from "framer-motion";
 import WaveSurfer from "wavesurfer.js";
 
 const PLAYBACK_RATES = [1, 1.5, 2] as const;
@@ -39,18 +40,23 @@ export function VoiceNoteBubble({
   playbackId?: string;
 }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
+  const waveAreaRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
   const lastAutoPlayTokenRef = useRef(0);
   const pendingAutoPlayRef = useRef(false);
   const playbackRateRef = useRef<(typeof PLAYBACK_RATES)[number]>(1);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isScrubbing, setIsScrubbing] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(Math.max(durationSeconds, 0));
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [fallbackMode, setFallbackMode] = useState(false);
   const [playbackRate, setPlaybackRate] = useState<(typeof PLAYBACK_RATES)[number]>(1);
+
+  const progress =
+    duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0;
 
   const notifyPlaybackStart = useCallback(() => {
     if (playbackId) {
@@ -147,12 +153,12 @@ export function VoiceNoteBubble({
     try {
       ws = WaveSurfer.create({
         container: containerRef.current,
-        waveColor: outbound ? "rgba(5, 26, 17, 0.45)" : "rgba(30, 215, 130, 0.42)",
-        progressColor: outbound ? "rgba(5, 26, 17, 0.92)" : "rgba(30, 215, 130, 0.95)",
+        waveColor: outbound ? "rgba(255, 255, 255, 0.32)" : "rgba(30, 215, 130, 0.40)",
+        progressColor: outbound ? "rgba(255, 255, 255, 0.98)" : "rgba(30, 215, 130, 0.98)",
         cursorColor: "transparent",
-        barWidth: 2.5,
+        barWidth: 3,
         barGap: 2,
-        barRadius: 2,
+        barRadius: 3,
         dragToSeek: true,
         height: 34,
         interact: true,
@@ -319,7 +325,24 @@ export function VoiceNoteBubble({
 
       {/* Waveform + duration */}
       <div className="flex flex-1 flex-col gap-1 overflow-hidden relative">
-        <div className="relative h-9 w-full overflow-hidden rounded-lg">
+        <div
+          ref={waveAreaRef}
+          className="relative h-9 w-full rounded-lg select-none"
+          onPointerDown={(event) => {
+            // Click anywhere on the waveform to seek to that timestamp.
+            // Skip if the pointer landed on the playhead dot itself
+            // (the dot has its own drag handling).
+            if ((event.target as HTMLElement).closest("[data-voice-dot]")) return;
+            if (loading && !fallbackMode) return;
+            const rect = waveAreaRef.current?.getBoundingClientRect();
+            if (!rect || rect.width === 0) return;
+            const ratio = Math.min(
+              1,
+              Math.max(0, (event.clientX - rect.left) / rect.width)
+            );
+            seekToTime(ratio * Math.max(duration, 0));
+          }}
+        >
           {loading || fallbackMode ? (
             <div className="absolute inset-0 flex items-center gap-[3px]">
               {Array.from({ length: 32 }, (_, index) => {
@@ -328,15 +351,23 @@ export function VoiceNoteBubble({
                 const noise = seed - Math.floor(seed);
                 const envelope = Math.sin((index / 32) * Math.PI); // taper at edges
                 const heightPct = 18 + envelope * 55 + noise * 30;
+                const isPlayed = index / 32 <= progress;
                 return (
                   <span
                     key={index}
                     className={cn(
-                      "w-[3px] flex-shrink-0 rounded-full animate-pulse",
-                      outbound ? "bg-white/65" : "bg-nada-accent/55"
+                      "w-[3px] flex-shrink-0 rounded-full",
+                      outbound
+                        ? isPlayed
+                          ? "bg-white"
+                          : "bg-white/35"
+                        : isPlayed
+                          ? "bg-nada-accent"
+                          : "bg-nada-accent/40",
+                      loading && "animate-pulse"
                     )}
                     style={{
-                      animationDelay: `${index * 34}ms`,
+                      animationDelay: loading ? `${index * 34}ms` : undefined,
                       animationDuration: fallbackMode ? "900ms" : undefined,
                       height: `${Math.min(96, Math.max(18, heightPct))}%`
                     }}
@@ -348,21 +379,60 @@ export function VoiceNoteBubble({
           <div
             ref={containerRef}
             aria-label="Voice note waveform"
-            className={cn("h-9 w-full transition-opacity", (loading || fallbackMode) && "opacity-0")}
+            className={cn(
+              "pointer-events-none h-9 w-full transition-opacity",
+              (loading || fallbackMode) && "opacity-0"
+            )}
           />
-          <input
-            aria-label="Seek voice note"
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-wait"
-            disabled={loading && !fallbackMode}
-            max={seekMax}
-            min={0}
-            onChange={(event) => seekToTime(Number(event.currentTarget.value))}
-            onClick={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-            step={0.1}
-            type="range"
-            value={seekValue}
-          />
+
+          {/* Seekable playhead — draggable dot overlay */}
+          {!loading && duration > 0 && (
+            <motion.div
+              data-voice-dot
+              role="slider"
+              aria-label="Seek voice note"
+              aria-valuemin={0}
+              aria-valuemax={Math.max(duration, 0)}
+              aria-valuenow={Math.min(currentTime, Math.max(duration, 0))}
+              tabIndex={0}
+              drag="x"
+              dragConstraints={waveAreaRef}
+              dragElastic={0}
+              dragMomentum={false}
+              onDragStart={() => setIsScrubbing(true)}
+              onDrag={(_event, info) => {
+                const rect = waveAreaRef.current?.getBoundingClientRect();
+                if (!rect || rect.width === 0) return;
+                const ratio = Math.min(
+                  1,
+                  Math.max(0, (info.point.x - rect.left) / rect.width)
+                );
+                seekToTime(ratio * Math.max(duration, 0));
+              }}
+              onDragEnd={() => setIsScrubbing(false)}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                event.preventDefault();
+                const step = Math.max(0.5, Math.min(2, duration * 0.04));
+                seekToTime(currentTime + (event.key === "ArrowRight" ? step : -step));
+              }}
+              className={cn(
+                "absolute top-1/2 z-10 grid h-3.5 w-3.5 -translate-y-1/2 -translate-x-1/2 place-items-center rounded-full",
+                "cursor-grab active:cursor-grabbing select-none touch-none",
+                "transition-shadow duration-150 hover:scale-110",
+                outbound
+                  ? "bg-white"
+                  : "bg-nada-accent",
+                isScrubbing && "scale-110"
+              )}
+              style={{
+                left: `${progress * 100}%`,
+                boxShadow: outbound
+                  ? "0 2px 6px rgba(0,0,0,0.45), 0 0 0 2px rgba(255,255,255,0.22)"
+                  : "0 2px 6px rgba(0,0,0,0.45), 0 0 0 2px rgba(30,215,130,0.25)"
+              }}
+            />
+          )}
         </div>
         <span
           className={cn(
