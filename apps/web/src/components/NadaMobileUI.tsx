@@ -568,14 +568,10 @@ const TAB_TITLES: Record<string, string> = {
 };
 
 export const MobileHeader = ({
-  displayName,
   activeTab = "chats",
   onComposeClick
 }: {
-  displayName: string;
   activeTab?: string;
-  onCameraClick: () => void;
-  onMoreClick: () => void;
   onComposeClick?: () => void;
 }) => {
   const title = activeTab === "chats" ? "NADA" : TAB_TITLES[activeTab] ?? "NADA";
@@ -642,15 +638,11 @@ export const MobileChatsHome = ({
   onTabChange: (tab: string) => void;
   syncStatus?: "connected" | "syncing" | "offline";
   headerProps: {
-    displayName: string;
     activeTab?: string;
-    onCameraClick: () => void;
-    onMoreClick: () => void;
   };
 }) => (
   <div className="relative flex h-full flex-col overflow-x-hidden overflow-y-hidden nada-chat-bg">
     <MobileHeader
-      {...headerProps}
       activeTab={headerProps.activeTab ?? activeTab}
       onComposeClick={onComposeClick}
     />
