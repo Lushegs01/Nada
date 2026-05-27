@@ -76,10 +76,11 @@ import {
 } from "@/components/VoiceNote";
 import { useCallStore } from "@/stores/useCallStore";
 import { QRCodeSVG } from "qrcode.react";
-import { 
-  MobileChatsHome, 
-  ChatListItem, 
+import {
+  MobileChatsHome,
+  ChatListItem,
   ArchivedRow,
+  DesktopNavRail,
   EmptyChatListState
 } from "./NadaMobileUI";
 
@@ -4249,9 +4250,19 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
       <section
         className="nada-desktop-shell flex h-full w-full max-w-[1440px] bg-nada-surface md:h-[calc(100dvh-1.5rem)] md:overflow-hidden md:rounded-[28px]"
       >
+        <DesktopNavRail
+          activeTab={activeTab}
+          onTabChange={(tab) => {
+            setActiveTab(tab);
+            setPanel(null);
+            setShowGhostModal(false);
+            setShowMoodModal(false);
+          }}
+          unreadCount={totalUnreadCount}
+        />
         <aside
           className={cn(
-            "nada-sidebar relative flex w-full flex-col overflow-hidden bg-nada-surface md:w-[360px] md:min-w-[340px] md:max-w-[390px] lg:w-[372px]",
+            "nada-sidebar relative flex w-full flex-col overflow-hidden bg-nada-surface md:w-[340px] md:min-w-[320px] md:max-w-[370px] lg:w-[360px]",
             selectedContact || selectedGroup ? "hidden md:flex" : "flex"
           )}
         >
@@ -6939,7 +6950,7 @@ function ChatPanel({
                 </div>
                 <div
                   className={cn(
-                    "relative max-w-[min(82%,520px)] px-3.5 py-2.5 text-[14.5px] md:px-4",
+                    "relative max-w-[min(78%,520px)] text-[14.5px]",
                     message.direction === "outbound"
                       ? cn("nada-bubble-sent", isLastInCluster && "has-tail")
                       : cn("nada-bubble-received", isLastInCluster && "has-tail"),
@@ -6948,8 +6959,9 @@ function ChatPanel({
                   )}
                 >
                   {message.replyToId ? (
-                    <div
-                      className="mb-2 rounded-xl border border-nada-border/10 bg-black/10 px-3 py-2 text-xs opacity-90 cursor-pointer hover:opacity-100 transition-opacity"
+                    <button
+                      type="button"
+                      className="nada-reply-quote mb-2 flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-1.5 text-left text-xs transition-opacity hover:opacity-90"
                       onClick={() => {
                         if (message.replyToId) scrollToMessage(message.replyToId);
                       }}
@@ -6965,17 +6977,19 @@ function ChatPanel({
                         const previewText = original
                           ? previewForMessage(original)
                           : snapshot?.textPreview ?? snapshot?.fileName ?? "Message unavailable.";
-                        
+
                         return (
-                          <div className="flex flex-col border-l-2 border-nada-gold pl-2">
-                            <span className="font-semibold text-[10px] text-nada-accent">{senderName}</span>
-                            <span className="truncate opacity-80">
+                          <>
+                            <span className="nada-reply-sender text-[10.5px] font-semibold leading-tight">
+                              {senderName}
+                            </span>
+                            <span className="nada-reply-preview truncate text-[12px] leading-tight">
                               {previewText.length > 48 ? `${previewText.slice(0, 48)}...` : previewText}
                             </span>
-                          </div>
+                          </>
                         );
                       })()}
-                    </div>
+                    </button>
                   ) : null}
                   <MessageContent
                     activeVoiceNoteId={activeVoiceNoteId}
@@ -7000,8 +7014,8 @@ function ChatPanel({
                     className={cn(
                       "mt-0.5 flex items-center justify-end gap-1 text-[10px]",
                       message.direction === "outbound"
-                        ? "text-white/50"
-                        : "text-nada-secondary/40"
+                        ? "text-white/70"
+                        : "text-nada-secondary/55"
                     )}
                   >
                     {message.editedAt ? <span className="italic">edited ·</span> : null}
@@ -7029,7 +7043,7 @@ function ChatPanel({
                             "ml-0.5 inline-flex shrink-0",
                             glyphMeta.tone === "read"
                               ? "text-sky-300"
-                              : "text-current opacity-65"
+                              : "text-white"
                           );
                           if (glyphMeta.glyph === "clock") {
                             return (

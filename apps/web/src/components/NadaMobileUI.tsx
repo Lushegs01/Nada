@@ -21,6 +21,20 @@ import {
 import { cn } from "@nada/ui";
 import { motion } from "framer-motion";
 
+/* useIsDesktop — true at the md: breakpoint (768px) and above */
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = React.useState(false);
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isDesktop;
+}
+
 /* ─────────────────────────────────────────────────────────────
    SearchBar — floating glass input, premium pill style
    ───────────────────────────────────────────────────────────── */
@@ -177,10 +191,16 @@ export const ChatListItem = ({
   onDelete?: () => void;
   archiveLabel?: string;
   deleteLabel?: string;
-}) => (
-  <div className="relative mx-2 my-1 overflow-hidden rounded-2xl">
-    {/* Background action layer — left swipe reveals Archive (green) */}
-    {onArchive && (
+}) => {
+  const isDesktop = useIsDesktop();
+  const dragEnabled = !isDesktop && Boolean(onArchive || onDelete);
+  return (
+  <div className={cn(
+    "group/row relative mx-2 my-1 overflow-hidden rounded-2xl",
+    isSelected && "nada-chat-item-active"
+  )}>
+    {/* Background action layer — left swipe reveals Archive (green) — mobile only */}
+    {onArchive && !isDesktop && (
       <div className="pointer-events-none absolute inset-y-0 left-0 flex w-28 items-center justify-start bg-nada-accent/20 pl-5 text-nada-accent">
         <div className="flex flex-col items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
           <Archive size={18} />
@@ -188,8 +208,8 @@ export const ChatListItem = ({
         </div>
       </div>
     )}
-    {/* Background action layer — right swipe reveals Delete (red) */}
-    {onDelete && (
+    {/* Background action layer — right swipe reveals Delete (red) — mobile only */}
+    {onDelete && !isDesktop && (
       <div className="pointer-events-none absolute inset-y-0 right-0 flex w-28 items-center justify-end bg-red-500/20 pr-5 text-red-300">
         <div className="flex flex-col items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
           <Trash2 size={18} />
@@ -198,7 +218,7 @@ export const ChatListItem = ({
       </div>
     )}
     <motion.button
-      drag={onArchive || onDelete ? "x" : false}
+      drag={dragEnabled ? "x" : false}
       dragConstraints={{ left: onDelete ? -112 : 0, right: onArchive ? 112 : 0 }}
       dragElastic={0.15}
       dragSnapToOrigin
@@ -214,26 +234,14 @@ export const ChatListItem = ({
       whileTap={{ scale: 0.99 }}
       className={cn(
         "group relative z-10 flex w-full items-center gap-3 px-3 py-3 text-left transition-colors duration-200 tap-highlight-none",
-        isSelected
-          ? "bg-gradient-to-r from-nada-accent/[0.10] via-nada-accent/[0.04] to-transparent ring-1 ring-nada-accent/30"
-          : "hover:bg-nada-surface-elevated/55"
+        !isSelected && "hover:bg-nada-surface-elevated/45"
       )}
       style={{
         background: isSelected
-          ? undefined
+          ? "transparent"
           : "rgb(var(--nada-bg))"
       }}
     >
-    {/* Active rail */}
-    {isSelected && (
-      <span className="absolute inset-y-3 left-0 w-[3px] rounded-r-full"
-        style={{
-          background: "linear-gradient(180deg, rgb(var(--nada-accent)), rgb(var(--nada-violet)))",
-          boxShadow: "0 0 16px rgba(30,215,130,0.7)"
-        }}
-      />
-    )}
-
     {/* Avatar — premium rounded square */}
     <div className="relative shrink-0">
       <div className={cn(
@@ -329,8 +337,37 @@ export const ChatListItem = ({
       </div>
     </div>
     </motion.button>
+
+    {/* Desktop hover actions — Archive / Delete icons on the right edge */}
+    {isDesktop && (onArchive || onDelete) && (
+      <div className="pointer-events-none absolute inset-y-0 right-2 z-20 hidden items-center gap-1 opacity-0 transition-opacity duration-150 md:flex group-hover/row:pointer-events-auto group-hover/row:opacity-100">
+        {onArchive && (
+          <button
+            aria-label={archiveLabel}
+            title={archiveLabel}
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onArchive(); }}
+            className="grid h-8 w-8 place-items-center rounded-full bg-nada-surface-3/95 text-nada-secondary transition-colors hover:bg-nada-accent/20 hover:text-nada-accent"
+          >
+            <Archive size={14} strokeWidth={2.2} />
+          </button>
+        )}
+        {onDelete && (
+          <button
+            aria-label={deleteLabel}
+            title={deleteLabel}
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="grid h-8 w-8 place-items-center rounded-full bg-nada-surface-3/95 text-nada-secondary transition-colors hover:bg-red-500/20 hover:text-red-300"
+          >
+            <Trash2 size={14} strokeWidth={2.2} />
+          </button>
+        )}
+      </div>
+    )}
   </div>
-);
+  );
+};
 
 /* ─────────────────────────────────────────────────────────────
    Bottom Navigation — pill indicator with motion layout
@@ -353,7 +390,7 @@ export const BottomNavigation = ({
   ];
 
   return (
-    <div className="absolute bottom-3 left-3 right-3 z-header pb-safe-area pl-safe-area pr-safe-area">
+    <div className="absolute bottom-3 left-3 right-3 z-header pb-safe-area pl-safe-area pr-safe-area md:hidden">
       <div
         className="flex h-[66px] items-center justify-around rounded-full border border-nada-border/[0.06] px-1.5"
         style={{
@@ -426,6 +463,82 @@ export const BottomNavigation = ({
         })}
       </div>
     </div>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────
+   DesktopNavRail — slim vertical icon rail (md+)
+   ───────────────────────────────────────────────────────────── */
+export const DesktopNavRail = ({
+  activeTab,
+  onTabChange,
+  unreadCount = 0
+}: {
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  unreadCount?: number;
+}) => {
+  const tabs = [
+    { id: "chats",       label: "Chats",       icon: MessageCircle, badge: unreadCount },
+    { id: "status",      label: "Status",      icon: CircleDashed },
+    { id: "groups",      label: "Groups",      icon: Users },
+    { id: "communities", label: "Community",   icon: Network },
+    { id: "settings",    label: "Settings",    icon: Settings }
+  ];
+
+  return (
+    <nav
+      className="hidden h-full w-[68px] shrink-0 flex-col items-center gap-1.5 border-r border-nada-border/[0.05] px-2 py-4 md:flex"
+      style={{
+        background:
+          "linear-gradient(180deg, rgb(var(--nada-surface) / 0.92), rgb(var(--nada-bg) / 0.96))"
+      }}
+    >
+      <div className="mb-3 grid h-10 w-10 place-items-center overflow-hidden rounded-[12px] nada-logo-aura">
+        <img src="/logo.png" alt="NADA" className="h-full w-full object-cover" />
+      </div>
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        const isActive = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => onTabChange(tab.id)}
+            title={tab.label}
+            aria-label={tab.label}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
+              "group relative grid h-11 w-11 place-items-center rounded-xl transition-colors duration-150",
+              isActive
+                ? "bg-nada-surface-3/80 text-nada-accent"
+                : "text-nada-secondary/55 hover:bg-nada-surface-elevated/55 hover:text-nada-primary"
+            )}
+          >
+            {isActive && (
+              <motion.span
+                layoutId="rail-active-indicator"
+                className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full bg-nada-accent"
+                transition={{ type: "spring", stiffness: 480, damping: 34 }}
+              />
+            )}
+            <Icon size={20} strokeWidth={isActive ? 2.4 : 1.9} />
+            {tab.badge !== undefined && tab.badge > 0 && (
+              <span
+                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-nada-bg px-1 text-[9px] font-black"
+                style={{
+                  background:
+                    "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-violet)))",
+                  color: "#051A11"
+                }}
+              >
+                {tab.badge > 99 ? "99+" : tab.badge}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </nav>
   );
 };
 

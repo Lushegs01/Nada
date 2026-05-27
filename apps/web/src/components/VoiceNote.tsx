@@ -321,21 +321,28 @@ export function VoiceNoteBubble({
       <div className="flex flex-1 flex-col gap-1 overflow-hidden relative">
         <div className="relative h-9 w-full overflow-hidden rounded-lg">
           {loading || fallbackMode ? (
-            <div className="absolute inset-0 flex items-center gap-1.5">
-              {Array.from({ length: 24 }, (_, index) => (
-                <span
-                  key={index}
-                  className={cn(
-                    "w-0.5 rounded-full animate-pulse",
-                    outbound ? "bg-white/55" : "bg-nada-accent/45"
-                  )}
-                  style={{
-                    animationDelay: `${index * 34}ms`,
-                    animationDuration: fallbackMode ? "900ms" : undefined,
-                    height: `${28 + ((index * 17) % 54)}%`
-                  }}
-                />
-              ))}
+            <div className="absolute inset-0 flex items-center gap-[3px]">
+              {Array.from({ length: 32 }, (_, index) => {
+                // Pseudo-random but stable heights that look like real audio
+                const seed = Math.sin(index * 1.7 + 0.5) * 10000;
+                const noise = seed - Math.floor(seed);
+                const envelope = Math.sin((index / 32) * Math.PI); // taper at edges
+                const heightPct = 18 + envelope * 55 + noise * 30;
+                return (
+                  <span
+                    key={index}
+                    className={cn(
+                      "w-[3px] flex-shrink-0 rounded-full animate-pulse",
+                      outbound ? "bg-white/65" : "bg-nada-accent/55"
+                    )}
+                    style={{
+                      animationDelay: `${index * 34}ms`,
+                      animationDuration: fallbackMode ? "900ms" : undefined,
+                      height: `${Math.min(96, Math.max(18, heightPct))}%`
+                    }}
+                  />
+                );
+              })}
             </div>
           ) : null}
           <div
