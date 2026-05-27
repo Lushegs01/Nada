@@ -975,7 +975,7 @@ textarea::placeholder {
     max-width: 860px;
     margin-inline: auto;
     padding-left: clamp(16px, 3.5vw, 28px);
-    padding-right: clamp(20px, 4vw, 32px);
+    padding-right: max(env(safe-area-inset-right), 28px);
     overflow-x: hidden;
   }
 
