@@ -15,6 +15,7 @@ import {
   Pin,
   ChevronRight,
   CircleDashed,
+  Loader2,
   Network
 } from "lucide-react";
 import { cn } from "@nada/ui";
@@ -32,17 +33,17 @@ export const SearchBar = ({
   onChange: (val: string) => void;
   placeholder?: string;
 }) => (
-  <div className="px-4 py-3">
+  <div className="px-5 pt-3 pb-1.5">
     <div className="relative flex items-center">
-      <Search className="pointer-events-none absolute left-4 h-[15px] w-[15px] text-nada-secondary/55" strokeWidth={2.2} />
+      <Search className="pointer-events-none absolute left-4 h-[16px] w-[16px] text-nada-secondary/70" strokeWidth={2.2} />
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-12 w-full rounded-full border border-nada-border/[0.07] pl-11 pr-4 text-[13.5px] font-medium text-nada-primary outline-none placeholder:text-nada-secondary/45 transition-all duration-200 focus:border-nada-accent/40 focus:ring-4 focus:ring-nada-accent/10"
+        className="h-12 w-full rounded-full border border-nada-border/[0.08] pl-11 pr-4 text-[14px] font-medium text-nada-primary outline-none placeholder:text-nada-secondary/65 transition-all duration-200 focus:border-nada-accent/40 focus:ring-4 focus:ring-nada-accent/10"
         style={{
-          background: "rgb(var(--nada-surface-elevated) / 0.72)",
+          background: "rgb(var(--nada-surface-3) / 0.85)",
           backdropFilter: "blur(14px) saturate(140%)",
           WebkitBackdropFilter: "blur(14px) saturate(140%)"
         }}
@@ -50,6 +51,50 @@ export const SearchBar = ({
     </div>
   </div>
 );
+
+/* ─────────────────────────────────────────────────────────────
+   SyncIndicator — inline, sleek connection status
+   ───────────────────────────────────────────────────────────── */
+export const SyncIndicator = ({
+  status
+}: {
+  status: "connected" | "syncing" | "offline";
+}) => {
+  const config = {
+    connected: {
+      text: "Secure connection active",
+      color: "text-nada-cyan",
+      dotClass: "bg-nada-cyan shadow-[0_0_8px_rgb(var(--nada-cyan)/0.7)]",
+      spinning: false
+    },
+    syncing: {
+      text: "Syncing securely",
+      color: "text-nada-accent/85",
+      dotClass: "bg-nada-accent",
+      spinning: true
+    },
+    offline: {
+      text: "Offline mode active",
+      color: "text-nada-warning",
+      dotClass: "bg-nada-warning",
+      spinning: false
+    }
+  }[status];
+
+  return (
+    <div className={cn(
+      "flex items-center justify-center gap-1.5 px-5 pb-2 pt-0.5 text-[10.5px] font-semibold tracking-wide",
+      config.color
+    )}>
+      {config.spinning ? (
+        <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.6} />
+      ) : (
+        <span className={cn("h-1.5 w-1.5 rounded-full", config.dotClass)} />
+      )}
+      <span>{config.text}</span>
+    </div>
+  );
+};
 
 /* ─────────────────────────────────────────────────────────────
    Archived Row
@@ -133,39 +178,51 @@ export const ChatListItem = ({
   archiveLabel?: string;
   deleteLabel?: string;
 }) => (
-  <div className="relative overflow-hidden">
-    <div className="absolute inset-y-0 left-0 flex w-28 items-center justify-start bg-nada-accent/15 pl-4 text-nada-accent">
-      <div className="flex flex-col items-center gap-1 text-[10px] font-bold">
-        <Archive size={18} />
-        {archiveLabel}
+  <div className="relative mx-2 my-1 overflow-hidden rounded-2xl">
+    {/* Background action layer — left swipe reveals Archive (green) */}
+    {onArchive && (
+      <div className="pointer-events-none absolute inset-y-0 left-0 flex w-28 items-center justify-start bg-nada-accent/20 pl-5 text-nada-accent">
+        <div className="flex flex-col items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
+          <Archive size={18} />
+          {archiveLabel}
+        </div>
       </div>
-    </div>
-    <div className="absolute inset-y-0 right-0 flex w-28 items-center justify-end bg-red-500/15 pr-4 text-red-300">
-      <div className="flex flex-col items-center gap-1 text-[10px] font-bold">
-        <Trash2 size={18} />
-        {deleteLabel}
+    )}
+    {/* Background action layer — right swipe reveals Delete (red) */}
+    {onDelete && (
+      <div className="pointer-events-none absolute inset-y-0 right-0 flex w-28 items-center justify-end bg-red-500/20 pr-5 text-red-300">
+        <div className="flex flex-col items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
+          <Trash2 size={18} />
+          {deleteLabel}
+        </div>
       </div>
-    </div>
+    )}
     <motion.button
       drag={onArchive || onDelete ? "x" : false}
-      dragConstraints={{ left: onDelete ? -96 : 0, right: onArchive ? 96 : 0 }}
-      dragElastic={0.08}
+      dragConstraints={{ left: onDelete ? -112 : 0, right: onArchive ? 112 : 0 }}
+      dragElastic={0.15}
+      dragSnapToOrigin
+      dragTransition={{ bounceStiffness: 500, bounceDamping: 32 }}
       onClick={onClick}
       onDragEnd={(_event, info) => {
-        if (info.offset.x > 72) {
+        if (info.offset.x > 96) {
           onArchive?.();
-        } else if (info.offset.x < -72) {
+        } else if (info.offset.x < -96) {
           onDelete?.();
         }
       }}
-      whileTap={{ scale: 0.985 }}
-      whileHover={{ y: -1 }}
+      whileTap={{ scale: 0.99 }}
       className={cn(
-        "group relative z-10 mx-2 my-1 flex w-[calc(100%-16px)] items-center gap-3 rounded-2xl px-3 py-3 text-left transition-all duration-200 tap-highlight-none",
+        "group relative z-10 flex w-full items-center gap-3 px-3 py-3 text-left transition-colors duration-200 tap-highlight-none",
         isSelected
           ? "bg-gradient-to-r from-nada-accent/[0.10] via-nada-accent/[0.04] to-transparent ring-1 ring-nada-accent/30"
-          : "bg-transparent hover:bg-nada-surface-elevated/55"
+          : "hover:bg-nada-surface-elevated/55"
       )}
+      style={{
+        background: isSelected
+          ? undefined
+          : "rgb(var(--nada-bg))"
+      }}
     >
     {/* Active rail */}
     {isSelected && (
@@ -413,48 +470,40 @@ export const MobileHeader = ({
 
   return (
     <header
-      className="sticky top-0 z-header flex items-center justify-between border-b border-nada-border/[0.04] px-4 pb-3 pt-safe-area pl-safe-area pr-safe-area"
+      className="sticky top-0 z-header flex items-center justify-between gap-3 border-b border-nada-border/[0.04] px-5 pb-5 pt-[max(env(safe-area-inset-top),20px)] pl-safe-area pr-safe-area"
       style={{
         background: "linear-gradient(to bottom, rgba(8,9,11,0.98), rgba(8,9,11,0.78))",
         backdropFilter: "blur(28px) saturate(160%)",
         WebkitBackdropFilter: "blur(28px) saturate(160%)"
       }}
     >
-      <div className="flex items-center gap-3 pt-3">
-        <NadaLogoMark size={36} />
-        <div className="flex flex-col leading-tight">
+      <div className="flex min-w-0 items-center gap-3.5">
+        <NadaLogoMark size={40} />
+        <div className="flex min-w-0 flex-col leading-tight">
           <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-nada-accent/80">
             {greeting}
           </span>
-          {subtitle ? (
-            <span className="mt-0.5 text-[17px] font-extrabold tracking-tight text-nada-primary">
-              {subtitle}
-            </span>
-          ) : (
-            <span className="mt-0.5 text-[17px] font-extrabold tracking-tight text-nada-primary">
-              {TAB_TITLES[activeTab] ?? "Messages"}
-            </span>
-          )}
+          <span className="mt-1 truncate text-[19px] font-extrabold tracking-tight text-nada-primary">
+            {subtitle ?? TAB_TITLES[activeTab] ?? "Messages"}
+          </span>
         </div>
       </div>
 
-      <div className="pt-3">
-        <motion.button
-          onClick={onComposeClick}
-          whileTap={{ scale: 0.9 }}
-          whileHover={{ scale: 1.05 }}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-nada-border/[0.08] transition-all duration-150 hover:border-nada-accent/45"
-          style={{
-            background:
-              "linear-gradient(135deg, rgb(var(--nada-surface-elevated) / 0.85), rgb(var(--nada-surface) / 0.85))",
-            backdropFilter: "blur(12px)",
-            boxShadow: "0 4px 14px rgba(0,0,0,0.30)"
-          }}
-          aria-label="New conversation"
-        >
-          <Plus className="h-[18px] w-[18px] text-nada-primary/80" strokeWidth={2.4} />
-        </motion.button>
-      </div>
+      <motion.button
+        onClick={onComposeClick}
+        whileTap={{ scale: 0.9 }}
+        whileHover={{ scale: 1.05 }}
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-nada-border/[0.08] transition-all duration-150 hover:border-nada-accent/45"
+        style={{
+          background:
+            "linear-gradient(135deg, rgb(var(--nada-surface-elevated) / 0.85), rgb(var(--nada-surface) / 0.85))",
+          backdropFilter: "blur(12px)",
+          boxShadow: "0 4px 14px rgba(0,0,0,0.30)"
+        }}
+        aria-label="New conversation"
+      >
+        <Plus className="h-[19px] w-[19px] text-nada-primary/85" strokeWidth={2.4} />
+      </motion.button>
     </header>
   );
 };
@@ -470,7 +519,8 @@ export const MobileChatsHome = ({
   onComposeClick,
   activeTab,
   onTabChange,
-  headerProps
+  headerProps,
+  syncStatus
 }: {
   children: React.ReactNode;
   searchQuery: string;
@@ -479,6 +529,7 @@ export const MobileChatsHome = ({
   onComposeClick: () => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
+  syncStatus?: "connected" | "syncing" | "offline";
   headerProps: {
     displayName: string;
     activeTab?: string;
@@ -486,15 +537,16 @@ export const MobileChatsHome = ({
     onMoreClick: () => void;
   };
 }) => (
-  <div className="relative flex h-full flex-col overflow-hidden nada-chat-bg">
+  <div className="relative flex h-full flex-col overflow-x-hidden overflow-y-hidden nada-chat-bg">
     <MobileHeader
       {...headerProps}
       activeTab={headerProps.activeTab ?? activeTab}
       onComposeClick={onComposeClick}
     />
     <SearchBar value={searchQuery} onChange={onSearchChange} />
+    {syncStatus && <SyncIndicator status={syncStatus} />}
 
-    <div className="flex-1 overflow-y-auto pb-[84px]">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden pb-[84px]">
       {children}
     </div>
 

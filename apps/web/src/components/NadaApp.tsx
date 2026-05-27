@@ -4267,6 +4267,13 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             setShowGhostModal(false);
             setShowMoodModal(false);
           }}
+          syncStatus={
+            relayStatus === "connected"
+              ? "connected"
+              : relayStatus === "missing-url"
+                ? "offline"
+                : "syncing"
+          }
           headerProps={{
             displayName: displayName,
             activeTab: activeTab,
@@ -4369,7 +4376,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             />
           ) : (
           <div className="flex flex-col">
-            <RelayStatus status={relayStatus} />
             {searchQuery.trim().length >= 2 ? (
               <GlobalSearchResults
                 query={searchQuery}
@@ -5127,44 +5133,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         )}
       </AnimatePresence>
       </section>
-    </div>
-  );
-}
-
-function RelayStatus({ status }: { status: string }): JSX.Element {
-  const isConnected = status === "connected";
-  const copy =
-    status === "connected"
-      ? "Secure connection active"
-      : status === "missing-url"
-        ? "Offline mode active"
-        : "Syncing securely...";
-
-  return (
-    <div
-      className={cn(
-        "mx-4 mb-3 mt-1 flex items-center gap-2 rounded-2xl border px-3 py-2 text-[11.5px] font-semibold",
-        isConnected
-          ? "border-nada-cyan/20 text-nada-cyan"
-          : status === "missing-url"
-            ? "border-nada-warning/20 text-nada-warning"
-            : "border-nada-accent/20 text-nada-accent"
-      )}
-      style={{
-        background: isConnected
-          ? "rgb(var(--nada-cyan) / 0.08)"
-          : "rgb(var(--nada-surface-elevated) / 0.62)"
-      }}
-    >
-      <div
-        className={cn(
-          "h-1.5 w-1.5 rounded-full",
-          isConnected
-            ? "bg-nada-cyan shadow-[0_0_12px_rgb(var(--nada-cyan)/0.7)]"
-            : "bg-nada-accent animate-pulse"
-        )}
-      />
-      {copy}
     </div>
   );
 }
