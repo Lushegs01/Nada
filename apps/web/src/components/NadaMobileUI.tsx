@@ -578,30 +578,26 @@ export const MobileHeader = ({
   onMoreClick: () => void;
   onComposeClick?: () => void;
 }) => {
-  const greeting = activeTab === "chats" ? `Welcome back` : TAB_TITLES[activeTab] ?? "NADA";
-  const subtitle = activeTab === "chats" ? displayName || "Ghost" : null;
+  const title = activeTab === "chats" ? "NADA" : TAB_TITLES[activeTab] ?? "NADA";
 
   return (
     <header
-      className="sticky top-0 z-header flex items-center justify-between gap-3 border-b border-nada-border/[0.04] px-5 pb-5 pt-[max(env(safe-area-inset-top),20px)] pl-safe-area pr-safe-area"
+      className="sticky top-0 z-header flex items-center justify-between gap-3 border-b border-nada-border/[0.04] pb-5 pt-[max(env(safe-area-inset-top),20px)]"
       style={{
         background: "linear-gradient(to bottom, rgba(8,9,11,0.98), rgba(8,9,11,0.78))",
         backdropFilter: "blur(28px) saturate(160%)",
-        WebkitBackdropFilter: "blur(28px) saturate(160%)"
+        WebkitBackdropFilter: "blur(28px) saturate(160%)",
+        paddingLeft: "max(env(safe-area-inset-left), 24px)",
+        paddingRight: "max(env(safe-area-inset-right), 20px)"
       }}
     >
       <div className="flex min-w-0 items-center gap-3.5">
         <div className="md:hidden">
           <NadaLogoMark size={40} />
         </div>
-        <div className="flex min-w-0 flex-col leading-tight">
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-nada-accent/80">
-            {greeting}
-          </span>
-          <span className="mt-1 truncate text-[19px] font-extrabold tracking-tight text-nada-primary">
-            {subtitle ?? TAB_TITLES[activeTab] ?? "Messages"}
-          </span>
-        </div>
+        <span className="truncate text-[22px] font-extrabold tracking-tight text-nada-primary">
+          {title}
+        </span>
       </div>
 
       <motion.button
