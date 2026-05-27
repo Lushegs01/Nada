@@ -265,8 +265,6 @@ export function VoiceNoteBubble({
   }
 
   const displayDuration = isPlaying || currentTime > 0 ? currentTime : duration;
-  const seekMax = Math.max(duration, 1);
-  const seekValue = Math.min(currentTime, seekMax);
 
   if (error && !fallbackMode) {
     return (
