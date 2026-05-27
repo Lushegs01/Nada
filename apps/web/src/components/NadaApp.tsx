@@ -15,11 +15,14 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
   Archive,
+  ArrowDown,
   ArrowLeft,
   BarChart2,
   Bell,
   BellOff,
   Camera,
+  Check,
+  CheckCheck,
   ChevronDown,
   ChevronUp,
   CircleDashed,
@@ -548,24 +551,22 @@ function deliveryStatusRank(status: MessageRecord["status"]): number {
   }
 }
 
-function deliveryStatusDisplay(status: MessageRecord["status"]): {
-  className: string;
-  label: string;
-} {
+type DeliveryGlyph = "clock" | "check" | "double-check" | "double-check-read";
+
+function deliveryStatusGlyph(
+  status: MessageRecord["status"]
+): { glyph: DeliveryGlyph; label: string; tone: "muted" | "read" } {
   switch (status) {
     case "read":
-      return { className: "bg-nada-cyan/12 text-nada-cyan", label: "Read" };
+      return { glyph: "double-check-read", label: "Read", tone: "read" };
     case "delivered":
-      return { className: "bg-nada-accent/12 text-nada-accent", label: "Delivered" };
+      return { glyph: "double-check", label: "Delivered", tone: "muted" };
     case "sent":
-      return { className: "bg-white/8 text-white/65", label: "Sent" };
+      return { glyph: "check", label: "Sent", tone: "muted" };
     case "queued":
     case "local":
-      return { className: "bg-white/8 text-white/55", label: "Queued" };
-    case "failed":
-      return { className: "bg-red-500/12 text-red-200", label: "Failed" };
     default:
-      return { className: "bg-white/8 text-white/55", label: "Pending" };
+      return { glyph: "clock", label: "Pending", tone: "muted" };
   }
 }
 
@@ -5360,6 +5361,7 @@ function ChatPanel({
   const [deleteSheetMessageId, setDeleteSheetMessageId] = useState<string | null>(null);
   const [messageText, setMessageText] = useState("");
   const [activeVoiceNoteId, setActiveVoiceNoteId] = useState<string | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const [voiceAutoplayRequest, setVoiceAutoplayRequest] = useState<{
     messageId: string;
     token: number;
@@ -6811,6 +6813,7 @@ function ChatPanel({
           key={messages[0]?.chatId ?? contact?.pubkeyHash ?? title}
           ref={virtuosoRef}
           alignToBottom
+          atBottomStateChange={setIsAtBottom}
           atBottomThreshold={120}
           className="nada-message-virtuoso"
           computeItemKey={(_index, message) => message.id}
@@ -7036,23 +7039,13 @@ function ChatPanel({
                     {message.editedAt ? <span className="italic">edited ·</span> : null}
                     {isVanishing && <Flame size={10} className="opacity-60" />}
                     <span className="tabular-nums">{formatTime(message.createdAt)}</span>
-                    {message.direction === "outbound" ? (
-                      (() => {
-                        const deliveryMeta = deliveryStatusDisplay(message.status);
-                        const isWaiting =
-                          message.status === "queued" || message.status === "local";
-                        const isFailed = message.status === "failed";
-                        return (
-                          <span
-                            className={cn(
-                              "ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-normal",
-                              deliveryMeta.className
-                            )}
-                          >
-                            {isWaiting ? <Clock size={9} /> : null}
-                            {isFailed ? (
+                    {message.direction === "outbound"
+                      ? (() => {
+                          if (message.status === "failed") {
+                            return (
                               <button
-                                className="rounded-full px-0.5 text-red-100 underline decoration-red-200/40 underline-offset-2"
+                                aria-label="Retry sending message"
+                                className="ml-0.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-red-300 hover:text-red-200"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   onRetryMessage(message);
@@ -7061,13 +7054,45 @@ function ChatPanel({
                               >
                                 Retry
                               </button>
-                            ) : (
-                              deliveryMeta.label
-                            )}
-                          </span>
-                        );
-                      })()
-                    ) : null}
+                            );
+                          }
+                          const glyphMeta = deliveryStatusGlyph(message.status);
+                          const glyphClass = cn(
+                            "ml-0.5 inline-flex shrink-0",
+                            glyphMeta.tone === "read"
+                              ? "text-sky-300"
+                              : "text-current opacity-65"
+                          );
+                          if (glyphMeta.glyph === "clock") {
+                            return (
+                              <Clock
+                                aria-label={glyphMeta.label}
+                                className={glyphClass}
+                                size={12}
+                                strokeWidth={2.4}
+                              />
+                            );
+                          }
+                          if (glyphMeta.glyph === "check") {
+                            return (
+                              <Check
+                                aria-label={glyphMeta.label}
+                                className={glyphClass}
+                                size={13}
+                                strokeWidth={2.6}
+                              />
+                            );
+                          }
+                          return (
+                            <CheckCheck
+                              aria-label={glyphMeta.label}
+                              className={glyphClass}
+                              size={14}
+                              strokeWidth={2.6}
+                            />
+                          );
+                        })()
+                      : null}
                   </div>
 
                 </div>
@@ -7102,6 +7127,30 @@ function ChatPanel({
           );
           }}
         />
+
+        <AnimatePresence>
+          {!isAtBottom && (
+            <motion.button
+              key="nada-scroll-fab"
+              aria-label="Scroll to latest messages"
+              type="button"
+              onClick={() => {
+                virtuosoRef.current?.scrollToIndex({
+                  index: Math.max(0, messages.length - 1),
+                  align: "end",
+                  behavior: "smooth"
+                });
+              }}
+              className="nada-scroll-fab absolute bottom-4 right-4 z-20 grid h-11 w-11 place-items-center rounded-full"
+              initial={{ opacity: 0, scale: 0.85, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.85, y: 8 }}
+              transition={{ type: "spring", stiffness: 420, damping: 32 }}
+            >
+              <ArrowDown size={18} strokeWidth={2.4} className="text-nada-primary" />
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
 
       <AnimatePresence>
