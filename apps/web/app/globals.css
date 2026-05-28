@@ -1204,3 +1204,83 @@ textarea::placeholder {
   .ring-hairline       { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.08); }
   .ring-hairline-strong { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.14); }
 }
+/* ════════════════════════════════════════════════════════════════════════
+   NADA UI port — additions to globals.css
+   APPEND these blocks to apps/web/app/globals.css (after the existing
+   @layer components block). They add classes referenced by the new
+   IconRail / ChatListItem / ChatHeader / Composer components.
+   No existing rules are modified.
+   ════════════════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+  /* ── Active chat-list row — surface tint + accent left rail ────────── */
+  .nada-row-active {
+    background: rgb(var(--nada-surface-3) / 0.72);
+  }
+  .nada-row-active::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    left: 0;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: rgb(var(--nada-accent));
+    box-shadow: 0 0 14px rgb(var(--nada-accent) / 0.55);
+    z-index: 1;
+  }
+
+  /* ── Composer shell ────────────────────────────────────────────────── */
+  .composer-shell {
+    background: rgb(var(--nada-input-bg) / 0.94);
+    border: 1px solid rgb(var(--nada-border) / 0.06);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .composer-shell:focus-within {
+    border-color: rgb(var(--nada-accent) / 0.55);
+    box-shadow: 0 0 0 4px rgb(var(--nada-accent) / 0.10);
+  }
+  /* Hide scrollbar on textarea */
+  .composer-shell textarea::-webkit-scrollbar { width: 0; height: 0; }
+
+  /* ── Send button (active state when text is present) ─────────────── */
+  .composer-send {
+    background: linear-gradient(135deg,
+      rgb(var(--nada-accent)) 0%,
+      rgb(var(--nada-accent-deep)) 100%);
+    color: #051A11;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.25),
+      0 6px 18px rgb(var(--nada-accent) / 0.40),
+      0 1px 2px rgba(0,0,0,0.40);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .composer-send:hover {
+    transform: translateY(-1px) scale(1.02);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.30),
+      0 10px 26px rgb(var(--nada-accent) / 0.50),
+      0 1px 2px rgba(0,0,0,0.40);
+  }
+  .composer-send:active { transform: scale(0.97); }
+  .composer-send:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; transform: none; }
+
+  /* ── Mic button while recording ──────────────────────────────────── */
+  .composer-recording {
+    background: rgb(var(--nada-accent));
+    color: #051A11;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.25),
+      0 0 0 0 rgb(var(--nada-accent) / 0.55),
+      0 0 20px rgb(var(--nada-accent) / 0.55);
+    animation: nada-rec-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes nada-rec-pulse {
+    0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 0 0 0 rgb(var(--nada-accent) / 0.55), 0 0 20px rgb(var(--nada-accent) / 0.55); }
+    50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 0 0 8px rgb(var(--nada-accent) / 0), 0 0 30px rgb(var(--nada-accent) / 0.75); }
+  }
+
+  /* ── Voice-note overlay (see components/VoiceNote.styles.css) ──── */
+
+}

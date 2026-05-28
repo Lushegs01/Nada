@@ -78,11 +78,11 @@ import { useCallStore } from "@/stores/useCallStore";
 import { QRCodeSVG } from "qrcode.react";
 import {
   MobileChatsHome,
-  ChatListItem,
   ArchivedRow,
-  DesktopNavRail,
   EmptyChatListState
 } from "./NadaMobileUI";
+import { IconRail as DesktopNavRail } from "./IconRail";
+import { ChatListItem } from "./ChatListItem2";
 
 import {
   createAnonymousIdentity,
