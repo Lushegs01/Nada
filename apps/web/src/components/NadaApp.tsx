@@ -3147,17 +3147,29 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
     const relayBaseUrl = getRelayHttpBaseUrl();
     if (relayBaseUrl) {
-      void fetch(new URL("/api/v1/statuses", relayBaseUrl), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id,
-          sender: identity.pubkeyHash,
-          timestamp,
-          ciphertext,
-          ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
+      // The relay's status publish endpoint now requires an identity proof
+      // bound to the status id, so anonymous callers can't impersonate a
+      // sender. Sign and forward; suppress the publish on signing failure
+      // rather than sending an unauthenticated request the relay will 401.
+      void useIdentityStore
+        .getState()
+        .signProof("status-publish", id)
+        .then((proof) => {
+          if (!proof) return;
+          return fetch(new URL("/api/v1/statuses", relayBaseUrl), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id,
+              sender: identity.pubkeyHash,
+              timestamp,
+              ciphertext,
+              ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {}),
+              proof
+            })
+          });
         })
-      }).catch(() => {});
+        .catch(() => {});
     }
     
     statusPeerHashes.forEach((recipientHash) => {
@@ -3302,14 +3314,23 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
     const relayBaseUrl = getRelayHttpBaseUrl();
     if (relayBaseUrl) {
-      void fetch(new URL("/api/v1/statuses/delete", relayBaseUrl), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: status.id,
-          sender: identity.pubkeyHash
+      // Sign the delete with the same identity that owns the status.
+      void useIdentityStore
+        .getState()
+        .signProof("status-delete", status.id)
+        .then((proof) => {
+          if (!proof) return;
+          return fetch(new URL("/api/v1/statuses/delete", relayBaseUrl), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: status.id,
+              sender: identity.pubkeyHash,
+              proof
+            })
+          });
         })
-      }).catch(() => {});
+        .catch(() => {});
     }
 
     statusPeerHashes.forEach((recipientHash) => {
@@ -4189,22 +4210,42 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const vapidKey = process.env['NEXT_PUBLIC_VAPID_PUBLIC_KEY'];
     if (!vapidKey) return;
 
+    // The relay now requires a signed identity proof on push/subscribe so an
+    // attacker can't register their own endpoint against another user's
+    // pubkeyHash and harvest that user's push payloads.
+    const submitSubscription = async (
+      sub: PushSubscriptionJSON | PushSubscription,
+      relayUrl: string
+    ): Promise<void> => {
+      const proof = await useIdentityStore
+        .getState()
+        .signProof("push-subscribe", identity.pubkeyHash);
+      if (!proof) return;
+      const body = JSON.stringify({
+        pubkeyHash: identity.pubkeyHash,
+        subscription: typeof (sub as PushSubscription).toJSON === "function"
+          ? (sub as PushSubscription).toJSON()
+          : (sub as PushSubscriptionJSON),
+        proof
+      });
+      await fetch(`${relayUrl}/api/v1/push/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body
+      });
+    };
+
     await navigator.serviceWorker.ready.then(async (registration) => {
       try {
+        const relayUrl =
+          process.env['NEXT_PUBLIC_RELAY_URL']
+            ?.replace("ws://", "http://")
+            .replace("wss://", "https://") || "";
+        if (!relayUrl) return;
+
         const existingSub = await registration.pushManager.getSubscription();
         if (existingSub) {
-          // Send it to the server anyway to ensure pubkeyHash is updated if it changed
-          const relayUrl = process.env['NEXT_PUBLIC_RELAY_URL']?.replace("ws://", "http://").replace("wss://", "https://") || "";
-          if (relayUrl) {
-            await fetch(`${relayUrl}/api/v1/push/subscribe`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                pubkeyHash: identity.pubkeyHash,
-                subscription: existingSub.toJSON()
-              })
-            }).catch(() => {});
-          }
+          await submitSubscription(existingSub, relayUrl).catch(() => {});
           return;
         }
 
@@ -4224,17 +4265,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           applicationServerKey: outputArray
         });
 
-        const relayUrl = process.env['NEXT_PUBLIC_RELAY_URL']?.replace("ws://", "http://").replace("wss://", "https://") || "";
-        if (!relayUrl) return;
-
-        await fetch(`${relayUrl}/api/v1/push/subscribe`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            pubkeyHash: identity.pubkeyHash,
-            subscription: subscription.toJSON()
-          })
-        });
+        await submitSubscription(subscription, relayUrl);
       } catch (err) {
         console.error("Failed to subscribe to push notifications", err);
       }

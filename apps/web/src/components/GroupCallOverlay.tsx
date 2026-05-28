@@ -30,7 +30,14 @@ export function GroupCallOverlay() {
     setError(null);
 
     void (async () => {
-      const proof = await signProof("livekit", room);
+      // Binding must match the server: `${room}:${pubkeyHash}` so a
+      // captured proof can't be replayed under a different identity.
+      const unlocked = useIdentityStore.getState().unlocked;
+      if (!unlocked) {
+        setError("Identity is locked — re-open NADA after creating an identity.");
+        return;
+      }
+      const proof = await signProof("livekit", `${room}:${unlocked.pubkeyHash}`);
       if (controller.signal.aborted) return;
       if (!proof) {
         setError("Identity is locked — re-open NADA after creating an identity.");

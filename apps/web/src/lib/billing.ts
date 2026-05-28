@@ -9,6 +9,7 @@ import {
 } from "@nada/types";
 
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
+import { useIdentityStore } from "@/stores/useIdentityStore";
 
 export async function fetchSubscriptionStatus(
   pubkeyHash: string
@@ -18,9 +19,24 @@ export async function fetchSubscriptionStatus(
     return null;
   }
 
-  const url = new URL("/api/v1/subscription/status", relayBaseUrl);
-  url.searchParams.set("pubkey_hash", pubkeyHash);
-  const response = await fetch(url);
+  // The relay's subscription/status endpoint now requires an identity proof
+  // and is POST-only — anyone with a pubkeyHash used to be able to mint a
+  // capability token for that user via a plain GET.
+  const proof = await useIdentityStore
+    .getState()
+    .signProof("subscription-status", pubkeyHash);
+  if (!proof) {
+    return null;
+  }
+
+  const response = await fetch(
+    new URL("/api/v1/subscription/status", relayBaseUrl),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pubkeyHash, proof })
+    }
+  );
   if (!response.ok) {
     return null;
   }
@@ -48,6 +64,13 @@ export async function startCheckout({
     return null;
   }
 
+  const proof = await useIdentityStore
+    .getState()
+    .signProof("billing-checkout", pubkeyHash);
+  if (!proof) {
+    return null;
+  }
+
   const response = await fetch(
     new URL("/api/v1/subscription/checkout", relayBaseUrl),
     {
@@ -55,6 +78,7 @@ export async function startCheckout({
         cancelUrl,
         plan,
         pubkeyHash,
+        proof,
         ...(referralCode ? { referralCode } : {}),
         successUrl
       }),
@@ -82,8 +106,15 @@ export async function redeemReferral({
     return null;
   }
 
+  const proof = await useIdentityStore
+    .getState()
+    .signProof("referral-redeem", pubkeyHash);
+  if (!proof) {
+    return null;
+  }
+
   const response = await fetch(new URL("/api/v1/referral/redeem", relayBaseUrl), {
-    body: JSON.stringify({ pubkeyHash, referralCode }),
+    body: JSON.stringify({ pubkeyHash, referralCode, proof }),
     headers: {
       "content-type": "application/json"
     },

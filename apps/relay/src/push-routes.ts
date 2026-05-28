@@ -1,22 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import webpush from "web-push";
-import { z } from "zod";
 
-import { PubkeyHashSchema } from "@nada/types";
+import { PushSubscriptionRequestSchema } from "@nada/types";
 
 import type { RelayEnv } from "./env";
+import { verifyIdentityProof } from "./identity-proof";
 import { createPushRepository } from "./push-repository";
-
-const PushSubscriptionRequestSchema = z.object({
-  pubkeyHash: PubkeyHashSchema,
-  subscription: z.object({
-    endpoint: z.string().url(),
-    keys: z.object({
-      p256dh: z.string().min(1),
-      auth: z.string().min(1)
-    })
-  })
-});
 
 export async function registerPushRoutes(
   app: FastifyInstance,
@@ -45,6 +34,21 @@ export async function registerPushRoutes(
       });
     }
 
+    // Require an identity proof: without this, an attacker could subscribe
+    // their own browser endpoint against any user's pubkeyHash and receive
+    // every push notification that user gets (titles, sender hash, chatId).
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "push-subscribe",
+      binding: result.data.pubkeyHash
+    });
+    if (!verification.ok || verification.pubkeyHash !== result.data.pubkeyHash) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+
     await repository.upsertSubscription(
       result.data.pubkeyHash,
       result.data.subscription
@@ -52,26 +56,32 @@ export async function registerPushRoutes(
     return reply.send({ success: true });
   });
 
-  // Attach a helper to the app instance so the websocket routes can trigger pushes
   app.decorate("sendPushNotification", async (
     pubkeyHash: string,
     payload: string
   ) => {
     if (!env.vapidPublicKey || !env.vapidPrivateKey || !env.vapidSubject) {
-      return; // Push not configured
+      return;
     }
 
     const subscriptions = await repository.getSubscriptions(pubkeyHash);
-    for (const sub of subscriptions) {
-      try {
-        await webpush.sendNotification(sub, payload);
-      } catch (err: any) {
-        if (err.statusCode === 404 || err.statusCode === 410) {
-          // Subscription expired or unsubscribed
-          await repository.deleteSubscription(sub.endpoint);
-        } else {
-          app.log.error(err, "Failed to send push notification");
+    // Send in parallel — one slow VAPID endpoint should not block the rest.
+    const results = await Promise.allSettled(
+      subscriptions.map(async (sub) => {
+        try {
+          await webpush.sendNotification(sub, payload);
+        } catch (err: any) {
+          if (err?.statusCode === 404 || err?.statusCode === 410) {
+            await repository.deleteSubscription(sub.endpoint);
+            return;
+          }
+          throw err;
         }
+      })
+    );
+    for (const r of results) {
+      if (r.status === "rejected") {
+        app.log.error(r.reason, "Failed to send push notification");
       }
     }
   });

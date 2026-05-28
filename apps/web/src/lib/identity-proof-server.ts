@@ -10,8 +10,9 @@ import { createPublicKey, verify } from "node:crypto";
 
 const SPKI_ED25519_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 
-const MAX_CHALLENGE_AGE_MS = 60_000;
-const MAX_CHALLENGE_SKEW_MS = 60_000;
+// Mirrors apps/relay/src/identity-proof.ts — keep these constants in lockstep.
+export const MAX_CHALLENGE_AGE_MS = 15_000;
+export const MAX_CHALLENGE_SKEW_MS = 30_000;
 
 export interface IdentityProof {
   pubkey: string;
@@ -54,11 +55,14 @@ export function verifyIdentityProof(
   options: VerifyOptions
 ): VerifyResult {
   const now = Date.now();
-  if (
-    !Number.isFinite(proof.timestamp) ||
-    Math.abs(now - proof.timestamp) > MAX_CHALLENGE_AGE_MS + MAX_CHALLENGE_SKEW_MS
-  ) {
-    return { ok: false, pubkeyHash: "", reason: "stale_or_skewed_timestamp" };
+  if (!Number.isFinite(proof.timestamp)) {
+    return { ok: false, pubkeyHash: "", reason: "invalid_timestamp" };
+  }
+  if (now - proof.timestamp > MAX_CHALLENGE_AGE_MS) {
+    return { ok: false, pubkeyHash: "", reason: "stale_timestamp" };
+  }
+  if (proof.timestamp - now > MAX_CHALLENGE_SKEW_MS) {
+    return { ok: false, pubkeyHash: "", reason: "future_skew" };
   }
 
   let pubkeyBytes: Buffer;

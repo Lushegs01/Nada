@@ -67,13 +67,26 @@ export const MessagePayloadSchema = z.object({
 });
 
 // devPlaintext: dev-only debug field that ships plaintext alongside ciphertext
-// so local development can read messages without full crypto wired up. The
-// relay strips this field on production builds (NODE_ENV === "production"
-// gates emission on the client and validation on the relay below).
-const isProductionRuntime = process.env["NODE_ENV"] === "production";
-const devPlaintextField = isProductionRuntime
-  ? z.undefined()
-  : z.string().max(20000).optional();
+// so local development can read messages without full crypto wired up.
+//
+// The schema is intentionally permissive (a string is always allowed) because
+// the relay process — not the schema — is the only correct gate. The relay
+// strips `devPlaintext` from every envelope before forwarding/queueing unless
+// `ALLOW_DEV_PLAINTEXT=true` is explicitly set on the server. Gating the
+// schema by NODE_ENV captured at module load was unreliable across self-hosted
+// and preview deployments.
+const devPlaintextField = z.string().max(20000).optional();
+
+// Ed25519 identity proof. Mirrors apps/relay/src/identity-proof.ts and
+// apps/web/src/lib/identity-proof-server.ts so request schemas can validate
+// the shape before handing off to the verifier.
+export const IdentityProofSchema = z.object({
+  pubkey: PublicKeySchema,
+  pubkeyHash: PubkeyHashSchema,
+  signature: z.string().min(1).max(512),
+  timestamp: z.number().int().positive()
+});
+export type IdentityProof = z.infer<typeof IdentityProofSchema>;
 
 export const MessageEnvelopeSchema = z.object({
   type: z.literal("message"),
@@ -301,7 +314,8 @@ export const SubscriptionCheckoutRequestSchema = z.object({
   plan: PaidBillingPlanSchema,
   successUrl: z.string().url(),
   cancelUrl: z.string().url(),
-  referralCode: z.string().min(4).max(64).optional()
+  referralCode: z.string().min(4).max(64).optional(),
+  proof: IdentityProofSchema
 });
 
 export const SubscriptionCheckoutResponseSchema = z.object({
@@ -321,8 +335,15 @@ export const SubscriptionStateSchema = z.enum([
   "unpaid"
 ]);
 
+// Deprecated GET-query schema kept for type compatibility. The relay only
+// accepts the POST body form below, which requires an identity proof.
 export const SubscriptionStatusQuerySchema = z.object({
   pubkey_hash: PubkeyHashSchema
+});
+
+export const SubscriptionStatusRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  proof: IdentityProofSchema
 });
 
 export const SubscriptionStatusResponseSchema = z.object({
@@ -355,7 +376,35 @@ export const CapabilityIssueResponseSchema = z.object({
 
 export const ReferralRedeemRequestSchema = z.object({
   pubkeyHash: PubkeyHashSchema,
-  referralCode: z.string().min(4).max(64)
+  referralCode: z.string().min(4).max(64),
+  proof: IdentityProofSchema
+});
+
+export const PushSubscriptionRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  subscription: z.object({
+    endpoint: z.string().url(),
+    keys: z.object({
+      p256dh: z.string().min(1),
+      auth: z.string().min(1)
+    })
+  }),
+  proof: IdentityProofSchema
+});
+
+export const StatusPublishRequestSchema = z.object({
+  ciphertext: z.string().min(1),
+  devPlaintext: devPlaintextField,
+  id: UuidSchema,
+  sender: PubkeyHashSchema,
+  timestamp: z.number().int().positive(),
+  proof: IdentityProofSchema
+});
+
+export const StatusDeleteRequestSchema = z.object({
+  id: UuidSchema,
+  sender: PubkeyHashSchema,
+  proof: IdentityProofSchema
 });
 
 export const ReferralRedeemResponseSchema = z.object({
@@ -427,9 +476,17 @@ export type SubscriptionState = z.infer<typeof SubscriptionStateSchema>;
 export type SubscriptionStatusQuery = z.infer<
   typeof SubscriptionStatusQuerySchema
 >;
+export type SubscriptionStatusRequest = z.infer<
+  typeof SubscriptionStatusRequestSchema
+>;
 export type SubscriptionStatusResponse = z.infer<
   typeof SubscriptionStatusResponseSchema
 >;
+export type PushSubscriptionRequest = z.infer<
+  typeof PushSubscriptionRequestSchema
+>;
+export type StatusPublishRequest = z.infer<typeof StatusPublishRequestSchema>;
+export type StatusDeleteRequest = z.infer<typeof StatusDeleteRequestSchema>;
 export type CapabilityTokenPayload = z.infer<
   typeof CapabilityTokenPayloadSchema
 >;
