@@ -2,155 +2,1349 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --nada-bg: 10 10 14;
-    --nada-surface: 18 18 24;
-    --nada-surface-elevated: 26 26 34;
-    --nada-surface-highest: 34 34 44;
+/* ═══════════════════════════════════════════════════════════
+   NADA Design System v3 — "Ghost"
+   Premium dark, Spotify-grade polish.
+   Original NADA neon-mint accent — NOT Spotify's #1DB954.
+   ═══════════════════════════════════════════════════════════ */
 
-    --nada-primary: 245 245 250;
-    --nada-secondary: 160 160 180;
-    --nada-muted: 110 110 130;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
-    --nada-accent: 129 138 252;
-    --nada-accent-soft: 129 138 252;
-    --nada-accent-deep: 99 102 241;
-    --nada-violet: 139 92 246;
+/* ── Design Tokens ──────────────────────────────────────── */
 
-    --nada-border: 255 255 255;
-    --nada-border-subtle: 255 255 255;
+:root,
+.dark,
+[data-theme="dark"] {
+  /* ── Backgrounds — deep charcoal blacks ── */
+  --nada-bg:               8   9   11;      /* #08090B */
+  --nada-surface:          18  18  21;      /* #121215 */
+  --nada-surface-elevated: 26  27  31;      /* #1A1B1F */
+  --nada-surface-3:        33  35  40;      /* #212328 */
 
-    --nada-sent: 129 138 252;
-    --nada-received: 45 45 58;
-    --nada-danger: 239 68 68;
-    --nada-success: 34 197 94;
-    --nada-warning: 234 179 8;
-    --nada-overlay: 0 0 0;
-    --nada-input-bg: 22 22 30;
+  /* ── Text — clean, soft off-white ── */
+  --nada-primary:          245 247 250;     /* #F5F7FA */
+  --nada-secondary:        168 176 188;     /* #A8B0BC */
+  --nada-text-muted:       125 132 145;     /* #7D8491 */
+  --nada-text-faint:       82  88  100;     /* #525864 */
 
-    --opacity-border: 0.08;
-    --opacity-border-subtle: 0.04;
-  }
+  /* ── UI Chrome ── */
+  --nada-muted:            26  27  31;
+  --nada-border:           255 255 255;
 
-  * {
-    @apply border-nada-border/[0.08];
-  }
+  /* ── Primary Accent — NADA neon mint green ── */
+  --nada-accent:           30  215 130;     /* #1ED782 */
+  --nada-accent-soft:      30  215 130;
+  --nada-accent-deep:      17  167 101;     /* #11A765 */
+  --nada-violet:           132 232 92;      /* #84E85C — lime kicker (legacy var name) */
+  --nada-gold:             245 215 90;      /* #F5D75A */
+  --nada-cyan:             46  223 196;     /* #2EDFC4 */
 
-  body {
-    @apply bg-nada-bg text-nada-primary antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  }
+  /* ── Legacy aliases retained for compatibility ── */
+  --nada-gold-dark:        160 142 60;
+  --nada-gold-glow:        245 215 90;
 
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: rgb(var(--nada-muted) / 0.25);
-    border-radius: 999px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgb(var(--nada-muted) / 0.4);
-  }
+  /* ── Message Bubbles — sent in green gradient ── */
+  --nada-sent:             17  167 101;
+  --nada-received:         26  27  31;
+
+  /* ── Semantic ── */
+  --nada-danger:           255 89  103;
+  --nada-success:          30  215 130;
+  --nada-warning:          245 215 90;
+  --nada-overlay:          5   6   9;
+  --nada-shadow-color:     0   0   0;
+  --nada-input-bg:         20  21  25;
 }
 
+/* ── Base Reset ─────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  min-height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+  font-feature-settings: "cv11", "ss01", "ss03";
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100dvh;
+  background: rgb(var(--nada-bg));
+  color: rgb(var(--nada-primary));
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  line-height: 1.55;
+  letter-spacing: 0;
+  overflow-x: hidden;
+}
+
+/* Subtle ambient ghost-glow — adds depth without noise */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(ellipse 90% 60% at 12% -10%, rgba(30, 215, 130, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 60% at 88% 110%, rgba(132, 232, 92, 0.05) 0%, transparent 60%);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  letter-spacing: -0.012em;
+}
+
+h1 { letter-spacing: -0.018em; }
+h2 { letter-spacing: -0.014em; }
+
+button, input, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgb(var(--nada-secondary) / 0.45);
+}
+
+::selection {
+  background: rgb(var(--nada-accent) / 0.32);
+  color: rgb(var(--nada-primary));
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.2s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
+  background-clip: padding-box;
+}
+
+/* ── Component Layer ────────────────────────────────────── */
+
 @layer components {
-  .surface-base {
-    @apply bg-nada-surface border border-nada-border/[0.06] shadow-xs;
+
+  /* ── App shell ── */
+  .nada-shell {
+    background: rgb(var(--nada-bg));
+    min-height: 100dvh;
+    position: relative;
   }
 
-  .surface-elevated {
-    @apply bg-nada-surface-elevated border border-nada-border/[0.08] shadow-sm;
+  /* ── Glass surfaces ── */
+  .nada-surface {
+    background: rgb(var(--nada-surface) / 0.78);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid rgb(var(--nada-border) / 0.06);
+    border-radius: 18px;
   }
 
-  .surface-highest {
-    @apply bg-nada-surface-highest border border-nada-border/[0.10] shadow-md;
+  .nada-surface-elevated {
+    background: linear-gradient(
+      155deg,
+      rgb(var(--nada-surface-elevated) / 0.96) 0%,
+      rgb(var(--nada-surface) / 0.96) 100%
+    );
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    border: 1px solid rgb(var(--nada-border) / 0.07);
+    border-radius: 18px;
+    box-shadow:
+      inset 0 1px 0 rgb(var(--nada-border) / 0.05),
+      0 1px 2px rgb(0 0 0 / 0.45),
+      0 12px 32px rgb(0 0 0 / 0.40);
   }
 
-  .interactive {
-    @apply transition-all duration-200 ease-spring;
-  }
-  .interactive:hover {
-    @apply bg-nada-surface-elevated border-nada-border/[0.12];
-  }
-  .interactive:active {
-    @apply scale-[0.98] bg-nada-surface-highest;
+  /* ── Sidebar ── */
+  .nada-sidebar {
+    background: linear-gradient(
+      180deg,
+      rgb(var(--nada-surface) / 0.92) 0%,
+      rgb(var(--nada-bg) / 0.96) 100%
+    );
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    border-right: 0;
   }
 
+  /* ── Chat area background ── */
+  .nada-chat-bg {
+    background-color: rgb(var(--nada-bg));
+    background-image:
+      radial-gradient(circle at 18% 32%, rgba(30, 215, 130, 0.06) 0%, transparent 52%),
+      radial-gradient(circle at 82% 78%, rgba(132, 232, 92, 0.04) 0%, transparent 52%),
+      radial-gradient(circle at 50% 110%, rgba(17, 167, 101, 0.05) 0%, transparent 50%);
+  }
+
+  /* ── Aurora background — for hero / onboarding ── */
+  .nada-aurora-bg {
+    background:
+      radial-gradient(ellipse 70% 50% at 25% 25%, rgba(30, 215, 130, 0.16) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 50% at 80% 30%, rgba(132, 232, 92, 0.10) 0%, transparent 55%),
+      radial-gradient(ellipse 80% 60% at 50% 110%, rgba(17, 167, 101, 0.16) 0%, transparent 60%),
+      rgb(var(--nada-bg));
+  }
+
+  /* ── Mesh gradient panel — for premium cards ── */
+  .nada-mesh-card {
+    background:
+      radial-gradient(at 0% 0%, rgba(30, 215, 130, 0.16) 0%, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(132, 232, 92, 0.12) 0%, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(17, 167, 101, 0.14) 0%, transparent 50%),
+      rgb(var(--nada-surface));
+  }
+
+  /* ── Message Bubbles — Telegram/WhatsApp-style muted emerald ── */
+  .nada-bubble-sent {
+    background: linear-gradient(
+      150deg,
+      rgb(45 130 90) 0%,
+      rgb(34 110 75) 100%
+    );
+    color: #F5FBF8;
+    padding: 10px 14px;
+    border-radius: 18px;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    position: relative;
+  }
+
+  .nada-bubble-sent.has-tail {
+    border-bottom-right-radius: 6px;
+  }
+
+  .nada-bubble-received {
+    background: rgb(var(--nada-surface-elevated) / 0.94);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: rgb(var(--nada-primary));
+    padding: 10px 14px;
+    border-radius: 18px;
+    border: 1px solid rgb(var(--nada-border) / 0.06);
+    box-shadow:
+      inset 0 1px 0 rgb(var(--nada-border) / 0.04),
+      0 1px 2px rgba(0, 0, 0, 0.30);
+    position: relative;
+  }
+
+  .nada-bubble-received.has-tail {
+    border-bottom-left-radius: 6px;
+  }
+
+  /* Reply quote inside a sent (emerald) bubble — high contrast */
+  .nada-bubble-sent .nada-reply-quote {
+    background: rgba(0, 0, 0, 0.28);
+    border-left: 3px solid rgba(255, 255, 255, 0.85);
+  }
+  .nada-bubble-sent .nada-reply-quote .nada-reply-sender {
+    color: #FFFFFF;
+  }
+  .nada-bubble-sent .nada-reply-quote .nada-reply-preview {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  /* Reply quote inside a received bubble */
+  .nada-bubble-received .nada-reply-quote {
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 3px solid rgb(var(--nada-accent));
+  }
+  .nada-bubble-received .nada-reply-quote .nada-reply-sender {
+    color: rgb(var(--nada-accent));
+  }
+  .nada-bubble-received .nada-reply-quote .nada-reply-preview {
+    color: rgb(var(--nada-secondary) / 0.85);
+  }
+
+  /* ── Scroll-to-bottom floating action button ── */
+  .nada-scroll-fab {
+    background: rgb(var(--nada-surface-elevated) / 0.92);
+    border: 1px solid rgb(var(--nada-border) / 0.10);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    box-shadow:
+      0 6px 20px rgba(0, 0, 0, 0.45),
+      0 1px 0 rgb(var(--nada-border) / 0.06) inset;
+    transition: transform 0.18s ease, background 0.18s ease;
+  }
+
+  .nada-scroll-fab:hover {
+    background: rgb(var(--nada-surface-3) / 0.95);
+    transform: translateY(-1px);
+  }
+
+  .nada-scroll-fab:active {
+    transform: scale(0.94);
+  }
+
+  /* ── Inputs ── */
+  .nada-input {
+    background: rgb(var(--nada-input-bg) / 0.78);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    border-radius: 14px;
+    outline: none;
+    color: rgb(var(--nada-primary));
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+
+  .nada-input:focus {
+    background: rgb(var(--nada-input-bg) / 0.96);
+    border-color: rgb(var(--nada-accent) / 0.55);
+    box-shadow:
+      0 0 0 4px rgb(var(--nada-accent) / 0.10),
+      0 4px 18px rgb(var(--nada-accent) / 0.16);
+  }
+
+  .nada-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* ── Buttons — premium pill ── */
   .btn-primary {
-    @apply bg-nada-accent text-white font-medium px-4 py-2.5 rounded-lg 
-           transition-all duration-200 ease-spring
-           hover:brightness-110 active:scale-[0.97] active:brightness-95
-           focus:outline-none focus:ring-2 focus:ring-nada-accent/25 focus:ring-offset-2 focus:ring-offset-nada-bg;
+    background: linear-gradient(
+      135deg,
+      rgb(var(--nada-accent)) 0%,
+      rgb(var(--nada-accent-deep)) 100%
+    );
+    color: #051A11;
+    border: 1px solid rgb(var(--nada-accent) / 0.45);
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 12px 24px;
+    cursor: pointer;
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 6px 20px rgba(30, 215, 130, 0.30),
+      0 1px 3px rgba(0, 0, 0, 0.40);
+    letter-spacing: -0.011em;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-1px) scale(1.015);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.26),
+      0 10px 30px rgba(30, 215, 130, 0.46),
+      0 1px 3px rgba(0, 0, 0, 0.40);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0) scale(0.98);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 2px 8px rgba(30, 215, 130, 0.34);
   }
 
   .btn-secondary {
-    @apply bg-nada-surface-elevated text-nada-primary font-medium px-4 py-2.5 rounded-lg 
-           border border-nada-border/[0.08] shadow-xs
-           hover:bg-nada-surface-highest hover:border-nada-border/[0.12]
-           active:scale-[0.97] transition-all duration-200 ease-spring;
+    background: rgb(var(--nada-surface-elevated) / 0.7);
+    backdrop-filter: blur(12px);
+    color: rgb(var(--nada-primary));
+    border: 1px solid rgb(var(--nada-border) / 0.10);
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 12px 22px;
+    cursor: pointer;
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .btn-ghost {
-    @apply text-nada-secondary hover:text-nada-primary hover:bg-nada-surface-elevated 
-           px-3 py-2 rounded-lg transition-colors duration-150;
+  .btn-secondary:hover {
+    background: rgb(var(--nada-surface-3) / 0.92);
+    border-color: rgb(var(--nada-border) / 0.18);
+    transform: translateY(-1px);
   }
 
-  .input-field {
-    @apply bg-nada-input border border-nada-border/[0.08] rounded-lg px-3.5 py-2.5 
-           text-nada-primary placeholder:text-nada-muted/60
-           focus:outline-none focus:border-nada-accent/40 focus:bg-nada-surface-elevated
-           transition-all duration-200;
+  /* ── Accent badge ── */
+  .badge-accent {
+    background: rgb(var(--nada-accent));
+    color: #051A11;
+    font-weight: 800;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    box-shadow: 0 2px 10px rgba(30, 215, 130, 0.40);
+    letter-spacing: -0.01em;
   }
 
-  .card {
-    @apply surface-base rounded-xl p-5;
+  /* ── Card ── */
+  .nada-card {
+    background: linear-gradient(
+      155deg,
+      rgb(var(--nada-surface-elevated) / 0.94) 0%,
+      rgb(var(--nada-surface) / 0.96) 100%
+    );
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid rgb(var(--nada-border) / 0.07);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow:
+      inset 0 1px 0 rgb(var(--nada-border) / 0.05),
+      0 4px 28px rgba(0, 0, 0, 0.40);
   }
 
-  .card-elevated {
-    @apply surface-elevated rounded-xl p-5;
+  /* ── Divider ── */
+  .nada-divider {
+    border-color: rgb(var(--nada-border) / 0.06);
   }
 
-  .bubble-sent {
-    @apply bg-nada-accent text-white rounded-bubble rounded-tr-sm shadow-sm;
+  /* ── Unread badge — green glow ── */
+  .nada-badge {
+    background: linear-gradient(135deg, rgb(var(--nada-accent)) 0%, rgb(var(--nada-violet)) 100%);
+    color: #051A11;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 999px;
+    min-width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    box-shadow:
+      0 0 0 2px rgb(var(--nada-bg)),
+      0 2px 14px rgba(30, 215, 130, 0.55);
+    letter-spacing: -0.3px;
   }
 
-  .bubble-received {
-    @apply bg-nada-surface-elevated text-nada-primary rounded-bubble rounded-tl-sm 
-           border border-nada-border/[0.06] shadow-xs;
+  .nada-avatar-unread::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border: 2px solid rgb(var(--nada-accent) / 0.65);
+    border-radius: 999px;
+    pointer-events: none;
   }
 
-  .divider {
-    @apply h-px bg-nada-border/[0.06] w-full;
+  /* ── Overlay ── */
+  .nada-overlay {
+    background: rgba(5, 6, 9, 0.88);
+    backdrop-filter: blur(28px) saturate(120%);
+    -webkit-backdrop-filter: blur(28px) saturate(120%);
   }
 
-  .divider-vertical {
-    @apply w-px bg-nada-border/[0.06] h-full;
+  /* ── Input bar (chat composer) ── */
+  .nada-input-bar {
+    background: linear-gradient(
+      to top,
+      rgba(8, 9, 11, 0.99) 0%,
+      rgba(8, 9, 11, 0.85) 100%
+    );
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
+    border-top: 1px solid rgb(var(--nada-border) / 0.05);
   }
 
-  .text-balance {
-    text-wrap: balance;
+  /* ── Transitions ── */
+  .transition-smooth {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-nada-accent to-nada-violet;
+  /* ── Focus ── */
+  :focus-visible {
+    outline: 2px solid rgb(var(--nada-accent) / 0.65);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+
+  /* ── Sheet / modal ── */
+  .nada-sheet {
+    background: linear-gradient(
+      155deg,
+      rgb(var(--nada-surface-elevated)) 0%,
+      rgb(var(--nada-surface)) 100%
+    );
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    border-radius: 24px;
+    box-shadow:
+      inset 0 1px 0 rgb(var(--nada-border) / 0.06),
+      0 24px 80px rgb(var(--nada-shadow-color) / 0.7),
+      0 4px 20px rgb(var(--nada-shadow-color) / 0.45);
+  }
+
+  /* ── Online status dots — gently breathing ── */
+  .nada-status-online {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgb(var(--nada-accent));
+    box-shadow:
+      0 0 0 2px rgb(var(--nada-bg)),
+      0 0 12px rgba(30, 215, 130, 0.65);
+    animation: nada-breathe 2.4s ease-in-out infinite;
+  }
+
+  .nada-status-offline {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgb(var(--nada-secondary) / 0.30);
+    box-shadow: 0 0 0 2px rgb(var(--nada-bg));
+  }
+
+  /* ── Skeleton ── */
+  .nada-skeleton {
+    background: linear-gradient(
+      90deg,
+      rgb(var(--nada-surface-elevated) / 0.7) 0%,
+      rgb(var(--nada-surface-elevated) / 0.3) 50%,
+      rgb(var(--nada-surface-elevated) / 0.7) 100%
+    );
+    background-size: 200% 100%;
+    animation: nada-shimmer 1.8s ease-in-out infinite;
+    border-radius: 10px;
+  }
+
+  /* ── Typing dots ── */
+  .nada-typing-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: rgb(var(--nada-accent));
+    animation: nada-typing 1.4s ease-in-out infinite;
+  }
+
+  .nada-typing-dot:nth-child(2) { animation-delay: 0.18s; }
+  .nada-typing-dot:nth-child(3) { animation-delay: 0.36s; }
+
+  /* ── Privacy Blur Shield ── */
+  .nada-blur-shield {
+    position: absolute;
+    inset: 0;
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
+    background: rgb(var(--nada-bg) / 0.65);
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  /* ── Vanish mode banner ── */
+  .nada-vanish-banner {
+    background: linear-gradient(
+      90deg,
+      rgba(139, 92, 246, 0.12) 0%,
+      rgba(168, 85, 247, 0.08) 50%,
+      transparent 100%
+    );
+    border-bottom: 1px solid rgba(139, 92, 246, 0.15);
+    color: rgba(196, 181, 253, 0.9);
+  }
+
+  .nada-vanish-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: rgb(168, 85, 247);
+    box-shadow: 0 0 8px rgba(168, 85, 247, 0.7);
+    animation: nada-pulse-ring 2s ease-out infinite;
+    flex-shrink: 0;
+  }
+
+  /* ── Mood pill ── */
+  .nada-mood-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-family: 'Space Grotesk', monospace;
+    font-weight: 500;
+    background: rgb(var(--nada-surface-elevated) / 0.8);
+    backdrop-filter: blur(8px);
+    color: rgb(var(--nada-secondary));
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+  }
+
+  /* ── Reaction chips ── */
+  .nada-reaction-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    background: rgb(var(--nada-surface-elevated) / 0.88);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    cursor: pointer;
+    transition: all 0.18s ease;
+    user-select: none;
+    line-height: 1.4;
+  }
+
+  .nada-reaction-chip:hover {
+    background: rgb(var(--nada-muted));
+    border-color: rgb(var(--nada-accent) / 0.45);
+    box-shadow: 0 0 18px rgb(var(--nada-accent) / 0.20);
+    transform: scale(1.06);
+  }
+
+  .nada-reaction-chip.nada-reaction-mine {
+    background: rgb(var(--nada-accent) / 0.18);
+    border-color: rgb(var(--nada-accent) / 0.55);
+    color: rgb(var(--nada-accent));
+  }
+
+  /* ── Pinned message banner ── */
+  .nada-pinned-banner {
+    background: linear-gradient(
+      90deg,
+      rgb(var(--nada-accent) / 0.07),
+      transparent
+    );
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.06);
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .nada-pinned-banner:hover {
+    background: rgb(var(--nada-accent) / 0.10);
+  }
+
+  /* ── Ghost badge ── */
+  .nada-ghost-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-family: 'Space Grotesk', monospace;
+    font-weight: 500;
+    background: rgb(var(--nada-surface-elevated) / 0.88);
+    color: rgb(var(--nada-secondary));
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+  }
+
+  .nada-message-context-menu {
+    background:
+      linear-gradient(145deg, rgb(var(--nada-surface-elevated) / 0.86), rgb(var(--nada-surface) / 0.80)),
+      rgb(var(--nada-surface) / 0.92);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    backdrop-filter: blur(26px) saturate(145%);
+    -webkit-backdrop-filter: blur(26px) saturate(145%);
+    box-shadow:
+      0 18px 60px rgb(0 0 0 / 0.55),
+      0 1px 0 rgb(var(--nada-border) / 0.06) inset,
+      0 0 0 1px rgb(var(--nada-accent) / 0.08);
+  }
+
+  .nada-message-context-menu button {
+    user-select: none;
+  }
+
+  /* Quick reply chips */
+  .nada-quick-reply {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    background: rgb(var(--nada-surface-elevated) / 0.88);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    color: rgb(var(--nada-primary));
+    cursor: pointer;
+    transition: all 0.18s ease;
+    white-space: nowrap;
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .nada-quick-reply:hover {
+    background: rgb(var(--nada-accent) / 0.14);
+    border-color: rgb(var(--nada-accent) / 0.55);
+    color: rgb(var(--nada-accent));
+    box-shadow: 0 0 18px rgb(var(--nada-accent) / 0.22);
+    transform: translateY(-1px);
+  }
+
+  .nada-quick-reply:active { transform: scale(0.97); }
+
+  /* ── Premium accent button (legacy alias: nada-btn-gold → now NADA green) ── */
+  .nada-btn-gold {
+    background: linear-gradient(
+      135deg,
+      rgb(var(--nada-accent)) 0%,
+      rgb(22 195 116) 55%,
+      rgb(var(--nada-accent-deep)) 100%
+    );
+    color: #051A11;
+    font-weight: 700;
+    border: 1px solid rgb(var(--nada-accent) / 0.45);
+    border-radius: 999px;
+    transition: all 0.22s ease;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 8px 24px rgba(30, 215, 130, 0.38),
+      0 1px 3px rgba(0, 0, 0, 0.40);
+    letter-spacing: -0.011em;
+  }
+
+  .nada-btn-gold:hover {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.26),
+      0 12px 34px rgba(30, 215, 130, 0.52),
+      0 1px 3px rgba(0, 0, 0, 0.40);
+    transform: translateY(-1px) scale(1.015);
+  }
+
+  .nada-btn-gold:active {
+    transform: scale(0.97);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 2px 8px rgba(30, 215, 130, 0.32);
+  }
+
+  /* ── Dark input ── */
+  .nada-input-dark {
+    background: rgb(var(--nada-input-bg) / 0.92);
+    border: 1px solid rgb(var(--nada-border) / 0.10);
+    border-radius: 14px;
+    outline: none;
+    color: rgb(var(--nada-primary));
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    padding: 12px 16px;
+  }
+
+  .nada-input-dark:focus {
+    background: rgb(var(--nada-input-bg));
+    border-color: rgb(var(--nada-accent) / 0.55);
+    box-shadow: 0 0 0 4px rgb(var(--nada-accent) / 0.10);
+  }
+
+  .nada-input-dark::placeholder {
+    color: rgb(var(--nada-secondary) / 0.45);
+  }
+
+  /* ── No scrollbar ── */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  /* ── Premium hero gradient ── */
+  .nada-hero-gradient {
+    background:
+      radial-gradient(ellipse 100% 70% at 50% -10%, rgba(30, 215, 130, 0.28) 0%, transparent 60%),
+      radial-gradient(ellipse 90% 60% at 80% 20%, rgba(132, 232, 92, 0.16) 0%, transparent 55%),
+      radial-gradient(ellipse 70% 50% at 20% 100%, rgba(17, 167, 101, 0.18) 0%, transparent 55%);
+    pointer-events: none;
+  }
+
+  /* ── Glass pill (date separator) ── */
+  .nada-date-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 14px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgb(var(--nada-secondary) / 0.85);
+    background: rgb(var(--nada-surface-elevated) / 0.78);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.30);
+  }
+
+  /* ── Glassmorphic context menu ── */
+  .nada-context-menu {
+    background: linear-gradient(
+      155deg,
+      rgba(26, 27, 31, 0.86) 0%,
+      rgba(18, 18, 21, 0.90) 100%
+    );
+    backdrop-filter: blur(32px) saturate(160%);
+    -webkit-backdrop-filter: blur(32px) saturate(160%);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    border-radius: 20px;
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.5),
+      0 4px 24px rgba(0, 0, 0, 0.50),
+      0 20px 56px rgba(0, 0, 0, 0.62),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.06);
+    color: rgb(var(--nada-primary));
+  }
+
+  .nada-context-menu-reactions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.06);
+  }
+
+  .nada-context-menu-reaction {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    font-size: 18px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.15s ease;
+  }
+
+  .nada-context-menu-reaction:hover {
+    background: rgba(255, 255, 255, 0.12);
+    transform: scale(1.08);
+  }
+
+  .nada-context-menu-actions {
+    display: flex;
+    flex-direction: column;
+    padding: 6px;
+    gap: 1px;
+  }
+
+  .nada-context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: rgb(var(--nada-primary));
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+    text-align: left;
+  }
+
+  .nada-context-menu-item:hover {
+    background: rgba(30, 215, 130, 0.14);
+    color: rgb(var(--nada-accent));
+  }
+
+  .nada-context-menu-item:active {
+    background: rgba(30, 215, 130, 0.22);
+  }
+
+  .nada-context-menu-item-danger {
+    color: rgb(var(--nada-danger));
+  }
+
+  .nada-context-menu-item-danger:hover {
+    background: rgba(255, 89, 103, 0.14);
+    color: rgb(var(--nada-danger));
+  }
+
+  .nada-context-menu-icon {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    color: inherit;
+    opacity: 0.85;
+  }
+
+  /* ── Glow ring (avatar / status) ── */
+  .nada-glow-ring {
+    box-shadow:
+      0 0 0 2px rgb(var(--nada-bg)),
+      0 0 0 4px rgb(var(--nada-accent) / 0.45),
+      0 0 22px rgb(var(--nada-accent) / 0.30);
+  }
+
+  /* ── Premium accent text gradient — NADA green ── */
+  .nada-accent-text {
+    background: linear-gradient(
+      135deg,
+      rgb(var(--nada-accent)) 0%,
+      rgb(var(--nada-violet)) 50%,
+      rgb(var(--nada-accent)) 100%
+    );
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: nada-gradient-shift 6s ease infinite;
+  }
+
+  /* ── Logo aura — NADA green glow ── */
+  .nada-logo-aura {
+    background: linear-gradient(
+      145deg,
+      rgb(var(--nada-accent)) 0%,
+      rgb(var(--nada-violet)) 50%,
+      rgb(var(--nada-accent-deep)) 100%
+    );
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 0 0 1px rgb(var(--nada-border) / 0.08),
+      0 8px 32px rgba(30, 215, 130, 0.46);
+  }
+
+  /* ── Section / list section ── */
+  .nada-section-label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgb(var(--nada-secondary) / 0.55);
+  }
+
+  .nada-app-frame {
+    background:
+      radial-gradient(circle at 14% 0%, rgb(var(--nada-accent) / 0.10), transparent 34%),
+      radial-gradient(circle at 86% 100%, rgb(var(--nada-gold) / 0.06), transparent 38%),
+      rgb(var(--nada-bg));
+  }
+
+  .nada-desktop-shell {
+    background:
+      linear-gradient(135deg, rgb(var(--nada-surface) / 0.96), rgb(var(--nada-bg) / 0.98)),
+      rgb(var(--nada-bg));
+    border: 1px solid rgb(var(--nada-border) / 0.06);
+    box-shadow:
+      0 28px 80px rgba(0, 0, 0, 0.62),
+      0 0 0 1px rgb(var(--nada-border) / 0.03) inset;
+  }
+
+  .nada-chat-header {
+    min-height: 76px;
+    background: rgb(var(--nada-bg) / 0.82);
+    backdrop-filter: blur(22px) saturate(145%);
+    -webkit-backdrop-filter: blur(22px) saturate(145%);
+    border-bottom: 1px solid rgb(var(--nada-border) / 0.05);
+  }
+
+  .nada-security-pill,
+  .nada-privacy-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border-radius: 999px;
+    border: 1px solid rgb(var(--nada-border) / 0.06);
+    background: rgb(var(--nada-surface-elevated) / 0.62);
+    color: rgb(var(--nada-secondary) / 0.78);
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 6px 10px;
+  }
+
+  .nada-security-pill::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: rgb(var(--nada-accent));
+    box-shadow: 0 0 12px rgb(var(--nada-accent) / 0.65);
+  }
+
+  .nada-message-virtuoso {
+    height: 100%;
+    width: 100%;
+    max-width: 860px;
+    margin-inline: auto;
+    padding-left: clamp(16px, 3.5vw, 28px);
+    padding-right: max(env(safe-area-inset-right), 28px);
+    overflow-x: hidden;
+  }
+
+  /* Hide the message viewport scrollbar (still scrollable) — premium feel */
+  .nada-message-virtuoso > div::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  .nada-message-virtuoso > div {
+    scrollbar-width: none;
+  }
+
+  /* ── Active chat-list item — subtle dark grey + left accent rail ── */
+  .nada-chat-item-active {
+    background: rgb(var(--nada-surface-3) / 0.85);
+  }
+  .nada-chat-item-active::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: rgb(var(--nada-accent));
+    border-radius: 0 3px 3px 0;
+  }
+
+  .nada-message-lane {
+    max-width: 860px;
+    margin-inline: auto;
+  }
+
+  /* Pill-shaped chat composer */
+  .nada-composer-input {
+    background: rgb(var(--nada-input-bg) / 0.82);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border: 1px solid rgb(var(--nada-border) / 0.07);
+    border-radius: 999px;
+    box-shadow: inset 0 1px 0 rgb(var(--nada-border) / 0.04);
+  }
+
+  .nada-composer-input:focus {
+    border-color: rgb(var(--nada-accent) / 0.55);
+    box-shadow:
+      0 0 0 4px rgb(var(--nada-accent) / 0.10),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.06);
+  }
+
+  .nada-empty-state {
+    background:
+      radial-gradient(circle at 50% 35%, rgb(var(--nada-accent) / 0.10), transparent 34%),
+      radial-gradient(circle at 50% 55%, rgb(var(--nada-violet) / 0.06), transparent 28%);
+  }
+
+  .nada-premium-card {
+    background: linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.86), rgb(var(--nada-surface) / 0.72));
+    border: 1px solid rgb(var(--nada-border) / 0.06);
+    border-radius: 22px;
+    box-shadow:
+      inset 0 1px 0 rgb(var(--nada-border) / 0.05),
+      0 14px 42px rgba(0, 0, 0, 0.30);
+  }
+
+  .nada-settings-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 18px 96px;
+  }
+
+  .nada-settings-card {
+    background: rgb(var(--nada-surface-elevated) / 0.62);
+    border: 1px solid rgb(var(--nada-border) / 0.06);
+    border-radius: 18px;
+    padding: 14px;
+    transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+  }
+
+  .nada-settings-card:hover {
+    background: rgb(var(--nada-surface-elevated) / 0.78);
+    border-color: rgb(var(--nada-accent) / 0.18);
+    transform: translateY(-1px);
+  }
+
+  .nada-floating-menu {
+    background:
+      linear-gradient(155deg, rgb(var(--nada-surface-elevated) / 0.94), rgb(var(--nada-surface) / 0.90)),
+      rgb(var(--nada-surface));
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    backdrop-filter: blur(22px) saturate(145%);
+    -webkit-backdrop-filter: blur(22px) saturate(145%);
+    box-shadow:
+      0 20px 60px rgb(0 0 0 / 0.50),
+      inset 0 1px 0 rgb(var(--nada-border) / 0.06);
+  }
+
+  .nada-call-screen {
+    background:
+      radial-gradient(circle at 50% 24%, rgb(var(--nada-accent) / 0.18), transparent 34%),
+      radial-gradient(circle at 50% 40%, rgb(var(--nada-violet) / 0.10), transparent 28%),
+      linear-gradient(180deg, #08090B 0%, #121215 52%, #05060A 100%);
+  }
+
+  .nada-call-dock {
+    background: rgb(var(--nada-surface) / 0.78);
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    border-radius: 999px;
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    box-shadow: 0 22px 70px rgb(0 0 0 / 0.55);
+  }
+
+  .nada-call-avatar-ring {
+    box-shadow:
+      0 0 0 1px rgb(var(--nada-border) / 0.10),
+      0 0 0 10px rgb(var(--nada-accent) / 0.10),
+      0 0 60px rgb(var(--nada-accent) / 0.36),
+      0 0 90px rgb(var(--nada-violet) / 0.18);
+  }
+  /* ── Filter pills (sidebar tab bar) ── */
+  .nada-filter-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    transition: all 0.2s;
+    cursor: pointer;
+    border: 1px solid rgb(var(--nada-border) / 0.08);
+    background: transparent;
+    color: rgb(var(--nada-secondary));
+  }
+  .nada-filter-pill:hover {
+    background: rgb(var(--nada-surface-elevated) / 0.55);
+    color: rgb(var(--nada-primary));
+  }
+  .nada-filter-pill-active {
+    background: rgb(var(--nada-accent));
+    color: #051A11;
+    border-color: transparent;
+    box-shadow: 0 0 14px rgba(30, 215, 130, 0.45);
+  }
+  .nada-filter-pill-active:hover {
+    background: rgb(var(--nada-accent));
+    color: #051A11;
+  }
+
+  /* ── Chat status bar (bottom of chat panel) ── */
+  .nada-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 6px 16px;
+    font-size: 11px;
+    font-weight: 500;
+    color: rgb(var(--nada-text-muted));
+    border-top: 1px solid rgb(var(--nada-border) / 0.06);
+    background: rgb(var(--nada-bg) / 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .nada-status-bar-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgb(var(--nada-surface-elevated) / 0.6);
+    border: 1px solid rgb(var(--nada-border) / 0.06);
+    color: rgb(var(--nada-secondary) / 0.8);
+  }
+
+  /* ── Encrypted file attachment card ── */
+  .nada-encrypted-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 14px;
+    background: rgb(var(--nada-surface-elevated) / 0.85);
+    border: 1px solid rgb(var(--nada-accent) / 0.12);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    min-width: 220px;
+  }
+  .nada-encrypted-card-icon {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgb(var(--nada-accent) / 0.12);
+    color: rgb(var(--nada-accent));
+    flex-shrink: 0;
+  }
+  .nada-encrypted-card-download {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    background: rgb(var(--nada-accent) / 0.15);
+    color: rgb(var(--nada-accent));
+    flex-shrink: 0;
+    transition: all 0.15s;
+    cursor: pointer;
+    border: none;
+  }
+  .nada-encrypted-card-download:hover {
+    background: rgb(var(--nada-accent) / 0.25);
+    transform: scale(1.05);
+  }
+
+  /* ── SECURE badge (next to search bar) ── */
+  .nada-secure-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: rgb(var(--nada-accent) / 0.15);
+    color: rgb(var(--nada-accent));
+    border: 1px solid rgb(var(--nada-accent) / 0.2);
+  }
+
+  /* ── Section header (PINNED / RECENT) ── */
+  .nada-section-header {
+    padding: 8px 20px 4px;
+    font-size: 10.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgb(var(--nada-text-muted) / 0.5);
+  }
+
+  /* ── E2E security badge (chat header) ── */
+  .nada-e2e-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-family: 'Space Grotesk', monospace;
+    background: rgb(var(--nada-accent) / 0.12);
+    color: rgb(var(--nada-accent));
+    border: 1px solid rgb(var(--nada-accent) / 0.25);
+    box-shadow: 0 0 12px rgb(var(--nada-accent) / 0.15);
   }
 }
 
+/* ── Keyframes ──────────────────────────────────────────── */
+
+@keyframes nada-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes nada-typing {
+  0%, 60%, 100% { opacity: 0.30; transform: translateY(0); }
+  30%            { opacity: 1;    transform: translateY(-5px); }
+}
+
+@keyframes nada-fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nada-scale-in {
+  from { opacity: 0; transform: scale(0.93); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes nada-slide-up {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nada-pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.55); }
+  70%  { box-shadow: 0 0 0 12px rgb(var(--nada-accent) / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0); }
+}
+
+@keyframes nada-gold-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--nada-accent) / 0.50); }
+  50%       { box-shadow: 0 0 0 16px rgb(var(--nada-accent) / 0); }
+}
+
+@keyframes nada-waveform {
+  0%, 100% { transform: scaleY(0.35); }
+  50%       { transform: scaleY(1); }
+}
+
+@keyframes nada-wave-head-pulse {
+  0%, 100% { transform: scaleY(1.06); opacity: 1; }
+  50%       { transform: scaleY(1.18); opacity: 0.92; }
+}
+
+.nada-wave-head {
+  animation: nada-wave-head-pulse 0.75s ease-in-out infinite;
+}
+
+@keyframes nada-logo-glow {
+  0%, 100% { box-shadow: 0 0 26px rgba(30, 215, 130, 0.42), 0 0 52px rgba(17, 167, 101, 0.20); }
+  50%       { box-shadow: 0 0 52px rgba(30, 215, 130, 0.66), 0 0 100px rgba(132, 232, 92, 0.32); }
+}
+
+@keyframes nada-float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
+
+@keyframes nada-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%       { background-position: 100% 50%; }
+}
+
+@keyframes nada-aurora-drift {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50%  { transform: translate3d(2%, -1%, 0) rotate(2deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+}
+
+@keyframes nada-breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.12); opacity: 0.85; }
+}
+
+/* ── Utility Layer ──────────────────────────────────────── */
+
 @layer utilities {
-  .animation-delay-100 { animation-delay: 100ms; }
-  .animation-delay-200 { animation-delay: 200ms; }
-  .animation-delay-300 { animation-delay: 300ms; }
+  .animate-fade-in     { animation: nada-fade-in  0.36s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-scale-in    { animation: nada-scale-in 0.26s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-slide-up    { animation: nada-slide-up 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-pulse-ring  { animation: nada-pulse-ring 2.4s ease-out infinite; }
+  .animate-gold-pulse  { animation: nada-gold-pulse 2.6s ease-in-out infinite; }
+  .animate-logo-glow   { animation: nada-logo-glow 3.2s ease-in-out infinite; }
+  .animate-float       { animation: nada-float 5s ease-in-out infinite; }
+  .animate-aurora      { animation: nada-aurora-drift 18s ease-in-out infinite; }
+  .animate-breathe     { animation: nada-breathe 2.4s ease-in-out infinite; }
 
-  .tap-highlight-none {
-    -webkit-tap-highlight-color: transparent;
-  }
+  .text-accent       { color: rgb(var(--nada-accent)); }
+  .bg-accent         { background-color: rgb(var(--nada-accent)); }
+  .bg-accent-soft    { background-color: rgb(var(--nada-accent) / 0.12); }
+  .border-accent     { border-color: rgb(var(--nada-accent)); }
 
-  .gpu-layer {
-    transform: translateZ(0);
-  }
+  .pt-safe-area { padding-top: env(safe-area-inset-top); }
+  .pb-safe-area { padding-bottom: env(safe-area-inset-bottom); }
+  .pl-safe-area { padding-left: env(safe-area-inset-left); }
+  .pr-safe-area { padding-right: env(safe-area-inset-right); }
+
+  .text-balance { text-wrap: balance; }
+  .text-pretty  { text-wrap: pretty; }
+
+  /* Premium hairline borders */
+  .ring-hairline       { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.08); }
+  .ring-hairline-strong { box-shadow: inset 0 0 0 1px rgb(var(--nada-border) / 0.14); }
 }
