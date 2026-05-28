@@ -13,8 +13,12 @@ import { createPublicKey, verify } from "node:crypto";
 // because Node's crypto.createPublicKey accepts SPKI/PEM/JWK, not raw bytes.
 const SPKI_ED25519_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 
-const MAX_CHALLENGE_AGE_MS = 60_000;
-const MAX_CHALLENGE_SKEW_MS = 60_000;
+// Max age of a signed proof before we refuse it (proof was issued too long
+// ago). Tightened from 60s to 15s to shrink the replay window for proofs that
+// don't have a server-issued single-use nonce binding (turn, livekit).
+export const MAX_CHALLENGE_AGE_MS = 15_000;
+// Tolerated forward clock skew if the client's clock is ahead of ours.
+export const MAX_CHALLENGE_SKEW_MS = 30_000;
 
 export interface IdentityProof {
   pubkey: string;
@@ -59,11 +63,16 @@ export function verifyIdentityProof(
   options: VerifyOptions
 ): VerifyResult {
   const now = Date.now();
-  if (
-    !Number.isFinite(proof.timestamp) ||
-    Math.abs(now - proof.timestamp) > MAX_CHALLENGE_AGE_MS + MAX_CHALLENGE_SKEW_MS
-  ) {
-    return { ok: false, pubkeyHash: "", reason: "stale_or_skewed_timestamp" };
+  if (!Number.isFinite(proof.timestamp)) {
+    return { ok: false, pubkeyHash: "", reason: "invalid_timestamp" };
+  }
+  // One-sided checks so an attacker can't replay an old proof for the full
+  // (age + skew) window in either direction.
+  if (now - proof.timestamp > MAX_CHALLENGE_AGE_MS) {
+    return { ok: false, pubkeyHash: "", reason: "stale_timestamp" };
+  }
+  if (proof.timestamp - now > MAX_CHALLENGE_SKEW_MS) {
+    return { ok: false, pubkeyHash: "", reason: "future_skew" };
   }
 
   let pubkeyBytes: Buffer;

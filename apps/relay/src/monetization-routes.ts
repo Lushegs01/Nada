@@ -2,10 +2,11 @@ import type { FastifyInstance } from "fastify";
 import Stripe from "stripe";
 
 import {
+  BillingPlanSchema,
   CapabilityIssueRequestSchema,
   ReferralRedeemRequestSchema,
   SubscriptionCheckoutRequestSchema,
-  SubscriptionStatusQuerySchema,
+  SubscriptionStatusRequestSchema,
   type BillingPlan,
   type PaidBillingPlan,
   type SubscriptionCheckoutResponse,
@@ -18,6 +19,7 @@ import {
   issueCapabilityToken
 } from "./capability";
 import type { RelayEnv } from "./env";
+import { verifyIdentityProof } from "./identity-proof";
 import {
   createMonetizationRepository,
   type MonetizationRepository
@@ -44,6 +46,21 @@ export async function registerMonetizationRoutes(
       return reply.code(400).send({
         code: "invalid_checkout_request",
         message: "Invalid checkout request."
+      });
+    }
+
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "billing-checkout",
+      binding: result.data.pubkeyHash
+    });
+    if (
+      !verification.ok ||
+      verification.pubkeyHash !== result.data.pubkeyHash
+    ) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
       });
     }
 
@@ -76,16 +93,25 @@ export async function registerMonetizationRoutes(
         ? { [STRIPE_METADATA_KEYS.referralCode]: result.data.referralCode }
         : {})
     };
-    const session = await stripe.checkout.sessions.create({
-      cancel_url: result.data.cancelUrl,
-      client_reference_id: result.data.pubkeyHash,
-      customer_creation: "always",
-      line_items: [{ price: priceId, quantity: 1 }],
-      metadata,
-      mode: "subscription",
-      subscription_data: { metadata },
-      success_url: result.data.successUrl
-    });
+    let session;
+    try {
+      session = await stripe.checkout.sessions.create({
+        cancel_url: result.data.cancelUrl,
+        client_reference_id: result.data.pubkeyHash,
+        customer_creation: "always",
+        line_items: [{ price: priceId, quantity: 1 }],
+        metadata,
+        mode: "subscription",
+        subscription_data: { metadata },
+        success_url: result.data.successUrl
+      });
+    } catch (err) {
+      app.log.error({ err }, "Stripe checkout session creation failed");
+      return reply.code(502).send({
+        code: "stripe_checkout_failed",
+        message: "Failed to create Stripe checkout session."
+      });
+    }
 
     const response: SubscriptionCheckoutResponse = {
       configured: true,
@@ -95,16 +121,35 @@ export async function registerMonetizationRoutes(
     return reply.send(response);
   });
 
-  app.get("/api/v1/subscription/status", async (request, reply) => {
-    const result = SubscriptionStatusQuerySchema.safeParse(request.query);
+  // Subscription status mints capability tokens. It MUST be authenticated:
+  // without a proof, anyone who knows or guesses a pubkeyHash gets a signed
+  // capability token impersonating that user and unlocking their paid
+  // features. Switched from GET (?pubkey_hash=…) to POST (proof in body).
+  app.post("/api/v1/subscription/status", async (request, reply) => {
+    const result = SubscriptionStatusRequestSchema.safeParse(request.body);
     if (!result.success) {
       return reply.code(400).send({
-        code: "invalid_subscription_status_query",
-        message: "Invalid subscription status query."
+        code: "invalid_subscription_status_request",
+        message: "Invalid subscription status request."
       });
     }
 
-    const snapshot = await repository.getSubscription(result.data.pubkey_hash);
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "subscription-status",
+      binding: result.data.pubkeyHash
+    });
+    if (
+      !verification.ok ||
+      verification.pubkeyHash !== result.data.pubkeyHash
+    ) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+
+    const snapshot = await repository.getSubscription(result.data.pubkeyHash);
     const capabilityToken = await maybeIssueCapabilityToken(
       env,
       repository,
@@ -173,6 +218,21 @@ export async function registerMonetizationRoutes(
       });
     }
 
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "referral-redeem",
+      binding: result.data.pubkeyHash
+    });
+    if (
+      !verification.ok ||
+      verification.pubkeyHash !== result.data.pubkeyHash
+    ) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+
     const reward = await repository.redeemReferral(
       result.data.pubkeyHash,
       result.data.referralCode
@@ -210,12 +270,31 @@ export async function registerMonetizationRoutes(
       }
 
       const stripe = new Stripe(env.stripeSecretKey);
-      const event = stripe.webhooks.constructEvent(
-        request.body,
-        signature,
-        env.stripeWebhookSecret
-      );
-      await handleStripeEvent(event, repository);
+      // constructEvent throws synchronously on a bad signature; without
+      // this try/catch a single forged webhook becomes an unhandled
+      // rejection that crashes the process and leaks the raw body to logs.
+      let event: Stripe.Event;
+      try {
+        event = stripe.webhooks.constructEvent(
+          request.body,
+          signature,
+          env.stripeWebhookSecret
+        );
+      } catch {
+        return reply.code(400).send({
+          code: "invalid_stripe_signature",
+          message: "Invalid Stripe webhook signature."
+        });
+      }
+      try {
+        await handleStripeEvent(event, repository, app);
+      } catch (err) {
+        app.log.error({ err, eventType: event.type }, "Stripe webhook handler failed");
+        return reply.code(500).send({
+          code: "stripe_webhook_processing_failed",
+          message: "Failed to process Stripe webhook."
+        });
+      }
       return reply.send({ received: true });
     });
   });
@@ -256,24 +335,29 @@ async function maybeIssueCapabilityToken(
 
 async function handleStripeEvent(
   event: Stripe.Event,
-  repository: MonetizationRepository
+  repository: MonetizationRepository,
+  app: FastifyInstance
 ): Promise<void> {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
     const pubkeyHash = session.metadata?.[STRIPE_METADATA_KEYS.pubkeyHash];
-    const plan = session.metadata?.[STRIPE_METADATA_KEYS.plan] as
-      | BillingPlan
-      | undefined;
+    const planParse = BillingPlanSchema.safeParse(
+      session.metadata?.[STRIPE_METADATA_KEYS.plan]
+    );
+    if (!planParse.success) {
+      app.log.warn({ eventId: event.id }, "Stripe webhook missing/invalid plan metadata");
+      return;
+    }
     const customerId =
       typeof session.customer === "string" ? session.customer : session.customer?.id;
     const subscriptionId =
       typeof session.subscription === "string"
         ? session.subscription
         : session.subscription?.id;
-    if (pubkeyHash && plan && customerId && subscriptionId) {
+    if (pubkeyHash && customerId && subscriptionId) {
       await repository.upsertSubscription({
         currentPeriodEnd: null,
-        plan,
+        plan: planParse.data,
         pubkeyHash,
         status: "active",
         stripeCustomerId: customerId,
@@ -289,20 +373,27 @@ async function handleStripeEvent(
   ) {
     const subscription = event.data.object as Stripe.Subscription;
     const pubkeyHash = subscription.metadata[STRIPE_METADATA_KEYS.pubkeyHash];
-    const plan = subscription.metadata[STRIPE_METADATA_KEYS.plan] as
-      | BillingPlan
-      | undefined;
+    const planParse = BillingPlanSchema.safeParse(
+      subscription.metadata[STRIPE_METADATA_KEYS.plan]
+    );
+    if (!planParse.success) {
+      app.log.warn({ eventId: event.id }, "Stripe webhook missing/invalid plan metadata");
+      return;
+    }
+    // subscription.customer can be null for customer.subscription.deleted
+    // events after the underlying customer record has been purged. The
+    // previous code would crash here with "cannot read property 'id' of null".
     const customerId =
       typeof subscription.customer === "string"
         ? subscription.customer
-        : subscription.customer.id;
-    if (pubkeyHash && plan) {
+        : subscription.customer?.id ?? null;
+    if (pubkeyHash && customerId) {
       const currentPeriodEnd = (subscription as any).current_period_end
         ? (subscription as any).current_period_end * 1000
         : null;
       await repository.upsertSubscription({
         currentPeriodEnd,
-        plan,
+        plan: planParse.data,
         pubkeyHash,
         status: normalizeStripeStatus(subscription.status),
         stripeCustomerId: customerId,

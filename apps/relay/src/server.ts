@@ -116,7 +116,8 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
         raw.toString(),
         sessions,
         queue,
-        app as any
+        app as any,
+        env
       );
     });
 
@@ -141,7 +142,8 @@ async function handleSocketMessage(
   raw: string,
   sessions: SessionRegistry,
   queue: RelayQueue,
-  app: any
+  app: any,
+  env: RelayEnv
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -227,11 +229,22 @@ async function handleSocketMessage(
   }
 
   if ("type" in result.data && result.data.type === "message") {
+    // devPlaintext is a dev-only debug field that ships plaintext alongside
+    // ciphertext. The relay unconditionally strips it unless explicitly
+    // opted in via ALLOW_DEV_PLAINTEXT=true on the server. This is the only
+    // correct gate — relying on the schema baked at module-load from
+    // NODE_ENV is unreliable across self-hosted and preview deployments.
+    if (!env.allowDevPlaintext && result.data.devPlaintext !== undefined) {
+      delete (result.data as { devPlaintext?: unknown }).devPlaintext;
+    }
     routeMessage(result.data, sessions, queue, app);
     return;
   }
 
   if ("type" in result.data && result.data.type === "group-message") {
+    if (!env.allowDevPlaintext && result.data.devPlaintext !== undefined) {
+      delete (result.data as { devPlaintext?: unknown }).devPlaintext;
+    }
     routeGroupMessage(result.data, sessions, queue, app);
     return;
   }

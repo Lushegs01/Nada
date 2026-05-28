@@ -31,7 +31,15 @@ let cache: CachedIceServers | null = null;
 let inflight: Promise<RTCIceServer[]> | null = null;
 
 async function fetchTurnCredentials(): Promise<RTCIceServer[]> {
-  const proof = await useIdentityStore.getState().signProof("turn");
+  // Bind to pubkeyHash so a captured proof can't be replayed under another
+  // identity. Matches the server-side check in apps/relay/src/turn-routes.ts.
+  const unlocked = useIdentityStore.getState().unlocked;
+  if (!unlocked) {
+    return [STUN_FALLBACK];
+  }
+  const proof = await useIdentityStore
+    .getState()
+    .signProof("turn", unlocked.pubkeyHash);
   if (!proof) {
     return [STUN_FALLBACK];
   }

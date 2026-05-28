@@ -39,9 +39,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "missing_proof" }, { status: 400 });
   }
 
+  // Bind to both the room and the caller's pubkeyHash so an observed proof
+  // can't be replayed under a different identity. The replay window is
+  // tightened to 15s + 30s skew in identity-proof-server.ts.
   const result = verifyIdentityProof(proof, {
     context: "livekit",
-    binding: room
+    binding: `${room}:${proof.pubkeyHash}`
   });
   if (!result.ok) {
     return NextResponse.json(

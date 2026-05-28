@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 
 import type { RelayEnv } from "./env";
@@ -26,7 +27,13 @@ export async function registerTurnRoutes(
       });
     }
 
-    const result = verifyIdentityProof(body.proof, { context: "turn" });
+    // Bind to pubkeyHash so a captured proof cannot be replayed under a
+    // different identity. The replay window itself is already tightened to
+    // 15s + 30s skew in identity-proof.ts.
+    const result = verifyIdentityProof(body.proof, {
+      context: "turn",
+      binding: body.proof.pubkeyHash
+    });
     if (!result.ok) {
       return reply.code(401).send({
         code: "unauthorized",
@@ -35,23 +42,51 @@ export async function registerTurnRoutes(
       });
     }
 
-    if (!env.turnUsername || !env.turnCredential) {
-      return reply.code(503).send({
-        code: "turn_not_configured",
-        message:
-          "TURN credentials are not configured for this relay (set TURN_USERNAME / TURN_CREDENTIAL)."
-      });
+    const expiresAt = Date.now() + TTL_SECONDS * 1000;
+
+    // Preferred path: per-user time-limited HMAC credential. Requires the
+    // TURN server (coturn, eturnal, Metered, etc.) to be configured with the
+    // same shared secret. This is the standard RFC 8489 ephemeral scheme.
+    if (env.turnSharedSecret) {
+      const unixExpiry = Math.floor(expiresAt / 1000);
+      const username = `${unixExpiry}:${result.pubkeyHash}`;
+      const credential = createHmac("sha1", env.turnSharedSecret)
+        .update(username)
+        .digest("base64");
+      const response: TurnCredentialsResponse = {
+        username,
+        credential,
+        urls: env.turnUrls,
+        ttl: TTL_SECONDS,
+        expiresAt
+      };
+      return reply.send(response);
     }
 
-    const expiresAt = Date.now() + TTL_SECONDS * 1000;
-    const response: TurnCredentialsResponse = {
-      username: env.turnUsername,
-      credential: env.turnCredential,
-      urls: env.turnUrls,
-      ttl: TTL_SECONDS,
-      expiresAt
-    };
-    return reply.send(response);
+    // Fallback: static shared credential from env. Kept so existing
+    // deployments continue to work while they migrate to TURN_SHARED_SECRET.
+    // Logs a warning on each issue because this credential never rotates and
+    // is the same value for every caller.
+    if (env.turnUsername && env.turnCredential) {
+      app.log.warn(
+        { pubkeyHash: result.pubkeyHash },
+        "Issuing static TURN credential — set TURN_SHARED_SECRET to enable per-user ephemeral credentials."
+      );
+      const response: TurnCredentialsResponse = {
+        username: env.turnUsername,
+        credential: env.turnCredential,
+        urls: env.turnUrls,
+        ttl: TTL_SECONDS,
+        expiresAt
+      };
+      return reply.send(response);
+    }
+
+    return reply.code(503).send({
+      code: "turn_not_configured",
+      message:
+        "TURN credentials are not configured for this relay (set TURN_SHARED_SECRET or TURN_USERNAME / TURN_CREDENTIAL)."
+    });
   });
 }
 

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const EnvSchema = z.object({
   ALLOWED_ORIGIN: z.string().min(1),
+  ALLOW_DEV_PLAINTEXT: z.string().optional(),
   CAPABILITY_ISSUER_SECRET: z.string().min(32).optional(),
   CAPABILITY_TOKEN_SECRET: z.string().min(32).optional(),
   DATABASE_URL: z.string().url().optional(),
@@ -18,6 +19,7 @@ const EnvSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
   TURN_USERNAME: z.string().min(1).optional(),
   TURN_CREDENTIAL: z.string().min(1).optional(),
+  TURN_SHARED_SECRET: z.string().min(16).optional(),
   TURN_URLS: z.string().min(1).optional(),
   VAPID_PRIVATE_KEY: z.string().min(1).optional(),
   VAPID_PUBLIC_KEY: z.string().min(1).optional(),
@@ -27,6 +29,7 @@ const EnvSchema = z.object({
 
 export interface RelayEnv {
   allowedOrigin: string;
+  allowDevPlaintext: boolean;
   capabilityIssuerSecret: string | undefined;
   capabilityTokenSecret: string | undefined;
   databaseUrl: string | undefined;
@@ -43,6 +46,7 @@ export interface RelayEnv {
   stripeWebhookSecret: string | undefined;
   turnUsername: string | undefined;
   turnCredential: string | undefined;
+  turnSharedSecret: string | undefined;
   turnUrls: string[];
   vapidPrivateKey: string | undefined;
   vapidPublicKey: string | undefined;
@@ -59,6 +63,7 @@ export function readEnv(): RelayEnv {
   const nodeEnv = result.data.NODE_ENV ?? "development";
   return {
     allowedOrigin: result.data.ALLOWED_ORIGIN,
+    allowDevPlaintext: result.data.ALLOW_DEV_PLAINTEXT === "true",
     capabilityIssuerSecret: result.data.CAPABILITY_ISSUER_SECRET,
     capabilityTokenSecret: result.data.CAPABILITY_TOKEN_SECRET,
     databaseUrl: result.data.DATABASE_URL,
@@ -75,6 +80,7 @@ export function readEnv(): RelayEnv {
     stripeWebhookSecret: result.data.STRIPE_WEBHOOK_SECRET,
     turnUsername: result.data.TURN_USERNAME,
     turnCredential: result.data.TURN_CREDENTIAL,
+    turnSharedSecret: result.data.TURN_SHARED_SECRET,
     turnUrls: result.data.TURN_URLS
       ? result.data.TURN_URLS.split(",")
           .map((u) => u.trim())
