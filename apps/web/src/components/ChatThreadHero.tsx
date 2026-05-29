@@ -27,7 +27,6 @@ import {
   Play,
   Pause,
   Clock,
-  Lock,
   ChevronDown,
   ShieldCheck,
 } from "lucide-react";
@@ -36,7 +35,6 @@ import { IdentityOrb } from "@nada/ui";
 
 /* ── Spring tokens ─────────────────────────────────────────── */
 
-const SPRING_DEFAULT  = { type: "spring", stiffness: 300, damping: 30 } as const;
 const SPRING_GENTLE   = { type: "spring", stiffness: 200, damping: 26 } as const;
 const SPRING_SNAPPY   = { type: "spring", stiffness: 500, damping: 35 } as const;
 
@@ -150,7 +148,7 @@ function TypingBubble() {
 
 function VoiceNoteBubble({ msg }: { msg: VoiceMsg }) {
   const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const progress = 0;
 
   const bars = Array.from({ length: 36 }, (_, i) => {
     const h = 0.2 + Math.abs(Math.sin(i * 0.7 + 1.2)) * 0.8;
