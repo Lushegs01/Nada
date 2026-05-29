@@ -316,7 +316,7 @@ function WhisperBubble({ msg, idx }: { msg: TextMsg; idx: number }) {
           >
             {msg.time}
           </span>
-          {isSent && <StatusIcon status={msg.status} />}
+          {isSent && msg.status && <StatusIcon status={msg.status} />}
         </div>
       </div>
 
