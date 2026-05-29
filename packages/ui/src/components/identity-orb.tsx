@@ -126,7 +126,7 @@ export function GroupOrb({ seeds, size = "md", className }: GroupOrbProps) {
   const subSize: OrbSize = size === "2xl" ? "xl" : size === "xl" ? "lg" : size === "lg" ? "md" : size === "md" ? "sm" : "xs";
 
   if (shown.length === 1) {
-    return <IdentityOrb seed={shown[0]} size={size} className={className} />;
+    return <IdentityOrb seed={shown[0] ?? "anon"} size={size} {...(className ? { className } : {})} />;
   }
 
   return (
