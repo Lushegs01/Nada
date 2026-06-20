@@ -1,0 +1,25 @@
+{
+  "extends": "../../packages/config/tsconfig/nextjs.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@nada/crypto": ["../../packages/crypto/src"],
+      "@nada/db": ["../../packages/db/src"],
+      "@nada/types": ["../../packages/types/src"],
+      "@nada/ui": ["../../packages/ui/src"]
+    },
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@nada/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./tsconfig/base": "./tsconfig/base.json",
+    "./tsconfig/library": "./tsconfig/library.json",
+    "./tsconfig/nextjs": "./tsconfig/nextjs.json",
+    "./tsconfig/node": "./tsconfig/node.json",
+    "./tsconfig/react-library": "./tsconfig/react-library.json"
+  },
+  "scripts": {
+    "build": "node -e \"process.exit(0)\"",
+    "dev": "node -e \"process.exit(0)\"",
+    "lint": "node -e \"process.exit(0)\"",
+    "test": "node -e \"process.exit(0)\"",
+    "typecheck": "node -e \"process.exit(0)\"",
+    "clean": "node -e \"process.exit(0)\""
+  }
+}

@@ -1,0 +1,25 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    command: pnpm --filter web dev
+    environment:
+      NEXT_PUBLIC_RELAY_URL: ${NEXT_PUBLIC_RELAY_URL}
+      PORT: ${WEB_PORT}
+    ports:
+      - "${WEB_PORT}:${WEB_PORT}"
+
+  relay:
+    build:
+      context: .
+      dockerfile: apps/relay/Dockerfile
+    command: pnpm --filter relay dev
+    environment:
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN}
+      PORT: ${RELAY_PORT}
+      REDIS_URL: ${REDIS_URL}
+      RELAY_QUEUE_TTL_SECONDS: ${RELAY_QUEUE_TTL_SECONDS}
+      ZERO_LOG_MODE: ${ZERO_LOG_MODE}
+    ports:
+      - "${RELAY_PORT}:${RELAY_PORT}"
