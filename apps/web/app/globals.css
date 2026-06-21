@@ -14,58 +14,63 @@
 
 /* ─── Design Tokens ────────────────────────────────────────────────────────── */
 :root {
-  /* Core palette */
-  --nada-bg-deep: #0b141a;
-  --nada-bg: #111b21;
-  --nada-bg-elevated: #1f2c34;
-  --nada-surface: #202c33;
-  --nada-surface-hover: #2a3942;
-  --nada-surface-active: #334552;
+  /* Vantage Midnight Theme Palette */
+  --nada-bg-deep: #0A0B12;        /* cool indigo-black page bg */
+  --nada-bg: #0F1019;             /* primary surface (panels, sidebar) */
+  --nada-bg-elevated: #141521;    /* elevated cards, chat item received bg */
+  --nada-surface: #1C1E2E;        /* elevated surfaces, popovers, contexts */
+  --nada-surface-hover: #26293C;  /* active/hover state highlights */
+  --nada-surface-active: #2E334D;
 
-  /* Accent */
-  --nada-accent: #00a884;
-  --nada-accent-hover: #06cf9c;
-  --nada-accent-subtle: rgba(0, 168, 132, 0.12);
-  --nada-accent-muted: rgba(0, 168, 132, 0.06);
-  --nada-success: #25d366;
+  /* Vantage Accent Colors */
+  --nada-accent-solid: #7C6EF8;   /* fallback solid accent */
+  --nada-accent: #7C6EF8;
+  --nada-accent-hover: #9084F9;
+  --nada-accent-subtle: rgba(124, 110, 248, 0.12);
+  --nada-accent-muted: rgba(124, 110, 248, 0.06);
+  --nada-success: #10D98A;        /* online status dot, E2E badge */
+  --nada-danger: #FF5967;         /* destructive actions */
+  --nada-warning: #F5D75A;        /* caution indicators */
 
-  /* Outgoing bubble */
-  --nada-outgoing: #005c4b;
-  --nada-outgoing-hover: #025144;
+  /* Outgoing bubble (Vantage violet-indigo tinted dark) */
+  --nada-outgoing: #1A1830;
+  --nada-outgoing-hover: #232040;
+  --nada-outgoing-border: rgba(124, 110, 248, 0.16);
 
-  /* Incoming bubble */
-  --nada-incoming: #202c33;
-  --nada-incoming-hover: #263843;
+  /* Incoming bubble (Vantage neutral dark) */
+  --nada-incoming: #141521;
+  --nada-incoming-hover: #191B29;
+  --nada-incoming-border: rgba(255, 255, 255, 0.06);
 
   /* Typography */
-  --nada-text-primary: #e9edef;
-  --nada-text-secondary: #8696a0;
-  --nada-text-muted: #667781;
-  --nada-text-inverse: #111b21;
-  --nada-text-link: #53bdeb;
-  --nada-text-danger: #f15c6d;
+  --nada-text-primary: #E4E6F0;   /* primary warm off-white body text */
+  --nada-text-secondary: #8A91AA; /* secondary mid-gray captions */
+  --nada-text-muted: #50566E;     /* muted text, timestamps */
+  --nada-text-inverse: #0A0B12;
+  --nada-text-link: #53BDEB;
+  --nada-text-danger: #FF5967;
 
   /* Borders */
   --nada-border: rgba(255, 255, 255, 0.06);
-  --nada-border-strong: rgba(255, 255, 255, 0.12);
+  --nada-border-strong: rgba(255, 255, 255, 0.10);
 
   /* Interactions */
   --nada-hover: rgba(255, 255, 255, 0.04);
   --nada-active: rgba(255, 255, 255, 0.08);
-  --nada-focus-ring: rgba(0, 168, 132, 0.5);
+  --nada-focus-ring: rgba(124, 110, 248, 0.5);
 
   /* Shadows */
-  --nada-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --nada-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --nada-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.5);
-  --nada-shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
-  --nada-shadow-bubble: 0 1px 1px rgba(0, 0, 0, 0.12);
+  --nada-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --nada-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --nada-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
+  --nada-shadow-xl: 0 24px 80px rgba(0, 0, 0, 0.8);
+  --nada-shadow-bubble: 0 2px 8px rgba(0, 0, 0, 0.25);
 
-  /* Layout */
-  --nada-rail-width: 68px;
-  --nada-sidebar-width: 340px;
+  /* Layout Proportions */
+  --nada-rail-width: 72px;        /* Redesigned 72px rail width */
+  --nada-sidebar-width: 360px;     /* Redesigned 360px sidebar width */
   --nada-header-height: 64px;
-  --nada-composer-min-height: 62px;
+  --nada-composer-min-height: 68px;
 
   /* Timing */
   --nada-transition-fast: 120ms ease-out;
@@ -77,9 +82,16 @@
   --nada-radius-sm: 6px;
   --nada-radius-md: 10px;
   --nada-radius-lg: 14px;
-  --nada-radius-xl: 20px;
+  --nada-radius-xl: 18px;
+  --nada-radius-2xl: 24px;
   --nada-radius-full: 9999px;
-  --nada-radius-bubble: 12px;
+  --nada-radius-bubble-sent: 22px 22px 6px 22px;     /* asymmetrical bubbles */
+  --nada-radius-bubble-received: 22px 22px 22px 6px; /* asymmetrical bubbles */
+  --nada-radius-bubble-chain: 22px;
+
+  /* Iridescent Gradient Stop Values */
+  --nada-accent-gradient: linear-gradient(135deg, #7C3AED 0%, #2563EB 50%, #10D98A 100%);
+  --nada-accent-gradient-subtle: linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(37,99,235,0.10) 50%, rgba(16,217,138,0.10) 100%);
 }
 
 /* ─── Base Reset ───────────────────────────────────────────────────────────── */
@@ -217,8 +229,20 @@ body {
   color: var(--nada-text-secondary);
 }
 .nada-rail-btn.active {
-  background: var(--nada-accent-subtle);
-  color: var(--nada-accent);
+  background: var(--nada-accent-gradient-subtle);
+  color: var(--nada-text-primary);
+}
+.nada-rail-btn.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+  background: var(--nada-accent-gradient);
+  box-shadow: 0 0 8px rgba(124, 110, 248, 0.4);
 }
 .nada-rail-btn:focus-visible {
   box-shadow: 0 0 0 2px var(--nada-focus-ring);
@@ -683,23 +707,42 @@ body {
   align-self: flex-start;
 }
 
-.nada-bubble {
+.nada-bubble-sent {
   position: relative;
-  padding: 7px 10px 6px;
-  border-radius: var(--nada-radius-bubble);
+  padding: 10px 14px 8px;
+  border-radius: var(--nada-radius-bubble-chain);
+  background: var(--nada-outgoing);
+  border: 1px solid var(--nada-outgoing-border);
   box-shadow: var(--nada-shadow-bubble);
   min-width: 80px;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  transition: background var(--nada-transition-fast);
+}
+.nada-bubble-sent.has-tail {
+  border-radius: var(--nada-radius-bubble-sent);
+}
+.nada-bubble-sent:hover {
+  background: var(--nada-outgoing-hover);
 }
 
-.nada-bubble.outgoing {
-  background: var(--nada-outgoing);
-  border-top-right-radius: 4px;
-}
-.nada-bubble.incoming {
+.nada-bubble-received {
+  position: relative;
+  padding: 10px 14px 8px;
+  border-radius: var(--nada-radius-bubble-chain);
   background: var(--nada-incoming);
-  border-top-left-radius: 4px;
+  border: 1px solid var(--nada-incoming-border);
+  box-shadow: var(--nada-shadow-bubble);
+  min-width: 80px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  transition: background var(--nada-transition-fast);
+}
+.nada-bubble-received.has-tail {
+  border-radius: var(--nada-radius-bubble-received);
+}
+.nada-bubble-received:hover {
+  background: var(--nada-incoming-hover);
 }
 
 .nada-bubble-text {
@@ -987,7 +1030,8 @@ body {
   transition: border-color var(--nada-transition-fast);
 }
 .nada-composer-input-wrap:focus-within {
-  border-color: var(--nada-border-strong);
+  border-color: var(--nada-accent-solid);
+  box-shadow: 0 0 0 2px var(--nada-accent-subtle);
 }
 
 .nada-composer-input {
@@ -996,7 +1040,7 @@ body {
   border: none;
   outline: none;
   color: var(--nada-text-primary);
-  font-size: 14px;
+  font-size: 14.5px;
   font-family: inherit;
   line-height: 1.4;
   resize: none;
@@ -1012,26 +1056,28 @@ body {
   width: 42px;
   height: 42px;
   border-radius: var(--nada-radius-full);
-  background: var(--nada-accent);
+  background: var(--nada-accent-gradient);
   border: none;
   display: grid;
   place-items: center;
   cursor: pointer;
-  color: var(--nada-text-inverse);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(124, 110, 248, 0.4);
   transition: all var(--nada-transition-fast);
   flex-shrink: 0;
 }
 .nada-composer-send:hover {
-  background: var(--nada-accent-hover);
-  transform: scale(1.04);
+  transform: scale(1.08);
+  box-shadow: 0 6px 18px rgba(124, 110, 248, 0.5);
 }
 .nada-composer-send:active {
-  transform: scale(0.96);
+  transform: scale(0.94);
 }
 .nada-composer-send:disabled {
   opacity: 0.4;
   cursor: default;
   transform: none;
+  box-shadow: none;
 }
 
 /* Reply bar */

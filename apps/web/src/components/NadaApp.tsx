@@ -5903,7 +5903,7 @@ function ChatPanel({
     <section
       className="relative flex min-h-dvh flex-1 flex-col overflow-hidden"
       style={{
-        background: wallpaperUrl ? `url(${wallpaperUrl}) center/cover no-repeat` : "rgb(var(--nada-bg))"
+        background: wallpaperUrl ? `url(${wallpaperUrl}) center/cover no-repeat` : "var(--nada-bg)"
       }}
     >
       {!wallpaperUrl && (
@@ -5911,7 +5911,7 @@ function ChatPanel({
           className="absolute inset-0 z-0 pointer-events-none"
           style={{
             backgroundImage:
-              "radial-gradient(circle at 18% 32%, rgba(30,215,130,0.07) 0%, transparent 55%), radial-gradient(circle at 82% 78%, rgba(132,232,92,0.05) 0%, transparent 55%), radial-gradient(circle at 50% 110%, rgba(17,167,101,0.06) 0%, transparent 50%)"
+              "radial-gradient(circle at 18% 32%, rgba(124,58,237,0.08) 0%, transparent 55%), radial-gradient(circle at 82% 78%, rgba(37,99,235,0.06) 0%, transparent 55%), radial-gradient(circle at 50% 110%, rgba(16,217,138,0.05) 0%, transparent 50%)"
           }}
         />
       )}

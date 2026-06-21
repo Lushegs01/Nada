@@ -2,7 +2,7 @@
 
 import { memo, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Users, Archive, Trash2, Pin, Check, CheckCheck } from "lucide-react";
+import { Users, Archive, Trash2, Pin, Check, CheckCheck, ShieldCheck } from "lucide-react";
 
 /* ─────────────────────────────────────────────────────────────
    ChatListItem — single row in the sidebar chat list.
@@ -106,6 +106,7 @@ export const ChatListItem = memo(function ChatListItem({
           <div className="nada-chat-row flex items-center justify-between">
             <div className="flex items-center gap-1 min-w-0">
               <span className="nada-chat-name truncate">{name}</span>
+              <ShieldCheck size={11} strokeWidth={2.2} className="text-nada-accent shrink-0" aria-label="Verified key" />
               {isPinned && (
                 <Pin size={12} className="text-nada-accent/70 shrink-0 transform -rotate-45" />
               )}
