@@ -15,7 +15,7 @@ const withPWA = nextPwa({
 // setups without NEXT_PUBLIC_RELAY_URL keep working.
 function deriveConnectSrc() {
   const relay = process.env.NEXT_PUBLIC_RELAY_URL;
-  const baseSelf = "'self'";
+  const baseSelf = "'self' data:";
   const livekitDefaults = "https://*.livekit.cloud wss://*.livekit.cloud";
   if (!relay) {
     if (process.env.NODE_ENV === "production") {
