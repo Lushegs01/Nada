@@ -1,182 +1,253 @@
 "use client";
 
-/* ─────────────────────────────────────────────────────────────
-   Composer — chat input bar with attach / timer / emoji / mic / send.
-   NEW component. Drop into NadaApp.tsx where the message input
-   currently lives.
-
-   Props are intentionally minimal — wire your existing handlers
-   for attach / record / emoji / send into the callbacks.
-   ───────────────────────────────────────────────────────────── */
-
-import { useRef, useState, type KeyboardEvent } from "react";
 import {
-  Ghost,
-  Lock,
-  Mic,
-  Paperclip,
-  Send,
-  Smile,
-  Timer
-} from "lucide-react";
-import { cn } from "@nada/ui";
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ChangeEvent,
+} from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Smile, Plus, Send, Mic, X, Edit3 } from "lucide-react";
 
-export type ComposerProps = {
-  /** Called when the user submits a text message (Enter or send button). */
+/* ─────────────────────────────────────────────── types ── */
+
+interface ComposerProps {
   onSend: (text: string) => void;
-
-  /** Called when the user clicks the mic icon (empty input) — toggle recording. */
-  onStartRecording?: () => void;
-  onStopRecording?: () => void;
-  isRecording?: boolean;
-
-  /** Called when the user clicks paperclip. Wire to your attach picker. */
   onAttach?: () => void;
-  /** Called when the user clicks emoji. */
   onEmoji?: () => void;
-  /** Called when the user clicks the burn-timer button. */
-  onVanishTimer?: () => void;
-
-  /** Optional placeholder override. */
-  placeholder?: string;
-  /** Disable the input (e.g. read-only chat). */
+  onVoiceRecord?: () => void;
+  onTyping?: () => void;
+  replyTo?: { name: string; text: string } | null;
+  onCancelReply?: () => void;
+  editingText?: string | null;
+  onCancelEdit?: () => void;
   disabled?: boolean;
+  placeholder?: string;
+}
+
+/* ─────────────────────────────────── animation variants ── */
+
+const barVariants = {
+  initial: { opacity: 0, height: 0, marginBottom: 0 },
+  animate: { opacity: 1, height: "auto", marginBottom: 0 },
+  exit: { opacity: 0, height: 0, marginBottom: 0 },
 };
 
-export const Composer = ({
+const iconVariants = {
+  initial: { scale: 0, opacity: 0 },
+  animate: { scale: 1, opacity: 1 },
+  exit: { scale: 0, opacity: 0 },
+};
+
+/* ─────────────────────────────────────────── component ── */
+
+export function Composer({
   onSend,
-  onStartRecording,
-  onStopRecording,
-  isRecording = false,
   onAttach,
   onEmoji,
-  onVanishTimer,
-  placeholder = "Send a ghost message…",
-  disabled = false
-}: ComposerProps) => {
+  onVoiceRecord,
+  onTyping,
+  replyTo,
+  onCancelReply,
+  editingText,
+  onCancelEdit,
+  disabled = false,
+  placeholder = "Type a message",
+}: ComposerProps) {
   const [text, setText] = useState("");
-  const ref = useRef<HTMLTextAreaElement>(null);
-  const canSend = text.trim().length > 0 && !disabled;
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const hasText = text.trim().length > 0;
 
-  const submit = () => {
-    if (!canSend) return;
-    onSend(text.trim());
-    setText("");
-    // Reset autosize
-    if (ref.current) ref.current.style.height = "";
-    ref.current?.focus();
-  };
-
-  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      submit();
-    }
-  };
-
-  const autoSize = (el: HTMLTextAreaElement) => {
+  /* ── Auto-size textarea ── */
+  const autoSize = useCallback((el: HTMLTextAreaElement) => {
     el.style.height = "";
-    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
-  };
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, []);
+
+  /* ── Pre-fill textarea when editing ── */
+  useEffect(() => {
+    if (editingText != null) {
+      setText(editingText);
+      // Focus and move cursor to end
+      requestAnimationFrame(() => {
+        const ta = textareaRef.current;
+        if (ta) {
+          ta.focus();
+          ta.selectionStart = ta.selectionEnd = ta.value.length;
+          autoSize(ta);
+        }
+      });
+    }
+  }, [editingText, autoSize]);
+
+  /* ── Submit ── */
+  const submit = useCallback(() => {
+    const trimmed = text.trim();
+    if (!trimmed || disabled) return;
+    onSend(trimmed);
+    setText("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "";
+    }
+    textareaRef.current?.focus();
+  }, [text, disabled, onSend]);
+
+  /* ── Key handler ── */
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        submit();
+      }
+    },
+    [submit]
+  );
+
+  /* ── Input handler ── */
+  const handleChange = useCallback(
+    (e: ChangeEvent<HTMLTextAreaElement>) => {
+      setText(e.target.value);
+      autoSize(e.currentTarget);
+      onTyping?.();
+    },
+    [autoSize, onTyping]
+  );
+
+  /* ── Whether to show the contextual bar ── */
+  const showReplyBar = replyTo != null && editingText == null;
+  const showEditBar = editingText != null;
 
   return (
-    <div
-      className="px-6 pb-5 pt-3 shrink-0"
-      style={{
-        background:
-          "linear-gradient(to top, rgb(var(--nada-bg) / 0.98) 0%, rgb(var(--nada-bg) / 0.85) 100%)",
-        backdropFilter: "blur(22px)",
-        WebkitBackdropFilter: "blur(22px)",
-        borderTop: "1px solid rgb(var(--nada-border) / 0.05)"
-      }}
-    >
-      <div className="composer-shell flex items-end gap-1 rounded-[18px] px-2 py-2">
-        <IconBtn Icon={Paperclip} label="Attach"           onClick={onAttach} />
-
-        <textarea
-          ref={ref}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            autoSize(e.currentTarget);
-          }}
-          onKeyDown={onKey}
-          rows={1}
-          placeholder={placeholder}
-          disabled={disabled}
-          className="flex-1 resize-none bg-transparent px-1 py-2 text-[14px] outline-none placeholder:text-nada-secondary/45"
-          style={{
-            color: "rgb(var(--nada-primary))",
-            lineHeight: 1.45,
-            maxHeight: 128,
-            scrollbarWidth: "none"
-          }}
-        />
-
-        <IconBtn Icon={Timer} label="Vanish timer" onClick={onVanishTimer} />
-        <IconBtn Icon={Smile} label="Emoji"        onClick={onEmoji} />
-
-        {canSend ? (
-          <button
-            type="button"
-            onClick={submit}
-            aria-label="Send"
-            className="composer-send grid h-9 w-9 shrink-0 place-items-center rounded-full"
+    <div>
+      {/* ── Reply / Edit bar ── */}
+      <AnimatePresence>
+        {showReplyBar && (
+          <motion.div
+            key="reply-bar"
+            className="nada-reply-bar"
+            variants={barVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={{ duration: 0.2, ease: "easeOut" }}
           >
-            <Send size={15} />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => (isRecording ? onStopRecording?.() : onStartRecording?.())}
-            aria-label={isRecording ? "Stop recording" : "Record voice note"}
-            className={cn(
-              "grid h-9 w-9 shrink-0 place-items-center rounded-full transition-colors",
-              isRecording
-                ? "composer-recording"
-                : "text-nada-secondary/85 hover:bg-white/[0.06] hover:text-nada-primary"
-            )}
-          >
-            <Mic size={16} />
-          </button>
+            <div className="nada-reply-bar-content">
+              <div className="nada-reply-bar-name">{replyTo!.name}</div>
+              <div className="nada-reply-bar-text">{replyTo!.text}</div>
+            </div>
+            <button
+              type="button"
+              className="nada-icon-btn"
+              aria-label="Cancel reply"
+              onClick={onCancelReply}
+            >
+              <X size={16} />
+            </button>
+          </motion.div>
         )}
-      </div>
 
-      {/* Hint row */}
-      <div className="mt-2 flex items-center justify-between px-1 text-[10.5px] font-mono text-nada-secondary/55">
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1.5">
-            <Lock size={10} /> end-to-end
-          </span>
-          <span className="opacity-60">·</span>
-          <span className="flex items-center gap-1.5">
-            <Ghost size={11} /> vanish 5m
-          </span>
-          <span className="opacity-60">·</span>
-          <span>0 metadata stored</span>
+        {showEditBar && (
+          <motion.div
+            key="edit-bar"
+            className="nada-reply-bar"
+            variants={barVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            <Edit3 size={14} style={{ flexShrink: 0, opacity: 0.7 }} />
+            <div className="nada-reply-bar-content">
+              <div className="nada-reply-bar-name">Editing</div>
+              <div className="nada-reply-bar-text">{editingText}</div>
+            </div>
+            <button
+              type="button"
+              className="nada-icon-btn"
+              aria-label="Cancel edit"
+              onClick={onCancelEdit}
+            >
+              <X size={16} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Composer row ── */}
+      <div className="nada-composer">
+        {/* Left buttons */}
+        <div className="nada-composer-left">
+          <button
+            type="button"
+            className="nada-icon-btn"
+            aria-label="Emoji"
+            onClick={onEmoji}
+          >
+            <Smile size={20} strokeWidth={1.7} />
+          </button>
+          <button
+            type="button"
+            className="nada-icon-btn"
+            aria-label="Attach file"
+            onClick={onAttach}
+          >
+            <Plus size={22} strokeWidth={1.7} />
+          </button>
         </div>
-        <div>shift + ↵ for newline</div>
+
+        {/* Input */}
+        <div className="nada-composer-input-wrap">
+          <textarea
+            ref={textareaRef}
+            className="nada-composer-input"
+            value={text}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            rows={1}
+            placeholder={placeholder}
+            disabled={disabled}
+            aria-label="Message input"
+          />
+        </div>
+
+        {/* Send / Mic toggle */}
+        <AnimatePresence mode="wait" initial={false}>
+          {hasText ? (
+            <motion.button
+              key="send"
+              type="button"
+              className="nada-composer-send"
+              aria-label="Send message"
+              onClick={submit}
+              disabled={disabled}
+              variants={iconVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.15, ease: "easeOut" }}
+            >
+              <Send size={18} />
+            </motion.button>
+          ) : (
+            <motion.button
+              key="mic"
+              type="button"
+              className="nada-icon-btn"
+              aria-label="Voice message"
+              onClick={onVoiceRecord}
+              variants={iconVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.15, ease: "easeOut" }}
+            >
+              <Mic size={20} strokeWidth={1.7} />
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
-};
-
-const IconBtn = ({
-  Icon,
-  label,
-  onClick
-}: {
-  Icon: typeof Send;
-  label: string;
-  onClick?: (() => void) | undefined;
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    aria-label={label}
-    title={label}
-    className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-nada-secondary/85 transition-colors hover:bg-white/[0.06] hover:text-nada-primary"
-  >
-    <Icon size={17} strokeWidth={1.85} />
-  </button>
-);
+}

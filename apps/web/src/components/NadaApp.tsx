@@ -4289,7 +4289,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             setShowGhostModal(false);
             setShowMoodModal(false);
           }}
-          unreadCount={totalUnreadCount}
+          totalUnreadCount={totalUnreadCount}
+          onNewChat={() => setPanel("contacts")}
+          onSettings={() => setPanel("settings")}
         />
         <aside
           className={cn(

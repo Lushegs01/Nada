@@ -1,198 +1,240 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { cn } from "@nada/ui";
+import { useEffect, useRef, useCallback, useState } from "react";
+import { Reply, Copy, Share2, Pin, Edit3, Trash2 } from "lucide-react";
 
-export interface ContextMenuAction {
-  id: string;
-  label: string;
-  icon: ReactNode;
-  onSelect: () => void;
-  destructive?: boolean;
-  disabled?: boolean;
-}
-
-export interface MessageContextMenuProps {
-  open: boolean;
-  // Anchor point in viewport coordinates (e.g. cursor position or touch point).
-  position: { x: number; y: number } | null;
-  // Direction of the bubble — used to bias menu placement to the bubble side.
-  origin?: "left" | "right" | undefined;
-  reactions?: string[];
-  onPickReaction?: (emoji: string) => void;
-  actions: ContextMenuAction[];
+interface MessageContextMenuProps {
+  x: number;
+  y: number;
+  isOwn: boolean;
+  onReply: () => void;
+  onCopy: () => void;
+  onForward: () => void;
+  onPin: () => void;
+  onDelete: () => void;
+  onEdit?: () => void;
+  onReact?: (emoji: string) => void;
   onClose: () => void;
 }
 
-const MENU_WIDTH = 232;
-const MENU_MARGIN = 12;
-const REACTIONS_DEFAULT = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+
+const MENU_WIDTH = 200;
+const MENU_ESTIMATED_HEIGHT = 320;
+const VIEWPORT_PADDING = 8;
 
 export function MessageContextMenu({
-  open,
-  position,
-  origin = "left",
-  reactions = REACTIONS_DEFAULT,
-  onPickReaction,
-  actions,
-  onClose
-}: MessageContextMenuProps): JSX.Element | null {
-  const [mounted, setMounted] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const [resolved, setResolved] = useState<{ left: number; top: number } | null>(null);
+  x,
+  y,
+  isOwn,
+  onReply,
+  onCopy,
+  onForward,
+  onPin,
+  onDelete,
+  onEdit,
+  onReact,
+  onClose,
+}: MessageContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [adjustedPos, setAdjustedPos] = useState({ x, y });
 
+  // Adjust position to prevent viewport overflow
   useEffect(() => {
-    setMounted(true);
-  }, []);
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
 
-  // Close on Escape.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
-        e.preventDefault();
+    let adjustedX = x;
+    let adjustedY = y;
+
+    if (x + MENU_WIDTH + VIEWPORT_PADDING > vw) {
+      adjustedX = vw - MENU_WIDTH - VIEWPORT_PADDING;
+    }
+    if (adjustedX < VIEWPORT_PADDING) {
+      adjustedX = VIEWPORT_PADDING;
+    }
+
+    if (y + MENU_ESTIMATED_HEIGHT + VIEWPORT_PADDING > vh) {
+      adjustedY = vh - MENU_ESTIMATED_HEIGHT - VIEWPORT_PADDING;
+    }
+    if (adjustedY < VIEWPORT_PADDING) {
+      adjustedY = VIEWPORT_PADDING;
+    }
+
+    setAdjustedPos({ x: adjustedX, y: adjustedY });
+  }, [x, y]);
+
+  // Click outside and Escape key handlers
+  const handleClickOutside = useCallback(
+    (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
+    },
+    [onClose]
+  );
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    },
+    [onClose]
+  );
+
+  useEffect(() => {
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [handleClickOutside, handleKeyDown]);
 
-  // Compute clamped placement once we know the rendered menu size.
-  useLayoutEffect(() => {
-    if (!open || !position) {
-      setResolved(null);
-      return;
-    }
-    const el = menuRef.current;
-    const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
-    const vh = typeof window !== "undefined" ? window.innerHeight : 768;
-    const width = el?.offsetWidth ?? MENU_WIDTH;
-    const height = el?.offsetHeight ?? 280;
+  const handleReaction = (emoji: string) => {
+    onReact?.(emoji);
+    onClose();
+  };
 
-    let left = origin === "right" ? position.x - width : position.x;
-    let top = position.y;
+  const handleItemClick = (action: () => void) => {
+    action();
+    onClose();
+  };
 
-    // Clamp horizontally.
-    if (left + width + MENU_MARGIN > vw) left = vw - width - MENU_MARGIN;
-    if (left < MENU_MARGIN) left = MENU_MARGIN;
-
-    // If it would overflow the bottom, flip above the anchor.
-    if (top + height + MENU_MARGIN > vh) {
-      top = position.y - height;
-    }
-    if (top < MENU_MARGIN) top = MENU_MARGIN;
-
-    setResolved({ left, top });
-  }, [open, position, origin, actions.length, reactions.length]);
-
-  const transformOrigin = useMemo(() => {
-    if (!position || !resolved) return "top left";
-    const fromLeft = position.x - resolved.left;
-    const fromTop = position.y - resolved.top;
-    return `${Math.max(0, Math.min(MENU_WIDTH, fromLeft))}px ${Math.max(0, fromTop)}px`;
-  }, [position, resolved]);
-
-  if (!mounted) return null;
-
-  return createPortal(
-    <AnimatePresence>
-      {open && position ? (
-        <motion.div
-          key="ctx-backdrop"
-          className="fixed inset-0 z-[800]"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-          onClick={onClose}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            onClose();
-          }}
-          style={{ background: "rgba(6, 8, 18, 0.42)", backdropFilter: "blur(2px)" }}
-        >
-          <motion.div
-            key="ctx-menu"
-            ref={menuRef}
-            role="menu"
-            aria-label="Message actions"
-            className={cn(
-              "nada-context-menu absolute flex flex-col overflow-hidden",
-              resolved == null && "opacity-0 pointer-events-none"
-            )}
+  return (
+    <div
+      ref={menuRef}
+      className="nada-context-menu nada-scale-in"
+      role="menu"
+      aria-label="Message actions"
+      style={{
+        position: "fixed",
+        top: adjustedPos.y,
+        left: adjustedPos.x,
+        zIndex: 9999,
+      }}
+    >
+      {/* Quick reaction bar */}
+      {onReact && (
+        <>
+          <div
             style={{
-              width: MENU_WIDTH,
-              left: resolved?.left ?? position.x,
-              top: resolved?.top ?? position.y,
-              transformOrigin
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              padding: "8px 8px 6px",
             }}
-            initial={{ opacity: 0, scale: 0.86, y: -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.92, y: -2 }}
-            transition={{ type: "spring", stiffness: 480, damping: 32, mass: 0.6 }}
-            onClick={(e) => e.stopPropagation()}
           >
-            {onPickReaction ? (
-              <div className="nada-context-menu-reactions">
-                {reactions.map((emoji, i) => (
-                  <motion.button
-                    key={emoji}
-                    type="button"
-                    role="menuitem"
-                    aria-label={`React with ${emoji}`}
-                    className="nada-context-menu-reaction"
-                    initial={{ opacity: 0, scale: 0.4, y: 6 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    transition={{
-                      delay: 0.04 + i * 0.025,
-                      type: "spring",
-                      stiffness: 520,
-                      damping: 24
-                    }}
-                    whileHover={{ scale: 1.22, y: -2 }}
-                    whileTap={{ scale: 0.92 }}
-                    onClick={() => {
-                      onPickReaction(emoji);
-                      onClose();
-                    }}
-                  >
-                    <span aria-hidden>{emoji}</span>
-                  </motion.button>
-                ))}
-              </div>
-            ) : null}
-            <div className="nada-context-menu-actions">
-              {actions.map((action) => (
-                <button
-                  key={action.id}
-                  type="button"
-                  role="menuitem"
-                  disabled={action.disabled}
-                  className={cn(
-                    "nada-context-menu-item",
-                    action.destructive && "nada-context-menu-item-danger",
-                    action.disabled && "opacity-40 cursor-not-allowed"
-                  )}
-                  onClick={() => {
-                    if (action.disabled) return;
-                    action.onSelect();
-                    onClose();
-                  }}
-                >
-                  <span className="nada-context-menu-icon" aria-hidden>
-                    {action.icon}
-                  </span>
-                  <span className="flex-1 text-left">{action.label}</span>
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>,
-    document.body
+            {QUICK_REACTIONS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                role="menuitem"
+                aria-label={`React with ${emoji}`}
+                onClick={() => handleReaction(emoji)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "50%",
+                  border: "none",
+                  background: "transparent",
+                  fontSize: 18,
+                  cursor: "pointer",
+                  transition: "transform 150ms ease, background 150ms ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "scale(1.25)";
+                  e.currentTarget.style.background =
+                    "rgba(255, 255, 255, 0.08)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+          <div className="nada-dropdown-separator" role="separator" />
+        </>
+      )}
+
+      {/* Menu items */}
+      <div style={{ padding: "4px 0" }}>
+        <button
+          type="button"
+          role="menuitem"
+          className="nada-dropdown-item"
+          onClick={() => handleItemClick(onReply)}
+        >
+          <Reply size={16} />
+          <span>Reply</span>
+        </button>
+
+        <button
+          type="button"
+          role="menuitem"
+          className="nada-dropdown-item"
+          onClick={() => handleItemClick(onCopy)}
+        >
+          <Copy size={16} />
+          <span>Copy</span>
+        </button>
+
+        <button
+          type="button"
+          role="menuitem"
+          className="nada-dropdown-item"
+          onClick={() => handleItemClick(onForward)}
+        >
+          <Share2 size={16} />
+          <span>Forward</span>
+        </button>
+
+        <button
+          type="button"
+          role="menuitem"
+          className="nada-dropdown-item"
+          onClick={() => handleItemClick(onPin)}
+        >
+          <Pin size={16} />
+          <span>Pin</span>
+        </button>
+
+        {isOwn && onEdit && (
+          <button
+            type="button"
+            role="menuitem"
+            className="nada-dropdown-item"
+            onClick={() => handleItemClick(onEdit)}
+          >
+            <Edit3 size={16} />
+            <span>Edit</span>
+          </button>
+        )}
+
+        {isOwn && (
+          <>
+            <div className="nada-dropdown-separator" role="separator" />
+            <button
+              type="button"
+              role="menuitem"
+              className="nada-dropdown-item"
+              style={{ color: "var(--color-danger, #ef4444)" }}
+              onClick={() => handleItemClick(onDelete)}
+            >
+              <Trash2 size={16} />
+              <span>Delete</span>
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
