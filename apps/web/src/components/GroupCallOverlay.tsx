@@ -76,14 +76,14 @@ export function GroupCallOverlay() {
 
   if (!serverUrl || error) {
     return (
-      <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-black p-6 text-center text-white">
-        <h2 className="text-2xl font-bold text-red-400 mb-4">Group Calling Unavailable</h2>
-        <p className="text-white/70 max-w-md leading-relaxed">
+      <div className="nada-call-screen fixed inset-0 z-[1000] flex flex-col items-center justify-center p-6 text-center text-white">
+        <h2 className="mb-4 text-2xl font-bold tracking-[-0.02em] text-n-danger">Group Calling Unavailable</h2>
+        <p className="max-w-md leading-relaxed text-white/70">
           {error
             ? error
             : "Add NEXT_PUBLIC_LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET to your environment to enable encrypted group calls."}
         </p>
-        <button onClick={endCall} className="mt-8 rounded-full bg-white/10 px-8 py-3 font-semibold hover:bg-white/20 transition-colors">
+        <button onClick={endCall} className="nada-btn nada-btn-ghost mt-8 px-8">
           Dismiss
         </button>
       </div>
@@ -92,17 +92,17 @@ export function GroupCallOverlay() {
 
   if (!token) {
     return (
-      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black">
-        <div className="animate-pulse text-white/50 font-medium">Connecting to secure group mesh...</div>
+      <div className="nada-call-screen fixed inset-0 z-[1000] flex items-center justify-center">
+        <div className="animate-pulse font-mono text-[12px] uppercase tracking-[0.14em] text-n-tx2">Connecting to secure group mesh…</div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-[1000] bg-black">
-      <button 
+    <div className="fixed inset-0 z-[1000] bg-n-base">
+      <button
         onClick={endCall}
-        className="absolute left-6 top-6 z-[1010] p-3 rounded-full bg-black/40 backdrop-blur-md hover:bg-black/60 text-white transition-colors"
+        className="absolute left-[max(1.5rem,env(safe-area-inset-left))] top-[max(1.5rem,env(safe-area-inset-top))] z-[1010] grid h-11 w-11 place-items-center rounded-full bg-black/40 text-white backdrop-blur-md transition-colors hover:bg-black/60"
       >
         <X size={24} />
       </button>

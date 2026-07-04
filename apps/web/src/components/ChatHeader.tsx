@@ -3,6 +3,7 @@
 import { memo, useCallback } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Search, Phone, Video, MoreVertical } from "lucide-react";
+import { IdentityOrb } from "@nada/ui";
 
 interface ChatHeaderProps {
   avatar?: string;
@@ -43,7 +44,6 @@ const ActionButton = memo(function ActionButton({
 
 export function ChatHeader({
   avatar,
-  initials,
   title,
   subtitle,
   isOnline = false,
@@ -68,15 +68,17 @@ export function ChatHeader({
         <ArrowLeft size={20} />
       </button>
 
-      {/* Avatar */}
-      <div className="nada-avatar nada-avatar-sm" aria-hidden="true">
+      {/* Identity orb — shared-element seed matches the chat list */}
+      <motion.div layoutId={`orb-${title}`} className="relative shrink-0">
         {avatar ? (
-          <img src={avatar} alt={title} draggable={false} />
+          <div className="h-[38px] w-[38px] overflow-hidden rounded-full">
+            <img src={avatar} alt={title} draggable={false} className="h-full w-full object-cover" />
+          </div>
         ) : (
-          <span className="nada-avatar-initials">{initials}</span>
+          <IdentityOrb seed={title} size="sm" label={title} className="!h-[38px] !w-[38px]" />
         )}
         {isOnline && <span className="nada-online-dot" />}
-      </div>
+      </motion.div>
 
       {/* Info */}
       <div className="nada-chat-header-info">

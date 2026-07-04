@@ -427,14 +427,14 @@ export function VoiceNoteBubble({
                 left: `${progress * 100}%`,
                 boxShadow: outbound
                   ? "0 2px 6px rgba(0,0,0,0.45), 0 0 0 2px rgba(255,255,255,0.22)"
-                  : "0 2px 6px rgba(0,0,0,0.45), 0 0 0 2px rgba(30,215,130,0.25)"
+                  : "0 2px 6px rgba(0,0,0,0.45), 0 0 0 2px rgba(124,110,248,0.30)"
               }}
             />
           )}
         </div>
         <span
           className={cn(
-            "text-[11px] tabular-nums leading-none",
+            "font-mono text-[10.5px] tabular-nums leading-none",
             outbound ? "text-white/70" : "text-nada-secondary/75"
           )}
         >
@@ -570,20 +570,20 @@ export function VoiceRecorderBar({
 
       {/* Waveform visualization */}
       <div className="min-w-0 flex-1">
-        <div className="mb-0.5 text-[10.5px] font-semibold uppercase text-nada-danger/80">
+        <div className="mb-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-nada-danger/80">
           Recording securely
         </div>
         <WaveformBars analyser={analyser ?? null} active={true} />
       </div>
 
-      <span className="shrink-0 min-w-[2.5rem] text-right text-sm font-bold tabular-nums text-nada-danger">
+      <span className="shrink-0 min-w-[2.5rem] text-right font-mono text-[13px] font-medium tabular-nums text-nada-danger">
         {formatDur(seconds)}
       </span>
 
       <button
         aria-label="Cancel recording"
         onClick={onCancel}
-        className="rounded-full px-3 py-1.5 text-xs font-semibold text-nada-secondary hover:bg-white/8 transition-colors"
+        className="rounded-full px-3 py-1.5 text-xs font-semibold text-nada-secondary hover:bg-white/[0.08] transition-colors"
       >
         Cancel
       </button>
@@ -591,7 +591,8 @@ export function VoiceRecorderBar({
       <button
         aria-label="Send voice note"
         onClick={onStop}
-        className="rounded-full bg-nada-accent px-4 py-1.5 text-xs font-bold text-white shadow-accent-glow transition-all hover:opacity-90 active:scale-95"
+        className="rounded-full px-4 py-1.5 text-xs font-bold text-white shadow-accent transition-all hover:opacity-90 active:scale-95"
+        style={{ background: "var(--n-accent-gradient)" }}
       >
         Send
       </button>

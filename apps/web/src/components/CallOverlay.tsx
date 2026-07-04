@@ -14,7 +14,7 @@ import {
   Video,
   VideoOff
 } from "lucide-react";
-import { Avatar, cn } from "@nada/ui";
+import { IdentityOrb, cn } from "@nada/ui";
 import { useCallStore, type CallPhase } from "@/stores/useCallStore";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ function CallTimer({ startedAt }: { startedAt: number | null }): JSX.Element | n
 
   if (!startedAt) return null;
   return (
-    <span className="text-sm tabular-nums text-white/78">{formatDur(elapsed)}</span>
+    <span className="font-mono text-[13px] tabular-nums text-white/78">{formatDur(elapsed)}</span>
   );
 }
 
@@ -128,11 +128,11 @@ export function IncomingCallModal({
           transition={{ type: "spring", damping: 22, stiffness: 280 }}
         >
           <div className="flex flex-col items-center gap-4">
-            {/* Pulsing avatar */}
+            {/* Pulsing identity orb */}
             <div className="relative">
               <span className="absolute inset-0 animate-ping rounded-full bg-nada-accent/20" />
-              <div className="nada-call-avatar-ring relative grid h-24 w-24 place-items-center rounded-full bg-nada-accent shadow-lg">
-                <Avatar label={call.peerName} size="lg" />
+              <div className="nada-call-avatar-ring relative grid h-24 w-24 place-items-center rounded-full">
+                <IdentityOrb seed={call.peerName} size="xl" label={call.peerName} className="!h-[76px] !w-[76px]" />
               </div>
             </div>
 
@@ -148,7 +148,7 @@ export function IncomingCallModal({
                   Incoming encrypted {call.mode} call
                 </span>
               </div>
-              <p className="mt-3 inline-flex rounded-full border border-nada-gold/20 bg-nada-gold/10 px-3 py-1 text-[11px] font-bold text-nada-gold">
+              <p className="mt-3 inline-flex rounded-full border border-n-success/25 bg-n-success/10 px-3 py-1 font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-n-success">
                 End-to-end encrypted
               </p>
             </div>
@@ -171,7 +171,8 @@ export function IncomingCallModal({
                 <button
                   aria-label="Accept call"
                   onClick={onAccept}
-                  className="grid h-16 w-16 place-items-center rounded-full bg-emerald-500 shadow-lg transition-all hover:scale-105 hover:bg-emerald-400 active:scale-95"
+                  className="grid h-16 w-16 place-items-center rounded-full bg-n-success shadow-lg transition-all hover:scale-105 hover:brightness-110 active:scale-95"
+                  style={{ boxShadow: "0 8px 24px rgb(16 217 138 / 0.4)" }}
                 >
                   <PhoneIncoming size={26} className="text-white" />
                 </button>
@@ -251,8 +252,8 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
             {(call.phase === "outgoing-ringing" || call.phase === "connecting") && (
               <span className="absolute inset-0 animate-ping rounded-full bg-nada-accent/18" />
             )}
-            <div className="nada-call-avatar-ring relative grid h-32 w-32 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl">
-              <Avatar label={call.peerName} size="lg" />
+            <div className="nada-call-avatar-ring relative grid h-32 w-32 place-items-center rounded-full">
+              <IdentityOrb seed={call.peerName} size="2xl" label={call.peerName} className="!h-[104px] !w-[104px]" />
             </div>
           </div>
 
@@ -262,7 +263,7 @@ export function VoiceCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
               <PhaseLabel phase={call.phase} />
               <CallTimer startedAt={call.startedAt} />
             </div>
-            <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-nada-gold/20 bg-nada-gold/10 px-3 py-1.5 text-[11.5px] font-bold text-nada-gold">
+            <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-n-success/25 bg-n-success/10 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-n-success">
               Encrypted call
             </p>
           </div>
@@ -436,7 +437,7 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
     <AnimatePresence>
       <motion.div
         key="video-overlay"
-        className="fixed inset-0 z-[800] flex flex-col bg-black"
+        className="fixed inset-0 z-[800] flex flex-col bg-n-base"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -470,8 +471,8 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
               {(call.phase === "outgoing-ringing" || call.phase === "connecting") && (
                 <span className="absolute inset-0 animate-ping rounded-full bg-nada-accent/20" />
               )}
-              <div className="nada-call-avatar-ring relative grid h-32 w-32 place-items-center overflow-hidden rounded-full bg-nada-accent shadow-2xl">
-                <Avatar label={call.peerName} size="lg" />
+              <div className="nada-call-avatar-ring relative grid h-32 w-32 place-items-center rounded-full">
+                <IdentityOrb seed={call.peerName} size="2xl" label={call.peerName} className="!h-[104px] !w-[104px]" />
               </div>
             </div>
             <p className="text-3xl font-semibold text-white drop-shadow-lg">{call.peerName}</p>
@@ -520,8 +521,8 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
         {/* Live call header info */}
         {isActive && (
           <div className="absolute left-0 right-0 top-0 z-[850] flex flex-col items-center justify-center bg-gradient-to-b from-black/80 via-black/35 to-transparent pb-12 pt-12 pointer-events-none">
-             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-1.5 text-[12px] font-bold text-white/90 backdrop-blur-xl">
-                <span className="h-2 w-2 rounded-full bg-nada-cyan animate-pulse shadow-[0_0_12px_rgba(34,211,238,0.75)]" />
+             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.06em] text-white/90 backdrop-blur-xl">
+                <span className="h-2 w-2 rounded-full bg-n-success animate-glow-pulse shadow-[0_0_12px_rgb(16_217_138_/_0.75)]" />
                 Encrypted call
                 <span className="text-white/40">·</span>
                 <CallTimer startedAt={call.startedAt} />
@@ -578,7 +579,7 @@ export function VideoCallOverlay({ onEnd }: { onEnd: () => void }): JSX.Element 
                       type="button"
                     >
                       Encryption
-                      <span className="text-nada-gold">Active</span>
+                      <span className="text-n-success">Active</span>
                     </button>
                     <button
                       className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10"

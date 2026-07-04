@@ -1,140 +1,279 @@
 import type { Config } from "tailwindcss";
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   NADA — "Vantage" Tailwind theme
+   ───────────────────────────────────────────────────────────────────────────
+   Colors are CSS-variable driven (space-separated R G B triplets) so the
+   `/ <alpha-value>` modifier works AND the Paper / Aurora / Ghost themes
+   cascade purely by swapping the `--n-*` variables in globals.css.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** rgb(var(--x) / <alpha-value>) helper */
+const rgb = (v: string) => `rgb(var(${v}) / <alpha-value>)`;
+
 const config = {
   content: [
     "./app/**/*.{ts,tsx}",
     "./src/**/*.{ts,tsx}",
-    "../../packages/ui/src/**/*.{ts,tsx}"
+    "../../packages/ui/src/**/*.{ts,tsx}",
   ],
   darkMode: ["class"],
   theme: {
+    screens: {
+      xs: "0px",
+      sm: "480px",
+      md: "768px",
+      lg: "1024px",
+      xl: "1280px",
+      "2xl": "1536px",
+    },
     extend: {
       borderRadius: {
+        xs: "4px",
         sm: "6px",
         md: "10px",
         lg: "14px",
         xl: "18px",
-        "2xl": "22px",
-        "3xl": "28px",
+        "2xl": "24px",
+        "3xl": "32px",
+        pill: "9999px",
+        orb: "50%",
+        "bubble-sent": "22px 22px 6px 22px",
+        "bubble-recv": "22px 22px 22px 6px",
+        "bubble-chain": "22px",
+        /* legacy alias */
         bubble: "18px",
-        pill: "999px"
       },
       boxShadow: {
-        xs: "0 1px 2px 0 rgb(0 0 0 / 0.08), 0 0 1px 0 rgb(0 0 0 / 0.12)",
-        sm: "0 2px 4px -1px rgb(0 0 0 / 0.10), 0 1px 2px -1px rgb(0 0 0 / 0.06)",
-        md: "0 4px 6px -2px rgb(0 0 0 / 0.12), 0 2px 4px -3px rgb(0 0 0 / 0.08)",
-        lg: "0 10px 15px -4px rgb(0 0 0 / 0.14), 0 4px 6px -5px rgb(0 0 0 / 0.08)",
-        xl: "0 20px 25px -6px rgb(0 0 0 / 0.16), 0 8px 10px -8px rgb(0 0 0 / 0.10)",
-        "2xl": "0 32px 40px -10px rgb(0 0 0 / 0.20), 0 12px 16px -12px rgb(0 0 0 / 0.12)",
-        hairline: "inset 0 0 0 1px rgb(255 255 255 / 0.06)",
-        "hairline-strong": "inset 0 0 0 1px rgb(255 255 255 / 0.10)",
-        "hairline-subtle": "inset 0 0 0 1px rgb(255 255 255 / 0.04)",
-        ring: "0 0 0 2px rgb(var(--nada-accent) / 0.25), 0 0 0 1px rgb(var(--nada-accent) / 0.40)",
+        /* Vantage elevation — sourced from CSS vars so Paper theme softens them */
+        e1: "var(--n-e1)",
+        e2: "var(--n-e2)",
+        e3: "var(--n-e3)",
+        e4: "var(--n-e4)",
+        accent: "var(--n-e-accent)",
+        "accent-lg": "var(--n-e-accent-lg)",
+        /* Hairlines & inner light */
+        hairline: "inset 0 0 0 1px rgb(var(--n-edge) / 0.06)",
+        "hairline-strong": "inset 0 0 0 1px rgb(var(--n-edge) / 0.10)",
+        "hairline-subtle": "inset 0 0 0 1px rgb(var(--n-edge) / 0.04)",
+        "inner-light": "inset 0 1px 0 rgb(var(--n-edge) / 0.04)",
+        /* Focus ring */
+        "ring-accent": "0 0 0 3px rgb(var(--n-accent-start) / 0.30), 0 0 0 1px rgb(var(--n-accent-start) / 0.60)",
+        /* Orb glow */
+        orb: "0 0 30px rgb(var(--n-accent) / 0.30)",
+        /* Legacy compat (map onto new scale) */
+        xs: "0 1px 2px rgb(0 0 0/.35)",
+        sm: "var(--n-e1)",
+        md: "var(--n-e2)",
+        lg: "var(--n-e3)",
+        xl: "var(--n-e3)",
+        "2xl": "var(--n-e4)",
+        "accent-glow": "0 0 22px rgb(var(--n-accent-start) / 0.40)",
+        "accent-glow-lg": "0 0 44px rgb(var(--n-accent-start) / 0.32)",
+        ring: "0 0 0 2px rgb(var(--n-accent) / 0.25), 0 0 0 1px rgb(var(--n-accent) / 0.40)",
+        "dark-sm": "0 1px 3px rgb(0 0 0/.55)",
+        "dark-md": "0 4px 12px rgb(0 0 0/.55)",
+        "dark-lg": "0 8px 24px rgb(0 0 0/.65)",
       },
       colors: {
-        nada: {
-          bg:                 "rgb(var(--nada-bg) / <alpha-value>)",
-          surface:            "rgb(var(--nada-surface) / <alpha-value>)",
-          "surface-elevated": "rgb(var(--nada-surface-elevated) / <alpha-value>)",
-          "surface-highest":  "rgb(var(--nada-surface-highest) / <alpha-value>)",
-          primary:            "rgb(var(--nada-primary) / <alpha-value>)",
-          secondary:          "rgb(var(--nada-secondary) / <alpha-value>)",
-          muted:              "rgb(var(--nada-muted) / <alpha-value>)",
-          border:             "rgb(var(--nada-border) / <alpha-value>)",
-          "border-subtle":    "rgb(var(--nada-border-subtle) / <alpha-value>)",
-          accent:             "rgb(var(--nada-accent) / <alpha-value>)",
-          "accent-soft":      "rgb(var(--nada-accent-soft) / <alpha-value>)",
-          "accent-deep":      "rgb(var(--nada-accent-deep) / <alpha-value>)",
-          violet:             "rgb(var(--nada-violet) / <alpha-value>)",
-          sent:               "rgb(var(--nada-sent) / <alpha-value>)",
-          received:           "rgb(var(--nada-received) / <alpha-value>)",
-          danger:             "rgb(var(--nada-danger) / <alpha-value>)",
-          success:            "rgb(var(--nada-success) / <alpha-value>)",
-          warning:            "rgb(var(--nada-warning) / <alpha-value>)",
-          overlay:            "rgb(var(--nada-overlay) / <alpha-value>)",
-          input:              "rgb(var(--nada-input-bg) / <alpha-value>)"
+        /* ── Vantage --n-* tokens ── */
+        n: {
+          base: rgb("--n-base"),
+          s1: rgb("--n-s1"),
+          s2: rgb("--n-s2"),
+          s3: rgb("--n-s3"),
+          tx1: rgb("--n-tx1"),
+          tx2: rgb("--n-tx2"),
+          tx3: rgb("--n-tx3"),
+          edge: rgb("--n-edge"),
+          accent: rgb("--n-accent"),
+          "accent-start": rgb("--n-accent-start"),
+          "accent-mid": rgb("--n-accent-mid"),
+          "accent-end": rgb("--n-accent-end"),
+          "sent-bg": rgb("--n-sent-bg"),
+          "recv-bg": rgb("--n-recv-bg"),
+          danger: rgb("--n-danger"),
+          success: rgb("--n-success"),
+          warning: rgb("--n-warning"),
         },
-        accent:           "rgb(var(--nada-accent) / <alpha-value>)",
-        background:       "rgb(var(--nada-bg) / <alpha-value>)",
-        border:           "rgb(var(--nada-border) / <alpha-value>)",
-        muted:            "rgb(var(--nada-muted) / <alpha-value>)",
-        primary:          "rgb(var(--nada-primary) / <alpha-value>)",
-        secondary:        "rgb(var(--nada-secondary) / <alpha-value>)",
-        surface:          "rgb(var(--nada-surface) / <alpha-value>)"
+        /* ── Legacy nada.* tokens — all resolve through --nada-* → --n-* ── */
+        nada: {
+          bg: rgb("--nada-bg"),
+          "bg-deep": rgb("--nada-bg-deep"),
+          surface: rgb("--nada-surface"),
+          "surface-elevated": rgb("--nada-surface-elevated"),
+          "surface-3": rgb("--nada-surface-3"),
+          "surface-highest": rgb("--nada-surface-highest"),
+          primary: rgb("--nada-primary"),
+          secondary: rgb("--nada-secondary"),
+          muted: rgb("--nada-muted"),
+          "text-muted": rgb("--nada-text-muted"),
+          "text-faint": rgb("--nada-text-faint"),
+          border: rgb("--nada-border"),
+          "border-subtle": rgb("--nada-border-subtle"),
+          accent: rgb("--nada-accent"),
+          "accent-soft": rgb("--nada-accent-soft"),
+          "accent-deep": rgb("--nada-accent-deep"),
+          violet: rgb("--nada-violet"),
+          gold: rgb("--nada-gold"),
+          "gold-dark": rgb("--nada-gold-dark"),
+          "gold-glow": rgb("--nada-gold-glow"),
+          cyan: rgb("--nada-cyan"),
+          sent: rgb("--nada-sent"),
+          received: rgb("--nada-received"),
+          danger: rgb("--nada-danger"),
+          success: rgb("--nada-success"),
+          warning: rgb("--nada-warning"),
+          overlay: rgb("--nada-overlay"),
+          input: rgb("--nada-input"),
+        },
+        /* ── Bare aliases used across the app ── */
+        accent: rgb("--n-accent"),
+        "accent-warm": rgb("--n-accent"),
+        background: rgb("--n-base"),
+        border: rgb("--n-edge"),
+        muted: rgb("--nada-muted"),
+        primary: rgb("--n-tx1"),
+        secondary: rgb("--n-tx2"),
+        surface: rgb("--n-s3"),
       },
       fontFamily: {
         sans: ["'Inter'", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "system-ui", "sans-serif"],
-        display: ["'Inter'", "system-ui", "sans-serif"],
-        mono: ["'JetBrains Mono'", "ui-monospace", "SFMono-Regular", "monospace"]
+        display: ["'Inter'", "-apple-system", "system-ui", "sans-serif"],
+        mono: ["'JetBrains Mono'", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       fontSize: {
-        "2xs":   ["11px",  { lineHeight: "1.4", letterSpacing: "0.01em" }],
-        xs:      ["12px",  { lineHeight: "1.5", letterSpacing: "0.005em" }],
-        sm:      ["13px",  { lineHeight: "1.5", letterSpacing: "-0.003em" }],
-        base:    ["14px",  { lineHeight: "1.55", letterSpacing: "-0.006em" }],
-        md:      ["15px",  { lineHeight: "1.55", letterSpacing: "-0.008em" }],
-        lg:      ["17px",  { lineHeight: "1.45", letterSpacing: "-0.012em" }],
-        xl:      ["20px",  { lineHeight: "1.35", letterSpacing: "-0.016em" }],
-        "2xl":   ["24px",  { lineHeight: "1.25", letterSpacing: "-0.020em" }],
-        "3xl":   ["30px",  { lineHeight: "1.15", letterSpacing: "-0.024em" }],
-        "4xl":   ["38px",  { lineHeight: "1.10", letterSpacing: "-0.028em" }],
-        "5xl":   ["48px",  { lineHeight: "1.05", letterSpacing: "-0.032em" }],
+        "2xs": ["11px", { lineHeight: "1.4", letterSpacing: "0.01em" }],
+        xs: ["12px", { lineHeight: "1.45", letterSpacing: "0.005em" }],
+        sm: ["13px", { lineHeight: "1.5", letterSpacing: "-0.003em" }],
+        base: ["14px", { lineHeight: "1.55", letterSpacing: "-0.006em" }],
+        md: ["15px", { lineHeight: "1.55", letterSpacing: "-0.008em" }],
+        lg: ["17px", { lineHeight: "1.45", letterSpacing: "-0.012em" }],
+        xl: ["20px", { lineHeight: "1.35", letterSpacing: "-0.016em" }],
+        "2xl": ["24px", { lineHeight: "1.25", letterSpacing: "-0.020em" }],
+        "3xl": ["30px", { lineHeight: "1.15", letterSpacing: "-0.024em" }],
+        "4xl": ["38px", { lineHeight: "1.10", letterSpacing: "-0.028em" }],
+        "5xl": ["48px", { lineHeight: "1.05", letterSpacing: "-0.032em" }],
+        /* Legacy aliases */
+        caption: ["12px", { lineHeight: "1.4" }],
+        body: ["15px", { lineHeight: "1.55" }],
+        title: ["20px", { lineHeight: "1.3" }],
+        headline: ["28px", { lineHeight: "1.12" }],
+      },
+      letterSpacing: {
+        tightest: "-0.032em",
+        tighter: "-0.024em",
+        tight: "-0.012em",
+        normal: "-0.006em",
+        wide: "0.01em",
+        wider: "0.04em",
+        widest: "0.1em",
+      },
+      backgroundImage: {
+        "accent-gradient": "linear-gradient(135deg, #7C3AED 0%, #2563EB 50%, #10D98A 100%)",
+        "accent-gradient-v": "linear-gradient(180deg, #7C3AED 0%, #2563EB 55%, #10D98A 100%)",
+        "accent-gradient-soft": "linear-gradient(135deg, rgba(124,58,237,0.15) 0%, rgba(37,99,235,0.12) 50%, rgba(16,217,138,0.12) 100%)",
+        "accent-gradient-135": "linear-gradient(135deg, #7C3AED, #10D98A)",
+        "orb-shimmer": "linear-gradient(135deg, rgba(255,255,255,0.20) 0%, transparent 50%, rgba(255,255,255,0.08) 100%)",
+        "aurora-layer":
+          "radial-gradient(ellipse 80% 60% at 15% 10%, rgba(124,58,237,0.12) 0%, transparent 55%), radial-gradient(ellipse 60% 50% at 85% 20%, rgba(37,99,235,0.10) 0%, transparent 55%), radial-gradient(ellipse 70% 60% at 50% 95%, rgba(16,217,138,0.10) 0%, transparent 60%)",
       },
       keyframes: {
-        "fade-in": {
-          "0%": { opacity: "0" },
-          "100%": { opacity: "1" }
+        "whisper-in": {
+          "0%": { opacity: "0", transform: "translateY(4px) scale(0.97)" },
+          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
         },
-        "fade-up": {
-          "0%": { opacity: "0", transform: "translateY(6px)" },
-          "100%": { opacity: "1", transform: "translateY(0)" }
+        "bubble-send": {
+          "0%": { transform: "translateY(0) scale(0.97)", opacity: "0.7" },
+          "55%": { transform: "translateY(-3px) scale(1.005)" },
+          "100%": { transform: "translateY(0) scale(1)", opacity: "1" },
         },
-        "scale-in": {
-          "0%": { opacity: "0", transform: "scale(0.97)" },
-          "100%": { opacity: "1", transform: "scale(1)" }
+        "orb-morph": {
+          "0%, 100%": { borderRadius: "60% 40% 30% 70% / 60% 30% 70% 40%" },
+          "25%": { borderRadius: "30% 60% 70% 40% / 50% 60% 30% 60%" },
+          "50%": { borderRadius: "50% 60% 30% 40% / 40% 70% 60% 50%" },
+          "75%": { borderRadius: "40% 30% 60% 70% / 70% 40% 50% 60%" },
         },
-        "slide-in-right": {
-          "0%": { opacity: "0", transform: "translateX(12px)" },
-          "100%": { opacity: "1", transform: "translateX(0)" }
+        "orb-glow": {
+          "0%, 100%": { opacity: "0.6" },
+          "50%": { opacity: "1" },
         },
-        "slide-in-left": {
-          "0%": { opacity: "0", transform: "translateX(-12px)" },
-          "100%": { opacity: "1", transform: "translateX(0)" }
+        "glow-pulse": {
+          "0%, 100%": { opacity: "0.6" },
+          "50%": { opacity: "1" },
         },
-        "slide-up": {
-          "0%": { opacity: "0", transform: "translateY(16px)" },
-          "100%": { opacity: "1", transform: "translateY(0)" }
+        shimmer: {
+          "0%": { backgroundPosition: "200% 0" },
+          "100%": { backgroundPosition: "-200% 0" },
         },
-        "shimmer": {
-          "0%": { backgroundPosition: "-500px 0" },
-          "100%": { backgroundPosition: "500px 0" }
+        "aurora-drift": {
+          "0%, 100%": { backgroundPosition: "0% 30%, 100% 0%, 50% 100%" },
+          "33%": { backgroundPosition: "60% 0%, 40% 60%, 0% 60%" },
+          "66%": { backgroundPosition: "100% 60%, 0% 100%, 100% 30%" },
         },
-        "dot-pulse": {
-          "0%, 100%": { opacity: "0.4", transform: "scale(0.8)" },
-          "50%": { opacity: "1", transform: "scale(1.1)" }
-        }
+        "particle-fade": {
+          "0%": { opacity: "1", transform: "scale(1) translate(0,0)", filter: "blur(0)" },
+          "60%": { opacity: "0.5", transform: "scale(0.72) translate(4px,-8px)", filter: "blur(2px)" },
+          "100%": { opacity: "0", transform: "scale(0.3) translate(-6px,-18px)", filter: "blur(6px)" },
+        },
+        "n-gradient-shift": {
+          "0%, 100%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+        },
+        burst: {
+          "0%": { transform: "scale(0) rotate(-10deg)", opacity: "0" },
+          "60%": { transform: "scale(1.25) rotate(4deg)" },
+          "100%": { transform: "scale(1) rotate(0deg)", opacity: "1" },
+        },
+        "fade-in": { "0%": { opacity: "0" }, "100%": { opacity: "1" } },
+        "fade-up": { "0%": { opacity: "0", transform: "translateY(6px)" }, "100%": { opacity: "1", transform: "translateY(0)" } },
+        "scale-in": { "0%": { opacity: "0", transform: "scale(0.93)" }, "100%": { opacity: "1", transform: "scale(1)" } },
+        "slide-in-right": { "0%": { opacity: "0", transform: "translateX(18px)" }, "100%": { opacity: "1", transform: "translateX(0)" } },
+        "slide-in-left": { "0%": { opacity: "0", transform: "translateX(-18px)" }, "100%": { opacity: "1", transform: "translateX(0)" } },
+        "slide-up": { "0%": { opacity: "0", transform: "translateY(16px)" }, "100%": { opacity: "1", transform: "translateY(0)" } },
+        "dot-pulse": { "0%, 100%": { opacity: "0.4", transform: "scale(0.8)" }, "50%": { opacity: "1", transform: "scale(1.1)" } },
+        "badge-pop": { "0%": { transform: "scale(0)", opacity: "0" }, "70%": { transform: "scale(1.2)", opacity: "1" }, "100%": { transform: "scale(1)", opacity: "1" } },
+        "pulse-subtle": { "0%, 100%": { opacity: "1" }, "50%": { opacity: "0.75" } },
+        "bubble-in": { "0%": { opacity: "0", transform: "translateY(8px) scale(0.96)" }, "100%": { opacity: "1", transform: "translateY(0) scale(1)" } },
       },
       animation: {
-        "fade-in": "fade-in 0.2s ease-out",
-        "fade-up": "fade-up 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
-        "scale-in": "scale-in 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
-        "slide-in-right": "slide-in-right 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
-        "slide-in-left": "slide-in-left 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
-        "slide-up": "slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
-        "shimmer": "shimmer 1.5s infinite linear",
+        "whisper-in": "whisper-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "bubble-send": "bubble-send 0.32s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "orb-morph": "orb-morph 8s ease-in-out infinite",
+        "orb-glow": "orb-glow 4s ease-in-out infinite",
+        "glow-pulse": "glow-pulse 3s ease-in-out infinite",
+        shimmer: "shimmer 1.8s infinite linear",
+        "aurora-drift": "aurora-drift 20s ease-in-out infinite",
+        "particle-fade": "particle-fade 0.9s cubic-bezier(0.76,0,0.24,1) both",
+        "gradient-shift": "n-gradient-shift 6s ease infinite",
+        burst: "burst 0.35s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "fade-in": "fade-in 0.22s ease-out both",
+        "fade-up": "fade-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "scale-in": "scale-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "slide-in-right": "slide-in-right 0.30s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "slide-in-left": "slide-in-left 0.30s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "slide-up": "slide-up 0.40s cubic-bezier(0.16, 1, 0.3, 1) both",
         "dot-pulse": "dot-pulse 1.4s ease-in-out infinite",
-      },
-      spacing: {
-        "safe-bottom": "env(safe-area-inset-bottom)",
-        "safe-top": "env(safe-area-inset-top)",
+        "badge-pop": "badge-pop 0.32s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "pulse-subtle": "pulse-subtle 2.5s ease-in-out infinite",
+        "bubble-in": "bubble-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both",
       },
       transitionTimingFunction: {
-        "spring": "cubic-bezier(0.16, 1, 0.3, 1)",
-        "snap": "cubic-bezier(0.87, 0, 0.13, 1)",
+        spring: "cubic-bezier(0.16, 1, 0.3, 1)",
+        snap: "cubic-bezier(0.87, 0, 0.13, 1)",
+        "in-expo": "cubic-bezier(0.76, 0, 0.24, 1)",
+        "out-expo": "cubic-bezier(0.16, 1, 0.3, 1)",
+      },
+      spacing: {
+        "safe-top": "env(safe-area-inset-top)",
+        "safe-bottom": "env(safe-area-inset-bottom)",
+        "safe-left": "env(safe-area-inset-left)",
+        "safe-right": "env(safe-area-inset-right)",
       },
       zIndex: {
         base: "0",
-        docked: "1",
+        docked: "10",
+        float: "20",
         dropdown: "50",
         sticky: "100",
         header: "200",
@@ -142,10 +281,15 @@ const config = {
         modal: "400",
         toast: "500",
         tooltip: "600",
-      }
-    }
+        "orb-nav": "700",
+        call: "800",
+        /* legacy */
+        shell: "10",
+        sheet: "210",
+      },
+    },
   },
-  plugins: []
+  plugins: [],
 } satisfies Config;
 
 export default config;
