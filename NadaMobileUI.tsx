@@ -205,8 +205,7 @@ export const ChatListItem = ({
   const dragEnabled = !isDesktop && Boolean(onArchive || onDelete);
   return (
   <div className={cn(
-    "group/row relative mx-2 my-1 overflow-hidden rounded-2xl",
-    isSelected && "nada-chat-item-active"
+    "group/row relative mx-2 my-1 overflow-hidden rounded-2xl"
   )}>
     {/* Swipe-left → Archive (accent) — mobile only */}
     {onArchive && !isDesktop && (
@@ -234,7 +233,7 @@ export const ChatListItem = ({
       dragElastic={0.15}
       dragSnapToOrigin
       dragTransition={{ bounceStiffness: 500, bounceDamping: 32 }}
-      onClick={onClick}
+      onTap={onClick}
       onDragEnd={(_event, info) => {
         if (info.offset.x > 96) {
           onArchive?.();
@@ -245,10 +244,11 @@ export const ChatListItem = ({
       whileTap={{ scale: 0.99 }}
       className={cn(
         "group relative z-10 flex w-full items-center gap-3 px-3 py-3 text-left transition-colors duration-200 tap-highlight-none",
-        !isSelected && "hover:bg-n-s2/45"
+        !isSelected && "hover:bg-n-s2/45",
+        isSelected && "nada-chat-item-active"
       )}
       style={{
-        background: isSelected ? "transparent" : "rgb(var(--n-base))"
+        background: isSelected ? "rgb(var(--n-s3))" : "rgb(var(--n-base))"
       }}
     >
       {/* Identity orb — living, seeded from the ghost's name */}
