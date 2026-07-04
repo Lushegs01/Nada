@@ -4296,7 +4296,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   return (
     <div className="nada-app-frame flex h-dvh w-full items-center justify-center overflow-hidden pl-safe-area pr-safe-area">
       <section
-        className="nada-desktop-shell flex h-full w-full max-w-[1440px] bg-nada-surface md:h-[calc(100dvh-1.5rem)] md:overflow-hidden md:rounded-[28px]"
+        className="nada-desktop-shell flex h-full w-full max-w-[1920px] bg-nada-surface md:h-[calc(100dvh-1.5rem)] md:overflow-hidden md:rounded-[28px]"
       >
         <DesktopNavRail
           activeTab={activeTab}
@@ -7051,7 +7051,7 @@ function ChatPanel({
                 </div>
                 <div
                   className={cn(
-                    "relative max-w-[min(75%,520px)] text-[14.5px]",
+                    "relative max-w-[min(74%,600px)] text-[14.5px]",
                     message.direction === "outbound"
                       ? cn("nada-bubble-sent", isLastInCluster && "has-tail")
                       : cn("nada-bubble-received", isLastInCluster && "has-tail"),

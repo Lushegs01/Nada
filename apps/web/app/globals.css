@@ -1314,17 +1314,14 @@ body > * {
 }
 
 .nada-message-lane {
-  max-width: 860px;
-  margin-inline: auto;
+  width: 100%;
 }
 
 .nada-message-virtuoso {
   height: 100%;
   width: 100%;
-  max-width: 860px;
-  margin-inline: auto;
-  padding-left: clamp(20px, 3.5vw, 32px);
-  padding-right: max(var(--sai-right), 24px);
+  padding-left: clamp(16px, 3vw, 40px);
+  padding-right: max(clamp(16px, 3vw, 40px), var(--sai-right));
   overflow-x: hidden;
 }
 .nada-message-virtuoso > div::-webkit-scrollbar {
