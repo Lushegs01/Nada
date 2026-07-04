@@ -1320,9 +1320,14 @@ body > * {
 .nada-message-virtuoso {
   height: 100%;
   width: 100%;
-  padding-left: clamp(16px, 3vw, 40px);
-  padding-right: max(clamp(16px, 3vw, 40px), var(--sai-right));
   overflow-x: hidden;
+}
+/* Horizontal gutter lives on the inner item wrapper — Virtuoso's list is
+   absolutely positioned and cannot take padding on the scroller itself
+   (padding there overflows the list and clips right-aligned bubbles). */
+.nada-message-row {
+  padding-left: clamp(12px, 2.4vw, 36px);
+  padding-right: max(clamp(12px, 2.4vw, 36px), var(--sai-right));
 }
 .nada-message-virtuoso > div::-webkit-scrollbar {
   width: 0;
