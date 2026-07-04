@@ -78,12 +78,11 @@ import { useCallStore } from "@/stores/useCallStore";
 import { QRCodeSVG } from "qrcode.react";
 import {
   MobileChatsHome,
-  ChatListItem,
   ArchivedRow,
-  DesktopNavRail,
-  EmptyChatListState,
-  FilterTabBar
+  EmptyChatListState
 } from "./NadaMobileUI";
+import { IconRail as DesktopNavRail } from "./IconRail";
+import { ChatListItem } from "./ChatListItem2";
 
 import {
   createAnonymousIdentity,
@@ -112,7 +111,7 @@ import type {
   ReplyToMessage,
   SubscriptionStatusResponse
 } from "@nada/types";
-import { Avatar, Button, IconButton, cn } from "@nada/ui";
+import { Avatar, Button, IconButton, IdentityOrb, GroupOrb, cn } from "@nada/ui";
 
 import {
   directChatId,
@@ -884,7 +883,7 @@ function Splash(): JSX.Element {
         className="pointer-events-none absolute -top-32 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full opacity-60 blur-[110px] animate-aurora"
         style={{
           background:
-            "radial-gradient(circle, rgba(30,215,130,0.45) 0%, rgba(132,232,92,0.18) 40%, transparent 70%)"
+            "radial-gradient(circle, rgba(124,58,237,0.45) 0%, rgba(37,99,235,0.20) 40%, rgba(16,217,138,0.10) 60%, transparent 75%)"
         }}
       />
       <div className="relative z-10 flex flex-col items-center gap-9 animate-fade-in">
@@ -969,14 +968,14 @@ function Onboarding({
         className="pointer-events-none absolute -top-24 left-1/2 h-[460px] w-[460px] -translate-x-1/2 rounded-full opacity-50 blur-[110px] animate-aurora"
         style={{
           background:
-            "radial-gradient(circle, rgba(30,215,130,0.55) 0%, transparent 70%)"
+            "radial-gradient(circle, rgba(124,58,237,0.55) 0%, rgba(37,99,235,0.18) 45%, transparent 72%)"
         }}
       />
       <div
         className="pointer-events-none absolute -bottom-24 right-0 h-80 w-80 rounded-full opacity-35 blur-3xl"
         style={{
           background:
-            "radial-gradient(circle, rgba(132,232,92,0.45) 0%, transparent 70%)"
+            "radial-gradient(circle, rgba(16,217,138,0.40) 0%, rgba(37,99,235,0.18) 45%, transparent 72%)"
         }}
       />
 
@@ -1056,9 +1055,8 @@ function Onboarding({
                 <span
                   className="grid h-5 w-5 place-items-center rounded-full text-[10px] font-extrabold"
                   style={{
-                    background:
-                      "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-violet)))",
-                    color: "#051A11"
+                    background: "var(--n-accent-gradient)",
+                    color: "#FFFFFF"
                   }}
                 >
                   2
@@ -1153,6 +1151,24 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   const [mood, setMood] = useState("Available");
   const [notificationSettings, setNotificationSettings] =
     useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
+
+  // Vantage Ghost Mode — drives the global fog/desaturation/blur CSS layer
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    const body = document.body;
+    if (ghostMode) {
+      root.setAttribute("data-ghost", "true");
+      body.setAttribute("data-ghost", "true");
+    } else {
+      root.removeAttribute("data-ghost");
+      body.removeAttribute("data-ghost");
+    }
+    return () => {
+      root.removeAttribute("data-ghost");
+      body.removeAttribute("data-ghost");
+    };
+  }, [ghostMode]);
   // ─────────────────────────────────────────────────────────────────────────────
   
   const [chats, setChats] = useState<ChatRecord[]>([]);
@@ -1465,7 +1481,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
   ]);
 
   // Mobile UI state
-  const [activeFilter, setActiveFilter] = useState("all");
+  const [activeFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("chats");
   // last-message preview cache: chatId -> { body, ts }
   const [lastMessages, setLastMessages] = useState<Record<string, { body: string; ts: number }>>({});
@@ -3148,17 +3164,29 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
     const relayBaseUrl = getRelayHttpBaseUrl();
     if (relayBaseUrl) {
-      void fetch(new URL("/api/v1/statuses", relayBaseUrl), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id,
-          sender: identity.pubkeyHash,
-          timestamp,
-          ciphertext,
-          ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
+      // The relay's status publish endpoint now requires an identity proof
+      // bound to the status id, so anonymous callers can't impersonate a
+      // sender. Sign and forward; suppress the publish on signing failure
+      // rather than sending an unauthenticated request the relay will 401.
+      void useIdentityStore
+        .getState()
+        .signProof("status-publish", id)
+        .then((proof) => {
+          if (!proof) return;
+          return fetch(new URL("/api/v1/statuses", relayBaseUrl), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id,
+              sender: identity.pubkeyHash,
+              timestamp,
+              ciphertext,
+              ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {}),
+              proof
+            })
+          });
         })
-      }).catch(() => {});
+        .catch(() => {});
     }
     
     statusPeerHashes.forEach((recipientHash) => {
@@ -3303,14 +3331,23 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
 
     const relayBaseUrl = getRelayHttpBaseUrl();
     if (relayBaseUrl) {
-      void fetch(new URL("/api/v1/statuses/delete", relayBaseUrl), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: status.id,
-          sender: identity.pubkeyHash
+      // Sign the delete with the same identity that owns the status.
+      void useIdentityStore
+        .getState()
+        .signProof("status-delete", status.id)
+        .then((proof) => {
+          if (!proof) return;
+          return fetch(new URL("/api/v1/statuses/delete", relayBaseUrl), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: status.id,
+              sender: identity.pubkeyHash,
+              proof
+            })
+          });
         })
-      }).catch(() => {});
+        .catch(() => {});
     }
 
     statusPeerHashes.forEach((recipientHash) => {
@@ -4190,22 +4227,42 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const vapidKey = process.env['NEXT_PUBLIC_VAPID_PUBLIC_KEY'];
     if (!vapidKey) return;
 
+    // The relay now requires a signed identity proof on push/subscribe so an
+    // attacker can't register their own endpoint against another user's
+    // pubkeyHash and harvest that user's push payloads.
+    const submitSubscription = async (
+      sub: PushSubscriptionJSON | PushSubscription,
+      relayUrl: string
+    ): Promise<void> => {
+      const proof = await useIdentityStore
+        .getState()
+        .signProof("push-subscribe", identity.pubkeyHash);
+      if (!proof) return;
+      const body = JSON.stringify({
+        pubkeyHash: identity.pubkeyHash,
+        subscription: typeof (sub as PushSubscription).toJSON === "function"
+          ? (sub as PushSubscription).toJSON()
+          : (sub as PushSubscriptionJSON),
+        proof
+      });
+      await fetch(`${relayUrl}/api/v1/push/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body
+      });
+    };
+
     await navigator.serviceWorker.ready.then(async (registration) => {
       try {
+        const relayUrl =
+          process.env['NEXT_PUBLIC_RELAY_URL']
+            ?.replace("ws://", "http://")
+            .replace("wss://", "https://") || "";
+        if (!relayUrl) return;
+
         const existingSub = await registration.pushManager.getSubscription();
         if (existingSub) {
-          // Send it to the server anyway to ensure pubkeyHash is updated if it changed
-          const relayUrl = process.env['NEXT_PUBLIC_RELAY_URL']?.replace("ws://", "http://").replace("wss://", "https://") || "";
-          if (relayUrl) {
-            await fetch(`${relayUrl}/api/v1/push/subscribe`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                pubkeyHash: identity.pubkeyHash,
-                subscription: existingSub.toJSON()
-              })
-            }).catch(() => {});
-          }
+          await submitSubscription(existingSub, relayUrl).catch(() => {});
           return;
         }
 
@@ -4225,17 +4282,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           applicationServerKey: outputArray
         });
 
-        const relayUrl = process.env['NEXT_PUBLIC_RELAY_URL']?.replace("ws://", "http://").replace("wss://", "https://") || "";
-        if (!relayUrl) return;
-
-        await fetch(`${relayUrl}/api/v1/push/subscribe`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            pubkeyHash: identity.pubkeyHash,
-            subscription: subscription.toJSON()
-          })
-        });
+        await submitSubscription(subscription, relayUrl);
       } catch (err) {
         console.error("Failed to subscribe to push notifications", err);
       }
@@ -4259,7 +4306,9 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             setShowGhostModal(false);
             setShowMoodModal(false);
           }}
-          unreadCount={totalUnreadCount}
+          totalUnreadCount={totalUnreadCount}
+          onNewChat={() => setPanel("contacts")}
+          onSettings={() => setPanel("settings")}
         />
         <aside
           className={cn(
@@ -4272,6 +4321,8 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
           onSearchChange={setSearchQuery}
           unreadTotal={totalUnreadCount}
           onComposeClick={() => setPanel("contacts")}
+          selfSeed={identity.pubkeyHash}
+          ghost={ghostMode}
           activeTab={activeTab}
           onTabChange={(tab) => {
             setActiveTab(tab);
@@ -4290,9 +4341,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
             activeTab: activeTab
           }}
         >
-          {activeTab === "chats" && (
-            <FilterTabBar activeFilter={activeFilter} onFilterChange={setActiveFilter} />
-          )}
           {activeTab === "status" ? (
             <StatusView 
               identity={identity}
@@ -4413,23 +4461,17 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
               <EmptyChatListState onAdd={() => setPanel("contacts")} />
             ) : (
               <div className="flex flex-col">
-                {/* PINNED section */}
-                {sidebarChatItems.some((item) => item.isArchived === showArchivedChats && !item.isGroup) && !showArchivedChats && (
-                  <div className="nada-section-header">📌 Pinned</div>
-                )}
                 {sidebarChatItems
                   .filter((item) => {
                     if (item.isArchived !== showArchivedChats) return false;
                     if (activeTab === "communities" && !item.isGroup) return false;
                     if (activeFilter === "groups" && !item.isGroup) return false;
                     if (activeFilter === "unread" && item.unread === 0) return false;
-                    if (activeFilter === "vanish") return false;
                     return matchesSearch(
                       `${item.title} ${item.chatId} ${item.contactHash ?? ""}`,
                       searchQuery
                     );
                   })
-                  .slice(0, 3)
                   .map((item) => {
                     const groupRecord = item.groupId
                       ? chats.find((group) => group.id === item.groupId)
@@ -4439,81 +4481,6 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                     return (
                       <ChatListItem
                         key={item.chatId}
-                        name={item.title}
-                        preview={item.preview}
-                        timestamp={item.timestamp}
-                        unreadCount={item.unread}
-                        initials={item.initials}
-                        isSelected={item.isSelected}
-                        isOnline={item.isOnline}
-                        {...(item.avatar ? { avatar: item.avatar } : {})}
-                        archiveLabel={item.isArchived ? "Unarchive" : "Archive"}
-                        deleteLabel={
-                          item.isGroup
-                            ? itemIsOwnedGroup
-                              ? "Delete group"
-                              : "Leave"
-                            : "Delete"
-                        }
-                        onArchive={() =>
-                          setPendingChatAction({
-                            action: item.isArchived ? "unarchive" : "archive",
-                            chatId: item.chatId,
-                            title: item.title,
-                            ...(item.contactHash ? { contactHash: item.contactHash } : {}),
-                            ...(item.groupId ? { groupId: item.groupId } : {})
-                          })
-                        }
-                        onClick={() => {
-                          if (item.isGroup) {
-                            const chat = chats.find((group) => group.id === item.groupId);
-                            setSelectedContactHash(null);
-                            setSelectedGroupId(item.groupId ?? null);
-                            setDisappearingTimer(chat?.disappearingTimer ?? 0);
-                          } else {
-                            setSelectedGroupId(null);
-                            setSelectedContactHash(item.contactHash ?? null);
-                          }
-                          setMessageSearchQuery("");
-                        }}
-                        onDelete={() =>
-                          setPendingChatAction({
-                            action: item.isGroup && itemIsOwnedGroup ? "delete-group" : "delete",
-                            chatId: item.chatId,
-                            title: item.title,
-                            ...(item.contactHash ? { contactHash: item.contactHash } : {}),
-                            ...(item.groupId ? { groupId: item.groupId } : {})
-                          })
-                        }
-                      />
-                    );
-                  })}
-                {/* RECENT section */}
-                {!showArchivedChats && sidebarChatItems.filter((item) => item.isArchived === showArchivedChats).length > 3 && (
-                  <div className="nada-section-header mt-2">Recent</div>
-                )}
-                {sidebarChatItems
-                  .filter((item) => {
-                    if (item.isArchived !== showArchivedChats) return false;
-                    if (activeTab === "communities" && !item.isGroup) return false;
-                    if (activeFilter === "groups" && !item.isGroup) return false;
-                    if (activeFilter === "unread" && item.unread === 0) return false;
-                    if (activeFilter === "vanish") return false;
-                    return matchesSearch(
-                      `${item.title} ${item.chatId} ${item.contactHash ?? ""}`,
-                      searchQuery
-                    );
-                  })
-                  .slice(3)
-                  .map((item) => {
-                    const groupRecord = item.groupId
-                      ? chats.find((group) => group.id === item.groupId)
-                      : null;
-                    const itemIsOwnedGroup =
-                      Boolean(groupRecord?.ownerPubkeyHash === identity.pubkeyHash);
-                    return (
-                      <ChatListItem
-                        key={`recent-${item.chatId}`}
                         name={item.title}
                         preview={item.preview}
                         timestamp={item.timestamp}
@@ -5149,9 +5116,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                         showToast("Message forwarded");
                      }}
                    >
-                     <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-nada-muted text-nada-primary">
-                       <Users size={20} />
-                     </div>
+                     <GroupOrb seeds={[chat.id, chat.title]} size="md" />
                      <span className="font-semibold text-nada-primary">{chat.title}</span>
                    </button>
                 ))}
@@ -5166,9 +5131,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
                         showToast("Message forwarded");
                      }}
                    >
-                     <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-nada-muted text-nada-primary">
-                       <span className="text-lg">{contact.localDisplayName.charAt(0).toUpperCase()}</span>
-                     </div>
+                     <IdentityOrb seed={contact.pubkeyHash || contact.localDisplayName} size="md" label={contact.localDisplayName} />
                      <span className="font-semibold text-nada-primary">{contact.localDisplayName}</span>
                    </button>
                 ))}
@@ -5515,6 +5478,9 @@ function ChatPanel({
     mimeType: string;
   } | null>(null);
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
+  const [ribbonFraction, setRibbonFraction] = useState(1);
+  const [ribbonLabel, setRibbonLabel] = useState<string>("");
+  const [ribbonActive, setRibbonActive] = useState(false);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
@@ -5930,7 +5896,7 @@ function ChatPanel({
             </div>
           </div>
 
-          <p className="text-[10px] font-bold uppercase text-nada-gold/85">
+          <p className="text-[10px] font-bold uppercase text-nada-accent/85">
             Say less. Reveal nothing.
           </p>
           <h2 className="mt-3 text-[28px] font-bold text-nada-primary">
@@ -5955,7 +5921,7 @@ function ChatPanel({
     <section
       className="relative flex min-h-dvh flex-1 flex-col overflow-hidden"
       style={{
-        background: wallpaperUrl ? `url(${wallpaperUrl}) center/cover no-repeat` : "rgb(var(--nada-bg))"
+        background: wallpaperUrl ? `url(${wallpaperUrl}) center/cover no-repeat` : "rgb(var(--n-base))"
       }}
     >
       {!wallpaperUrl && (
@@ -5963,7 +5929,7 @@ function ChatPanel({
           className="absolute inset-0 z-0 pointer-events-none"
           style={{
             backgroundImage:
-              "radial-gradient(circle at 18% 32%, rgba(30,215,130,0.07) 0%, transparent 55%), radial-gradient(circle at 82% 78%, rgba(132,232,92,0.05) 0%, transparent 55%), radial-gradient(circle at 50% 110%, rgba(17,167,101,0.06) 0%, transparent 50%)"
+              "radial-gradient(circle at 18% 32%, rgba(124,58,237,0.08) 0%, transparent 55%), radial-gradient(circle at 82% 78%, rgba(37,99,235,0.06) 0%, transparent 55%), radial-gradient(circle at 50% 110%, rgba(16,217,138,0.05) 0%, transparent 50%)"
           }}
         />
       )}
@@ -5977,34 +5943,24 @@ function ChatPanel({
           paddingRight: "max(env(safe-area-inset-right), 12px)"
         }}
       >
-        <div className="flex w-full items-center gap-3">
-          <IconButton className="md:hidden" label="Back" onClick={onBack}>
-            <ArrowLeft size={18} />
-          </IconButton>
-          {/* Avatar */}
-          <div className="relative shrink-0">
-            <div className="flex h-[40px] w-[40px] items-center justify-center overflow-hidden rounded-full bg-nada-surface text-[14px] font-bold text-nada-primary border border-nada-border/20 shadow-sm">
-              {title.charAt(0).toUpperCase()}
-            </div>
-          </div>
-          <div className="min-w-0 flex-1 py-2">
-            <h2 className="truncate text-[15px] font-bold text-nada-primary flex items-center gap-2">
-              {title}
-              <span className="nada-e2e-badge-mini">🔒</span>
-            </h2>
-            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="truncate text-[11px] font-medium text-nada-text-muted">
-                {subtitle || "Unverified key"}
-              </span>
-            </div>
+        <IconButton className="md:hidden" label="Back" onClick={onBack}>
+          <ArrowLeft size={18} />
+        </IconButton>
+        {/* Identity orb — shared-element seed matches the chat list */}
+        <motion.div layoutId={`orb-${title}`} className="relative shrink-0">
+          <IdentityOrb seed={title} size="lg" label={title} className="!h-[48px] !w-[48px]" />
+        </motion.div>
+        <div className="min-w-0 flex-1 py-2">
+          <h2 className="truncate text-[16px] font-bold text-nada-primary">{title}</h2>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="nada-security-pill py-1 text-[10.5px]">
+              {isGroup ? "Invite-only encrypted room" : "End-to-end encrypted"}
+            </span>
+            <span className="truncate text-[11.5px] font-medium text-nada-text-muted">
+              {subtitle || "Unverified key"}
+            </span>
           </div>
         </div>
-
-        {/* E2E Security Badge */}
-        <span className="nada-e2e-badge hidden md:inline-flex shrink-0">
-          🔒 E2E · CURVE25519
-        </span>
-
         {isGroup ? (
           <>
             <IconButton
@@ -6324,16 +6280,13 @@ function ChatPanel({
 
       {/* Vanish mode banner */}
       {disappearingTimer > 0 && (
-        <div className="nada-vanish-banner flex items-center justify-between gap-2 px-4 py-1.5 text-xs animate-fade-in">
-          <span className="flex items-center gap-2">
-            <span className="nada-vanish-dot" />
-            Vanish mode · messages disappear {
-              disappearingTimer >= 86400000 ? "1 day" :
-              disappearingTimer >= 3600000 ? "1 hour" :
-              disappearingTimer >= 60000 ? `${Math.round(disappearingTimer / 60000)}m` : "custom"
-            } after read · screenshots blocked
-          </span>
-          <span className="text-[10px] opacity-70 shrink-0">9 messages pending burn</span>
+        <div className="nada-vanish-banner flex items-center gap-2 px-4 py-1.5 text-xs animate-fade-in">
+          <span className="nada-vanish-dot" />
+          Vanish mode: messages disappear after {
+            disappearingTimer >= 86400000 ? "1 day" :
+            disappearingTimer >= 3600000 ? "1 hour" :
+            disappearingTimer >= 60000 ? "1 min" : "custom"
+          }
         </div>
       )}
 
@@ -6887,11 +6840,55 @@ function ChatPanel({
             </div>
           </div>
         )}
+        {/* ── Time Ribbon — leading-edge spine + scroll-tracking gradient node ── */}
+        {messages.length > 3 && (
+          <div className="n-ribbon">
+            <motion.div
+              className="absolute -left-[3.5px] flex items-center gap-2"
+              style={{ top: `calc(${Math.min(100, Math.max(0, ribbonFraction * 100))}% - 4px)` }}
+              animate={{ top: `calc(${Math.min(100, Math.max(0, ribbonFraction * 100))}% - 4px)` }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              drag="y"
+              dragConstraints={{ top: 0, bottom: 0 }}
+              dragElastic={0.9}
+              onDragStart={() => setRibbonActive(true)}
+              onDrag={(_e, info) => {
+                const track = (info.point.y);
+                const host = (_e.target as HTMLElement)?.closest(".n-ribbon") as HTMLElement | null;
+                if (!host) return;
+                const rect = host.getBoundingClientRect();
+                const frac = Math.min(1, Math.max(0, (track - rect.top) / rect.height));
+                const idx = Math.round(frac * (messages.length - 1));
+                const msg = messages[idx];
+                if (msg) setRibbonLabel(new Date(msg.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }));
+                virtuosoRef.current?.scrollToIndex({ index: idx, align: "center" });
+              }}
+              onDragEnd={() => setRibbonActive(false)}
+            >
+              <span className="n-ribbon-node" />
+              <AnimatePresence>
+                {ribbonActive && ribbonLabel && (
+                  <motion.span
+                    className="n-ribbon-label"
+                    initial={{ opacity: 0, x: -4 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -4 }}
+                  >
+                    {ribbonLabel}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          </div>
+        )}
         <Virtuoso
           key={messages[0]?.chatId ?? contact?.pubkeyHash ?? title}
           ref={virtuosoRef}
           alignToBottom
-          atBottomStateChange={setIsAtBottom}
+          atBottomStateChange={(atBottom) => {
+            setIsAtBottom(atBottom);
+            if (atBottom) setRibbonFraction(1);
+          }}
           atBottomThreshold={120}
           className="nada-message-virtuoso"
           computeItemKey={(_index, message) => message.id}
@@ -6901,6 +6898,11 @@ function ChatPanel({
           }}
           data={messages}
           followOutput="smooth"
+          rangeChanged={(range) => {
+            if (ribbonActive) return;
+            const denom = Math.max(1, messages.length - 1);
+            setRibbonFraction(Math.min(1, Math.max(0, range.endIndex / denom)));
+          }}
           increaseViewportBy={{ top: 700, bottom: 900 }}
           initialTopMostItemIndex={Math.max(0, messages.length - 1)}
           itemContent={(index, message) => {
@@ -7393,7 +7395,7 @@ function ChatPanel({
             }}
           />
         ) : null}
-        <div className="nada-message-lane flex items-center gap-2">
+        <div className="nada-message-lane flex items-center gap-2 px-4 md:px-6">
           {!isRecording ? (
             <>
               <input
@@ -7476,7 +7478,7 @@ function ChatPanel({
                     submitMessage();
                   }
                 }}
-                placeholder="Send a ghost message..."
+                placeholder="Type a message..."
                 value={messageText}
               />
               {messageText.trim() ? (
@@ -7563,23 +7565,6 @@ function ChatPanel({
           </motion.div>
         ) : null}
       </AnimatePresence>
-
-      {/* Status bar */}
-      <div className="nada-status-bar shrink-0">
-        <span className="flex items-center gap-1.5">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-60"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-          relay: eu-04 · 2 hops
-        </span>
-        <span className="text-nada-accent font-semibold">↑ 42 KB/s</span>
-        <div className="flex items-center gap-2 flex-1 justify-center">
-          <span className="nada-status-bar-pill">🔒 end-to-end</span>
-          {disappearingTimer > 0 && (
-            <span className="nada-status-bar-pill">⊙ vanish {disappearingTimer >= 60000 ? `${Math.round(disappearingTimer / 60000)}m` : "on"}</span>
-          )}
-          <span className="nada-status-bar-pill">0 metadata stored</span>
-        </div>
-        <span className="text-[10px] opacity-40 shrink-0 hidden md:inline">shift + ↵ for newline</span>
-      </div>
     </section>
   );
 }
@@ -8177,11 +8162,11 @@ function ContactSheet({
             "linear-gradient(135deg, rgb(var(--nada-accent) / 0.18), rgb(var(--nada-surface-elevated)))"
         }}
       >
-        <div className="grid place-items-center rounded-xl bg-[#F8F4E6] p-5">
+        <div className="grid place-items-center rounded-xl bg-white p-5">
           {inviteUrl ? (
             <QRCodeSVG
-              bgColor="#F8F4E6"
-              fgColor="#0A0A0F"
+              bgColor="#FFFFFF"
+              fgColor="#0A0B12"
               level="M"
               size={184}
               value={inviteUrl}
@@ -9274,7 +9259,7 @@ function LaunchOnboardingSheet({
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-bold uppercase text-nada-gold">Launch setup</p>
+            <p className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-nada-accent">Launch setup</p>
             <h2 className="mt-1 text-xl font-bold text-nada-primary">Make NADA feel alive.</h2>
             <p className="mt-2 text-sm leading-relaxed text-nada-text-muted">
               A short setup pass for the anonymous flows people expect on day one.
@@ -9289,8 +9274,8 @@ function LaunchOnboardingSheet({
             <div className="nada-settings-card flex items-center gap-3" key={step.label}>
               <span
                 className={cn(
-                  "grid h-9 w-9 place-items-center rounded-2xl text-xs font-bold",
-                  step.done ? "bg-emerald-400/14 text-emerald-300" : "bg-nada-accent/12 text-nada-accent"
+                  "grid h-9 w-9 place-items-center rounded-2xl font-mono text-[10px] font-bold",
+                  step.done ? "bg-n-success/14 text-n-success" : "bg-nada-accent/12 text-nada-accent"
                 )}
               >
                 {step.done ? "OK" : "GO"}
@@ -9319,7 +9304,7 @@ function LaunchOnboardingSheet({
           </button>
         </div>
         <button
-          className="mt-3 w-full rounded-2xl border border-nada-gold/20 bg-nada-gold/[0.08] px-4 py-3 text-sm font-bold text-nada-gold"
+          className="mt-3 w-full rounded-2xl border border-nada-accent/20 bg-nada-accent/[0.08] px-4 py-3 text-sm font-bold text-nada-accent transition-colors hover:bg-nada-accent/[0.14]"
           onClick={onOpenCommunity}
           type="button"
         >
@@ -9527,8 +9512,8 @@ function SettingsDashboardPreview({
         />
       </SettingsPreviewSection>
 
-      <div className="rounded-2xl border border-nada-gold/15 bg-nada-gold/[0.08] p-4 text-[12.5px] leading-relaxed text-nada-secondary/78">
-        <div className="mb-1 flex items-center gap-2 font-bold text-nada-gold">
+      <div className="rounded-2xl border border-nada-accent/15 bg-nada-accent/[0.08] p-4 text-[12.5px] leading-relaxed text-nada-secondary/78">
+        <div className="mb-1 flex items-center gap-2 font-bold text-nada-accent">
           <ShieldAlert size={15} />
           IP anonymity notice
         </div>
@@ -9656,10 +9641,10 @@ function CommunitiesHome({
   return (
     <div className="flex h-full flex-col overflow-y-auto px-5 pb-24 pt-3 animate-fade-in">
       <div className="nada-premium-card mb-5 p-5">
-        <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-nada-gold/14 text-nada-gold">
+        <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-nada-accent/14 text-nada-accent">
           <MessageCircle size={24} />
         </div>
-        <p className="text-[11px] font-bold uppercase text-nada-gold">Communities</p>
+        <p className="text-[11px] font-bold uppercase text-nada-accent">Communities</p>
         <h2 className="mt-1 text-[20px] font-bold text-nada-primary">Public interests. Private identity.</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-nada-text-muted">
           Create interest spaces like tech, sports, music, or local circles while keeping NADA identity separate from real life.
@@ -9700,7 +9685,7 @@ function CommunitiesHome({
               <button
                 className={cn(
                   "nada-settings-card flex items-center gap-3 text-left",
-                  selectedCommunity?.id === community.id && "ring-1 ring-nada-gold/25"
+                  selectedCommunity?.id === community.id && "ring-1 ring-nada-accent/25"
                 )}
                 key={community.id}
                 onClick={() => {
@@ -9709,14 +9694,14 @@ function CommunitiesHome({
                 }}
                 type="button"
               >
-                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-nada-gold/12 text-nada-gold">
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-nada-accent/12 text-nada-accent">
                   <Users size={19} />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] font-bold text-nada-primary">{community.title}</span>
                   <span className="block truncate text-[12px] text-nada-text-muted">{community.description}</span>
                   <span className="mt-2 flex flex-wrap gap-1.5">
-                    <span className="rounded-full bg-nada-surface/70 px-2 py-0.5 text-[10px] font-bold text-nada-gold">
+                    <span className="rounded-full bg-nada-surface/70 px-2 py-0.5 text-[10px] font-bold text-nada-accent">
                       {community.category}
                     </span>
                     <span className="rounded-full bg-nada-surface/70 px-2 py-0.5 text-[10px] font-bold text-nada-secondary/60">
@@ -9737,7 +9722,7 @@ function CommunitiesHome({
         <section className="mb-5 rounded-3xl border border-nada-border/10 bg-nada-surface-elevated/35 p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase text-nada-gold">
+              <p className="text-[11px] font-bold uppercase text-nada-accent">
                 {selectedCommunity.category} community
               </p>
               <h3 className="truncate text-lg font-bold text-nada-primary">{selectedCommunity.title}</h3>
@@ -9758,7 +9743,7 @@ function CommunitiesHome({
               <span className="nada-privacy-chip" key={topic}>{topic}</span>
             ))}
             {selectedCommunity.admins.includes(identity.pubkeyHash) ? (
-              <span className="nada-privacy-chip border-nada-gold/20 bg-nada-gold/[0.08] text-nada-gold">
+              <span className="nada-privacy-chip border-nada-accent/20 bg-nada-accent/[0.08] text-nada-accent">
                 Admin
               </span>
             ) : null}
@@ -9813,7 +9798,7 @@ function CommunitiesHome({
                 className={cn(
                   "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition",
                   selectedChannelId === channel.id
-                    ? "bg-nada-gold text-black"
+                    ? "bg-nada-accent text-black"
                     : "bg-nada-surface text-nada-secondary/70"
                 )}
                 key={channel.id}
@@ -9864,7 +9849,7 @@ function CommunitiesHome({
               visiblePosts.map((post) => (
                 <article className="rounded-2xl bg-nada-surface/70 px-4 py-3" key={post.id}>
                   <div className="mb-1 flex items-center justify-between gap-3">
-                    <span className="text-xs font-bold text-nada-gold">{post.authorName}</span>
+                    <span className="text-xs font-bold text-nada-accent">{post.authorName}</span>
                     <span className="text-[10px] text-nada-secondary/45">
                       {formatRelativeTime(post.createdAt)}
                     </span>
@@ -10003,7 +9988,7 @@ function CommunityCreateSheet({
     <Sheet onClose={onClose}>
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-[11px] font-bold uppercase text-nada-gold">New community</p>
+          <p className="text-[11px] font-bold uppercase text-nada-accent">New community</p>
           <h2 className="text-lg font-semibold text-nada-primary">Add community</h2>
         </div>
         <button
@@ -10044,7 +10029,7 @@ function CommunityCreateSheet({
                 className={cn(
                   "rounded-2xl border px-3 py-2.5 text-sm font-semibold transition",
                   category === option
-                    ? "border-nada-gold/45 bg-nada-gold/12 text-nada-gold"
+                    ? "border-nada-accent/45 bg-nada-accent/12 text-nada-accent"
                     : "border-nada-border/10 bg-nada-surface-elevated/45 text-nada-secondary/75"
                 )}
                 key={option}
@@ -10179,7 +10164,7 @@ function GroupsHome({
           ["Ghost Group", "Burn-after-read ready", "Coming soon"]
         ].map(([name, meta, badge]) => (
           <div className="nada-settings-card flex items-center gap-3" key={name}>
-            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-nada-gold/12 text-nada-gold">
+            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-nada-accent/12 text-nada-accent">
               <ShieldAlert size={16} />
             </span>
             <span className="min-w-0 flex-1">
@@ -10280,7 +10265,7 @@ function StatusView({
       <div className="nada-premium-card mb-5 p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] font-bold uppercase text-nada-gold">Anonymous stories</p>
+            <p className="text-[11px] font-bold uppercase text-nada-accent">Anonymous stories</p>
             <h2 className="mt-1 text-[21px] font-bold text-nada-primary">Nothing shared forever.</h2>
           </div>
           <button
@@ -10351,9 +10336,9 @@ function StatusView({
                   onClick={() => onViewStatus(hash)}
                   type="button"
                 >
-                  <div className="h-14 w-14 shrink-0 rounded-2xl border border-nada-gold/45 p-0.5">
-                    <div className="grid h-full w-full place-items-center overflow-hidden rounded-[14px] bg-nada-gold/12">
-                      <CircleDashed className="text-nada-gold" size={24} />
+                  <div className="h-14 w-14 shrink-0 rounded-2xl border border-nada-accent/45 p-0.5">
+                    <div className="grid h-full w-full place-items-center overflow-hidden rounded-[14px] bg-nada-accent/12">
+                      <CircleDashed className="text-nada-accent" size={24} />
                     </div>
                   </div>
                   <div className="min-w-0 flex-1">
@@ -10659,9 +10644,7 @@ function StatusViewerSheet({
         </div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-             <div className="h-10 w-10 rounded-full bg-nada-accent/20 flex items-center justify-center">
-                <span className="font-bold text-nada-accent">{senderName.slice(0,1)}</span>
-             </div>
+             <IdentityOrb seed={senderName} size="md" label={senderName} />
              <div>
                 <h3 className="font-bold">{senderName}</h3>
                 <p className="text-[10px] opacity-60">{formatRelativeTime(currentStatus.createdAt)}</p>
@@ -11206,3 +11189,12 @@ function dataUrlSize(dataUrl: string): number {
   const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
   return Math.max(1, Math.floor((base64.length * 3) / 4) - padding);
 }
+
+
+
+
+
+
+
+
+

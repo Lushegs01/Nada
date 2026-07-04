@@ -225,8 +225,7 @@ export function MessageContextMenu({
             <button
               type="button"
               role="menuitem"
-              className="nada-dropdown-item"
-              style={{ color: "var(--color-danger, #ef4444)" }}
+              className="nada-dropdown-item danger"
               onClick={() => handleItemClick(onDelete)}
             >
               <Trash2 size={16} />

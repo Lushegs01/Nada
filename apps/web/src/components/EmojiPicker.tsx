@@ -104,12 +104,12 @@ export function EmojiPicker({
   return (
     <div
       ref={containerRef}
-      className="absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-2xl border border-nada-border/50 bg-nada-surface shadow-2xl animate-scale-in origin-bottom-left"
+      className="n-glass-strong absolute bottom-full left-0 z-dropdown mb-2 w-72 origin-bottom-left overflow-hidden rounded-2xl shadow-e3 animate-scale-in"
       role="dialog"
       aria-label="Emoji picker"
     >
       {/* Category tabs */}
-      <div className="flex gap-0.5 border-b border-nada-border/40 bg-nada-muted/60 px-2 py-1.5">
+      <div className="flex gap-0.5 border-b border-n-edge/[0.06] px-2 py-1.5">
         {CATEGORIES.map((cat, i) => (
           <button
             key={cat.label}
@@ -118,28 +118,29 @@ export function EmojiPicker({
             className={cn(
               "rounded-lg px-2 py-1.5 text-sm transition-colors",
               i === activeCategory
-                ? "bg-nada-surface text-nada-primary shadow-sm"
-                : "text-nada-secondary hover:bg-nada-surface/60 hover:text-nada-primary"
+                ? "text-n-tx1"
+                : "text-n-tx2 hover:bg-n-s2/60 hover:text-n-tx1"
             )}
+            style={i === activeCategory ? { background: "var(--n-accent-gradient-subtle)", boxShadow: "inset 0 0 0 1px rgb(var(--n-accent-solid) / 0.30)" } : undefined}
           >
             {cat.emojis[0]}
           </button>
         ))}
       </div>
 
-      {/* Category label */}
-      <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-nada-secondary">
+      {/* Category label — monospace */}
+      <div className="px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-n-tx3">
         {category.label.split(" ").slice(1).join(" ")}
       </div>
 
       {/* Emoji grid */}
-      <div className="grid max-h-52 grid-cols-8 gap-0.5 overflow-y-auto p-2">
+      <div className="grid max-h-52 grid-cols-8 gap-0.5 overflow-y-auto p-2" style={{ overscrollBehavior: "contain" }}>
         {category.emojis.map((emoji) => (
           <button
             key={emoji}
             aria-label={emoji}
             onClick={() => onSelect(emoji)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors hover:bg-nada-muted active:scale-90"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-transform hover:bg-n-s3 active:scale-90"
           >
             {emoji}
           </button>
