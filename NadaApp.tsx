@@ -6978,7 +6978,7 @@ function ChatPanel({
             <div
               key={message.id}
               ref={(el) => setMessageRef(message.id, el)}
-              className={cn("pl-1 pr-3 md:px-2", isFirstInCluster ? "mt-3" : "mt-1")}
+              className={cn("nada-message-row", isFirstInCluster ? "mt-3" : "mt-1")}
             >
               {/* Date separator */}
               {showDateSep && (
