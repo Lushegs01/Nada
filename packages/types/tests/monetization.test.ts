@@ -13,7 +13,13 @@ describe("monetization schemas", () => {
       plan: "pro",
       successUrl: "https://nada.example/billing/success",
       cancelUrl: "https://nada.example/billing/cancel",
-      referralCode: "NADA-LAUNCH"
+      referralCode: "NADA-LAUNCH",
+      proof: {
+        pubkey: "a".repeat(64),
+        pubkeyHash: "pubkey-hash-for-paid-plan",
+        signature: "sig",
+        timestamp: 1234567890
+      }
     });
 
     expect(result.success).toBe(true);
