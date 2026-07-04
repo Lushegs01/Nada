@@ -1,0 +1,55 @@
+<style>
+  body {
+    background: #0A0B12;
+    color: white;
+  }
+  .item {
+    position: relative;
+    width: 300px;
+    height: 80px;
+    background: transparent;
+    border-radius: 16px;
+    overflow: hidden;
+    margin: 10px;
+  }
+  .bg-action {
+    position: absolute;
+    inset: 0;
+    z-index: 1; /* Note: previously it was default z-index, which is 0 relative to stack */
+  }
+  .bg-action.left {
+    background: green;
+    width: 100px;
+  }
+  .bg-action.right {
+    background: red;
+    width: 100px;
+    right: 0;
+    left: auto;
+  }
+  .drag-layer {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    height: 100%;
+    /* What was our fix? We put a solid background here */
+    background: #1C1E2E;
+  }
+  .drag-layer.active {
+    background: #283046; /* var(--n-s3) */
+  }
+</style>
+<div class="item">
+  <div class="bg-action left">Archive</div>
+  <div class="bg-action right">Delete</div>
+  <div class="drag-layer">
+    Normal item
+  </div>
+</div>
+<div class="item">
+  <div class="bg-action left">Archive</div>
+  <div class="bg-action right">Delete</div>
+  <div class="drag-layer active">
+    Active item
+  </div>
+</div>

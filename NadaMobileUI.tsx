@@ -233,7 +233,7 @@ export const ChatListItem = ({
       dragElastic={0.15}
       dragSnapToOrigin
       dragTransition={{ bounceStiffness: 500, bounceDamping: 32 }}
-      onTap={onClick}
+      onClick={onClick}
       onDragEnd={(_event, info) => {
         if (info.offset.x > 96) {
           onArchive?.();
@@ -248,7 +248,8 @@ export const ChatListItem = ({
         isSelected && "nada-chat-item-active"
       )}
       style={{
-        background: isSelected ? "rgb(var(--n-s3))" : "rgb(var(--n-base))"
+        background: isSelected ? "rgb(var(--n-s3))" : "rgb(var(--n-base))",
+        touchAction: "pan-y"
       }}
     >
       {/* Identity orb — living, seeded from the ghost's name */}

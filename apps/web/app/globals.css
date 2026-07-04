@@ -1033,7 +1033,7 @@ body > * {
 }
 
 .nada-chat-item-active {
-  background: rgb(var(--n-s3) / 0.85);
+  background: rgb(var(--n-s3));
 }
 .nada-chat-item-active::before {
   z-index: 20;
