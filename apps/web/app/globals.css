@@ -1036,6 +1036,7 @@ body > * {
   background: rgb(var(--n-s3) / 0.85);
 }
 .nada-chat-item-active::before {
+  z-index: 20;
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
