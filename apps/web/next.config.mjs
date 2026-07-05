@@ -39,7 +39,7 @@ const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
   `connect-src ${deriveConnectSrc()}`,
-  "font-src 'self' data: https://fonts.gstatic.com",
+  "font-src 'self' data:",
   "form-action 'self'",
   "frame-ancestors 'none'",
   "img-src 'self' data: blob:",
@@ -49,7 +49,7 @@ const contentSecurityPolicy = [
   // 'unsafe-inline' is still required by Next.js for hydration scripts and
   // should be removed when nonces are wired through middleware.
   "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "style-src 'self' 'unsafe-inline'",
   "worker-src 'self' blob:"
 ].join("; ");
 
@@ -76,6 +76,40 @@ const nextConfig = {
             key: "Permissions-Policy",
             value: "camera=(self), microphone=(self), geolocation=(), payment=()"
           }
+        ]
+      },
+      // Immutable cache for Next.js hashed static assets (JS, CSS, media)
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" }
+        ]
+      },
+      // Cache images and icons aggressively (1 week)
+      {
+        source: "/logo:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }
+        ]
+      },
+      {
+        source: "/icon.svg",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }
+        ]
+      },
+      // Service worker: short cache to ensure updates propagate quickly
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=0, must-revalidate" }
+        ]
+      },
+      // PWA manifest: moderate cache (1 day)
+      {
+        source: "/manifest.webmanifest",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400" }
         ]
       }
     ];

@@ -78,7 +78,7 @@ export function IconRail({
           }
         }}
       >
-        <img src="/logo.png" alt="NADA" draggable={false} />
+        <img src="/logo.webp" alt="NADA" draggable={false} />
       </motion.div>
 
       {/* ── Primary nav items ──────────────────────────────── */}

@@ -15,7 +15,16 @@
      `rgb(var(--n-x) / a)` and Tailwind `/ <alpha-value>` work natively.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* Fonts are self-hosted via next/font in layout.tsx — no external @import needed.
+   CSS variables --font-inter and --font-mono are set on <html> by next/font. */
+
+body {
+  font-family: var(--font-inter), 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+code, kbd, pre, samp, .font-mono {
+  font-family: var(--font-mono), 'JetBrains Mono', ui-monospace, monospace;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────────
    1. DESIGN TOKENS — Midnight (default dark)

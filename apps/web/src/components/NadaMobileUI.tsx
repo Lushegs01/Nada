@@ -523,7 +523,7 @@ export const DesktopNavRail = ({
       }}
     >
       <div className="mb-3 grid h-10 w-10 place-items-center overflow-hidden rounded-[12px] nada-logo-aura">
-        <img src="/logo.png" alt="NADA" className="h-full w-full object-cover" />
+        <img src="/logo.webp" alt="NADA" className="h-full w-full object-cover" />
       </div>
       {NAV_TABS.map((tab) => {
         const Icon = tab.icon;
@@ -576,7 +576,7 @@ const NadaLogoMark = ({ size = 32 }: { size?: number }) => (
     className="flex shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-[11px] nada-logo-aura"
     style={{ width: size, height: size }}
   >
-    <img src="/logo.png" alt="NADA" className="h-full w-full object-cover" />
+    <img src="/logo.webp" alt="NADA" className="h-full w-full object-cover" />
   </motion.div>
 );
 

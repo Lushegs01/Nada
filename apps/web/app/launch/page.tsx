@@ -68,7 +68,7 @@ export default function LaunchPage(): JSX.Element {
       <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6 md:px-10">
         <div className="flex items-center gap-2.5">
           <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-[12px] nada-logo-aura">
-            <img src="/logo.png" alt="NADA" className="h-full w-full object-cover" />
+            <img src="/logo.webp" alt="NADA" className="h-full w-full object-cover" />
           </div>
           <span className="text-[15px] font-bold tracking-tight">NADA</span>
         </div>

@@ -895,7 +895,7 @@ function Splash(): JSX.Element {
         >
           <div className="absolute inset-0 rounded-[28px] blur-2xl opacity-80 animate-logo-glow nada-logo-aura" />
           <div className="relative grid h-[84px] w-[84px] place-items-center overflow-hidden rounded-[24px] nada-logo-aura">
-            <img src="/logo.png" alt="NADA Logo" className="h-full w-full object-cover" />
+            <img src="/logo.webp" alt="NADA Logo" className="h-full w-full object-cover" />
           </div>
         </motion.div>
         <div className="flex flex-col items-center gap-4">
@@ -989,7 +989,7 @@ function Onboarding({
         >
           <div className="absolute inset-0 rounded-[22px] blur-xl opacity-70 nada-logo-aura animate-logo-glow" />
           <div className="relative grid h-[68px] w-[68px] place-items-center overflow-hidden rounded-[22px] nada-logo-aura">
-            <img src="/logo.png" alt="NADA Logo" className="h-full w-full object-cover" />
+            <img src="/logo.webp" alt="NADA Logo" className="h-full w-full object-cover" />
           </div>
         </motion.div>
 
@@ -5892,7 +5892,7 @@ function ChatPanel({
           <div className="relative mb-8">
             <div className="absolute inset-0 rounded-[24px] blur-2xl opacity-60 animate-logo-glow nada-logo-aura" />
             <div className="relative grid h-[80px] w-[80px] place-items-center overflow-hidden rounded-[24px] nada-logo-aura">
-              <img src="/logo.png" alt="NADA Logo" className="h-full w-full object-cover" />
+              <img src="/logo.webp" alt="NADA Logo" className="h-full w-full object-cover" />
             </div>
           </div>
 
@@ -8688,7 +8688,7 @@ function SettingsSheet({
       >
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl overflow-hidden" style={{ background: "linear-gradient(135deg, rgb(var(--nada-accent)), rgb(var(--nada-gold-dark)))" }}>
-            <img src="/logo.png" alt="NADA Logo" className="h-full w-full object-cover" />
+            <img src="/logo.webp" alt="NADA Logo" className="h-full w-full object-cover" />
           </div>
           <div>
             <p className="text-sm font-semibold text-nada-primary">Obsidian Gold</p>
@@ -9431,7 +9431,7 @@ function SettingsDashboardPreview({
       <div className="nada-premium-card overflow-hidden p-4">
         <div className="mb-4 flex items-center gap-3">
           <div className="relative grid h-12 w-12 place-items-center overflow-hidden rounded-2xl nada-logo-aura">
-            <img src="/logo.png" alt="NADA" className="h-full w-full object-cover" />
+            <img src="/logo.webp" alt="NADA" className="h-full w-full object-cover" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[15px] font-bold text-nada-primary">{displayName}</p>

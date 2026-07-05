@@ -1,7 +1,20 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { Inter, JetBrains_Mono } from "next/font/google";
 
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   applicationName: "NADA",
@@ -12,8 +25,8 @@ export const metadata: Metadata = {
     template: "%s · NADA"
   },
   icons: {
-    icon: "/logo.png",
-    apple: "/logo.png"
+    icon: "/logo-192.png",
+    apple: "/logo-192.png"
   }
 };
 
@@ -30,7 +43,7 @@ export default function RootLayout({
   children
 }: Readonly<{ children: ReactNode }>): JSX.Element {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
       <body className="bg-nada-bg text-nada-primary antialiased font-sans" suppressHydrationWarning>
         {children}
       </body>
