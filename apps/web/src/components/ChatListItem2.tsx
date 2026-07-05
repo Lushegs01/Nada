@@ -1,7 +1,7 @@
 "use client";
 
-import { memo, useCallback, useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { motion, useMotionValue, useTransform } from "framer-motion";
 import { Users, Archive, Trash2, Pin, Check, CheckCheck, ShieldCheck } from "lucide-react";
 import { IdentityOrb } from "@nada/ui";
 
@@ -70,7 +70,23 @@ export const ChatListItem = memo(function ChatListItem({
   const hasUnread = unreadCount > 0;
   const dragEnabled = !isDesktop && Boolean(onArchive || onDelete);
 
-  const handleClick = useCallback(() => {
+  // Drag position drives the swipe-action reveal — at rest (x=0) the
+  // Archive/Delete backgrounds are fully transparent, so they only appear
+  // while the user is actually swiping.
+  const x = useMotionValue(0);
+  const archiveOpacity = useTransform(x, [0, 24, 96], [0, 0.9, 1]);
+  const deleteOpacity = useTransform(x, [-96, -24, 0], [1, 0.9, 0]);
+  const didDragRef = useRef(false);
+  const lastOpenRef = useRef(0);
+
+  // Opening is handled via framer's onTap (reliable alongside drag, unlike a
+  // raw onClick which the drag gesture swallows on touch). Guarded so a swipe
+  // never counts as a tap, and de-duped against double-fire.
+  const open = useCallback(() => {
+    if (didDragRef.current) return;
+    const now = Date.now();
+    if (now - lastOpenRef.current < 400) return;
+    lastOpenRef.current = now;
     onClick();
   }, [onClick]);
 
@@ -85,39 +101,52 @@ export const ChatListItem = memo(function ChatListItem({
 
   return (
     <div className="relative group/row w-full overflow-hidden">
-      {/* Swipe-left → Archive (accent) — mobile only */}
-      {onArchive && !isDesktop && (
-        <div className="pointer-events-none absolute inset-y-0 left-0 flex w-28 items-center justify-start pl-5 text-n-accent" style={{ background: "var(--n-accent-gradient-subtle)" }}>
+      {/* Swipe-left → Archive (accent) — mobile only, revealed only while swiping */}
+      {onArchive && dragEnabled && (
+        <motion.div
+          style={{ opacity: archiveOpacity, background: "var(--n-accent-gradient-subtle)" }}
+          className="pointer-events-none absolute inset-y-0 left-0 flex w-28 items-center justify-start pl-5 text-n-accent"
+        >
           <div className="flex flex-col items-center gap-1 font-mono text-[9px] font-semibold uppercase tracking-[0.08em]">
             <Archive size={18} />
             {archiveLabel}
           </div>
-        </div>
+        </motion.div>
       )}
-      {/* Swipe-right → Delete (danger) — mobile only */}
-      {onDelete && !isDesktop && (
-        <div className="pointer-events-none absolute inset-y-0 right-0 flex w-28 items-center justify-end bg-n-danger/15 pr-5 text-n-danger">
+      {/* Swipe-right → Delete (danger) — mobile only, revealed only while swiping */}
+      {onDelete && dragEnabled && (
+        <motion.div
+          style={{ opacity: deleteOpacity }}
+          className="pointer-events-none absolute inset-y-0 right-0 flex w-28 items-center justify-end bg-n-danger/15 pr-5 text-n-danger"
+        >
           <div className="flex flex-col items-center gap-1 font-mono text-[9px] font-semibold uppercase tracking-[0.08em]">
             <Trash2 size={18} />
             {deleteLabel}
           </div>
-        </div>
+        </motion.div>
       )}
       <motion.button
         type="button"
         className={rootClass}
-        onClick={handleClick}
         drag={dragEnabled ? "x" : false}
         dragConstraints={{ left: onDelete ? -112 : 0, right: onArchive ? 112 : 0 }}
-        dragElastic={0.15}
+        dragDirectionLock
+        dragElastic={0.12}
         dragSnapToOrigin
-        dragTransition={{ bounceStiffness: 500, bounceDamping: 32 }}
+        dragTransition={{ bounceStiffness: 500, bounceDamping: 40 }}
+        onDragStart={() => { didDragRef.current = true; }}
         onDragEnd={(_event, info) => {
-          if (info.offset.x > 96) onArchive?.();
-          else if (info.offset.x < -96) onDelete?.();
+          if (info.offset.x > 88) onArchive?.();
+          else if (info.offset.x < -88) onDelete?.();
+          // clear after the click/tap has had a chance to be suppressed
+          requestAnimationFrame(() => requestAnimationFrame(() => { didDragRef.current = false; }));
         }}
-        whileTap={{ scale: 0.98 }}
-        style={{ background: isSelected ? undefined : "rgb(var(--n-base))" }}
+        onTap={() => open()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); }
+        }}
+        whileTap={{ scale: 0.99 }}
+        style={{ x, background: isSelected ? "rgb(var(--n-s3))" : "rgb(var(--n-base))" }}
         aria-selected={isSelected}
         aria-label={`Chat with ${name}`}
       >

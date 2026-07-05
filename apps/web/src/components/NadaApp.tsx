@@ -4313,7 +4313,7 @@ function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
         <aside
           className={cn(
             "nada-sidebar relative flex w-full flex-col overflow-hidden bg-nada-surface md:w-[340px] md:min-w-[320px] md:max-w-[370px] lg:w-[360px]",
-            selectedContact || selectedGroup ? "hidden md:flex" : "flex"
+            selectedContact || selectedGroup ? "!hidden md:!flex" : "flex"
           )}
         >
         <MobileChatsHome
