@@ -291,7 +291,7 @@ export const ChatListItem = ({
             {name}
           </h3>
           <span className={cn(
-            "shrink-0 font-mono text-[10.5px] font-medium tabular-nums",
+            "shrink-0 font-mono text-[10.5px] font-medium tabular-nums transition-opacity duration-150 md:group-hover/row:opacity-0",
             unreadCount > 0 ? "text-n-accent" : "text-n-tx3"
           )}>
             {timestamp}

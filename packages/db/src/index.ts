@@ -205,7 +205,6 @@ create table if not exists status_updates (
   id uuid primary key,
   sender_pubkey_hash text not null,
   ciphertext text not null,
-  dev_plaintext text,
   created_at_ms bigint not null,
   expires_at_ms bigint not null,
   updated_at timestamptz not null

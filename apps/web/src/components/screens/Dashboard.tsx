@@ -3971,7 +3971,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                         showToast("Message forwarded");
                      }}
                    >
-                     <GroupOrb seeds={[chat.id, chat.title]} size="md" />
+                     <IdentityOrb seed={chat.title} size="md" label={chat.title} />
                      <span className="font-semibold text-nada-primary">{chat.title}</span>
                    </button>
                 ))}

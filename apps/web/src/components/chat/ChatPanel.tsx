@@ -655,7 +655,7 @@ export function ChatPanel({
       
       {/* Chat Header */}
       <header
-        className="nada-chat-header z-header relative flex shrink-0 items-center gap-3 md:px-5"
+        className="nada-chat-header z-header relative flex shrink-0 items-center gap-2 md:gap-3 md:px-5"
         style={{
           paddingLeft: "max(env(safe-area-inset-left), 12px)",
           paddingRight: "max(env(safe-area-inset-right), 12px)"
@@ -666,16 +666,21 @@ export function ChatPanel({
         </IconButton>
         {/* Identity orb — shared-element seed matches the chat list */}
         <motion.div layoutId={`orb-${title}`} className="relative shrink-0">
-          <IdentityOrb seed={title} size="lg" label={title} className="!h-[48px] !w-[48px]" />
+          <IdentityOrb
+            seed={title}
+            size="lg"
+            label={title}
+            className="!h-[40px] !w-[40px] md:!h-[48px] md:!w-[48px]"
+          />
         </motion.div>
         <div className="min-w-0 flex-1 py-2">
-          <h2 className="truncate text-[16px] font-bold text-nada-primary">{title}</h2>
-          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="nada-security-pill py-1 text-[10.5px]">
+          <h2 className="truncate text-[15px] font-bold text-nada-primary md:text-[16px]">{title}</h2>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 md:mt-1">
+            <span className="nada-security-pill max-md:!hidden py-1 text-[10.5px]">
               {isGroup ? "Invite-only encrypted room" : "End-to-end encrypted"}
             </span>
             <span className="truncate text-[11.5px] font-medium text-nada-text-muted">
-              {subtitle || "Unverified key"}
+              {subtitle || (isGroup ? "Invite-only encrypted room" : "End-to-end encrypted")}
             </span>
           </div>
         </div>
