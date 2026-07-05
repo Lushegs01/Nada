@@ -84,6 +84,9 @@ export function previewForMessage(message: MessageRecord, myPubkeyHash?: string)
     case "call":
       preview = "📞 Call";
       break;
+    case "poll":
+      preview = payload?.poll ? `📊 ${payload.poll.question}` : "📊 Poll";
+      break;
     case "system":
       preview = payload?.text ?? "System message";
       break;

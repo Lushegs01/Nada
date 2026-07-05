@@ -7,10 +7,10 @@ import type { ContactRecord, MessageRecord } from "@nada/db";
 import type { PollData, PollOption } from "@nada/types";
 import { IconButton, IdentityOrb, Avatar, cn } from "@nada/ui";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, Check, CheckCheck, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed } from "lucide-react";
+import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, Check, CheckCheck, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed, Image as ImageIcon } from "lucide-react";
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { type VirtuosoHandle, Virtuoso } from "react-virtuoso";
-import type { MessageContextAction } from "../panels/Dialogs";
+import { MessageContextAction } from "../panels/Dialogs";
 import { isVoiceNoteMessage, VoiceRecorderBar, VoiceNoteBubble, parseVoiceNoteBody, isInlineImageMessage, parseInlineFileMessage, isInlineFileMessage } from "../VoiceNote";
 import { AttachmentPreview, AttachmentMenu } from "./AttachmentMenu";
 import type { MessageContextMenuState, GlobalSearchResult } from "@/utils/dashboard-types";
@@ -180,6 +180,7 @@ export function ChatPanel({
             setMessageText("");
             onCancelEdit();
           }, [onCancelEdit]);
+    const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
     useEffect(() => {
     const anyOpen =
       showWallpaperPrompt ||
@@ -190,7 +191,9 @@ export function ChatPanel({
       showProfilePanel ||
       showVerifyKeyModal ||
       deleteSheetMessageId !== null ||
-      messageMenu !== null;
+      messageMenu !== null ||
+      attachmentMenuOpen ||
+      showOptions;
     if (!anyOpen) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -203,6 +206,8 @@ export function ChatPanel({
       else if (showVerifyKeyModal) setShowVerifyKeyModal(false);
       else if (deleteSheetMessageId !== null) setDeleteSheetMessageId(null);
       else if (messageMenu !== null) setMessageMenu(null);
+      else if (attachmentMenuOpen) setAttachmentMenuOpen(false);
+      else if (showOptions) setShowOptions(false);
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
@@ -215,11 +220,12 @@ export function ChatPanel({
     showProfilePanel,
     showVerifyKeyModal,
     deleteSheetMessageId,
-    messageMenu
+    messageMenu,
+    attachmentMenuOpen,
+    showOptions
     ]);
     const [chatSearchActive, setChatSearchActive] = useState(false);
     const [chatSearchIdx, setChatSearchIdx] = useState(0);
-    const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
     const [attachmentAccept, setAttachmentAccept] = useState("*/*");
     const [attachmentCapture, setAttachmentCapture] = useState<"environment" | undefined>();
     const [attachmentDraft, setAttachmentDraft] = useState<PreparedMediaFile | null>(null);
@@ -652,7 +658,7 @@ export function ChatPanel({
       
       {/* Chat Header */}
       <header
-        className="nada-chat-header z-header relative flex shrink-0 items-center gap-3 md:px-5"
+        className="nada-chat-header z-header relative flex shrink-0 items-center gap-2 md:gap-3 md:px-5"
         style={{
           paddingLeft: "max(env(safe-area-inset-left), 12px)",
           paddingRight: "max(env(safe-area-inset-right), 12px)"
@@ -663,16 +669,21 @@ export function ChatPanel({
         </IconButton>
         {/* Identity orb — shared-element seed matches the chat list */}
         <motion.div layoutId={`orb-${title}`} className="relative shrink-0">
-          <IdentityOrb seed={title} size="lg" label={title} className="!h-[48px] !w-[48px]" />
+          <IdentityOrb
+            seed={title}
+            size="lg"
+            label={title}
+            className="!h-[40px] !w-[40px] md:!h-[48px] md:!w-[48px]"
+          />
         </motion.div>
         <div className="min-w-0 flex-1 py-2">
-          <h2 className="truncate text-[16px] font-bold text-nada-primary">{title}</h2>
-          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="nada-security-pill py-1 text-[10.5px]">
+          <h2 className="truncate text-[15px] font-bold text-nada-primary md:text-[16px]">{title}</h2>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 md:mt-1">
+            <span className="nada-security-pill max-md:!hidden py-1 text-[10.5px]">
               {isGroup ? "Invite-only encrypted room" : "End-to-end encrypted"}
             </span>
             <span className="truncate text-[11.5px] font-medium text-nada-text-muted">
-              {subtitle || "Unverified key"}
+              {subtitle || (isGroup ? "Invite-only encrypted room" : "End-to-end encrypted")}
             </span>
           </div>
         </div>
@@ -735,7 +746,7 @@ export function ChatPanel({
                         setShowWallpaperPrompt(true);
                       }}
                     >
-                      <Image size={14} className="text-nada-accent/70" />
+                      <ImageIcon size={14} className="text-nada-accent/70" />
                       Set group wallpaper
                     </button>
                     <button
@@ -867,7 +878,7 @@ export function ChatPanel({
                         setShowWallpaperPrompt(true);
                       }}
                     >
-                      <Image size={14} className="text-nada-accent/70" />
+                      <ImageIcon size={14} className="text-nada-accent/70" />
                       Set Chat Wallpaper
                     </button>
                     <div className="my-1 border-t border-nada-border/[.08]" />
@@ -1626,7 +1637,11 @@ export function ChatPanel({
           const isMenuOpen = activeMessageMenu === message.id;
 
           const reactions = message.reactions ?? {};
-          const hasReactions = Object.keys(reactions).length > 0;
+          // Poll votes are stored as reactions keyed by option id — they render
+          // inside the poll bubble itself, not as emoji chips.
+          const hasReactions =
+            Object.keys(reactions).length > 0 &&
+            messageKindFromRecord(message) !== "poll";
           const isPinned = pinnedMessageId === message.id;
           const isVanishing = Boolean(message.expiresAt && disappearingTimer > 0);
 
@@ -2140,6 +2155,14 @@ export function ChatPanel({
               >
                 <Plus size={19} strokeWidth={2.2} />
               </button>
+              {attachmentMenuOpen ? (
+                <button
+                  aria-label="Close attachment menu"
+                  className="fixed inset-0 z-30 cursor-default bg-transparent"
+                  onClick={() => { setAttachmentMenuOpen(false); }}
+                  type="button"
+                />
+              ) : null}
               {attachmentMenuOpen ? (
                 <AttachmentMenu
                   onPickAudio={() => openAttachmentPicker("audio/*")}

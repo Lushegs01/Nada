@@ -605,6 +605,83 @@ body > * {
 }
 
 /* ═════════════════════════════════════════════════════════════════════════════
+   12b. BUTTONS — shared button primitives (restored: used by Onboarding,
+        CommunitiesHome, AttachmentMenu, GroupCallOverlay, NadaMobileUI)
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+.nada-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: var(--n-r-pill);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.006em;
+  font-family: inherit;
+  border: none;
+  cursor: pointer;
+  transition: transform var(--dur-instant) ease, box-shadow var(--dur-fast) ease, background var(--dur-fast) ease;
+  outline: none;
+}
+.nada-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--n-focus-ring);
+}
+.nada-btn:active {
+  transform: scale(0.97);
+}
+
+.nada-btn-primary {
+  background: var(--n-accent-gradient);
+  color: #ffffff;
+  box-shadow: var(--n-e-accent);
+}
+.nada-btn-primary:hover {
+  box-shadow: var(--n-e-accent-lg);
+}
+.nada-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+  box-shadow: none;
+}
+
+.nada-btn-ghost {
+  background: transparent;
+  color: rgb(var(--n-tx2));
+}
+.nada-btn-ghost:hover {
+  background: var(--n-hover);
+  color: rgb(var(--n-tx1));
+}
+
+/* Premium CTA — rides the signature gradient */
+.nada-btn-gold {
+  background: var(--n-accent-gradient);
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: var(--n-e-accent);
+  transition: transform var(--dur-instant) ease, box-shadow var(--dur-fast) ease;
+}
+.nada-btn-gold:hover {
+  box-shadow: var(--n-e-accent-lg);
+}
+.nada-btn-gold:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--n-focus-ring);
+}
+
+/* Uppercase kicker label used on marketing/launch sections */
+.nada-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgb(var(--n-tx3));
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
    13. COMPOSER — legacy wrappers now share the liquid capsule treatment
    ═════════════════════════════════════════════════════════════════════════════ */
 .nada-composer,

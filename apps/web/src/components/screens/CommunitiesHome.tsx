@@ -5,8 +5,20 @@ import { formatRelativeTime } from "@/utils/helpers";
 import type { IdentityRecord, ChatRecord, ContactRecord } from "@nada/db";
 import { cn } from "@nada/ui";
 import { motion, AnimatePresence } from "framer-motion";
-import { MessageCircle, Plus, Users, Flag, Trash2, Send, BarChart2, Sheet, X, ShieldAlert } from "lucide-react";
+import { MessageCircle, Plus, Users, Flag, Trash2, Send, BarChart2, X, ShieldAlert } from "lucide-react";
+import { Sheet } from "../panels/Sheet";
 import { useState, useEffect } from "react";
+
+const COMMUNITY_CATEGORY_OPTIONS = [
+  "Tech",
+  "Sports",
+  "Music",
+  "Gaming",
+  "Business",
+  "Education",
+  "Lifestyle",
+  "Local"
+] as const;
 
 export function CommunitiesHome({
       communities,

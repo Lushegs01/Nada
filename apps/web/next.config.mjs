@@ -23,9 +23,13 @@ function deriveConnectSrc() {
   }
   try {
     const url = new URL(/^[a-z]+:\/\//i.test(relay) ? relay : `https://${relay}`);
-    const wssOrigin = `wss://${url.host}`;
-    const httpsOrigin = `https://${url.host}`;
-    return `${baseSelf} ${httpsOrigin} ${wssOrigin} ${livekitDefaults}`;
+    // Respect the configured scheme: an http/ws relay (local dev, LAN,
+    // self-hosted behind a VPN) must not be force-upgraded to https/wss or
+    // the CSP blocks every relay fetch (media downloads, status sync).
+    const insecure = url.protocol === "http:" || url.protocol === "ws:";
+    const httpOrigin = `${insecure ? "http" : "https"}://${url.host}`;
+    const wsOrigin = `${insecure ? "ws" : "wss"}://${url.host}`;
+    return `${baseSelf} ${httpOrigin} ${wsOrigin} ${livekitDefaults}`;
   } catch {
     return `${baseSelf} ${livekitDefaults}`;
   }

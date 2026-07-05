@@ -53,8 +53,8 @@ export function Onboarding({
             onComplete(confirmed);
           };
     return (
-    <section className="relative mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center overflow-hidden px-6 py-12">
-      {/* Aurora backdrop — NADA green */}
+    <div className="relative min-h-dvh w-full overflow-hidden">
+      {/* Aurora backdrop — full-bleed so desktop shows no column seams */}
       <div className="pointer-events-none absolute inset-0 nada-hero-gradient" />
       <div
         className="pointer-events-none absolute -top-24 left-1/2 h-[460px] w-[460px] -translate-x-1/2 rounded-full opacity-50 blur-[110px] animate-aurora"
@@ -71,6 +71,7 @@ export function Onboarding({
         }}
       />
 
+    <section className="relative mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-6 py-12">
       <div className="relative z-10">
         {/* Brand mark */}
         <motion.div
@@ -208,5 +209,6 @@ export function Onboarding({
         )}
       </div>
     </section>
+    </div>
     );
 }

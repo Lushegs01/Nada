@@ -64,7 +64,7 @@ class PostgresStatusRepository implements StatusRepository {
       [Date.now()]
     );
     const result = await this.client.query(
-      `select id, sender_pubkey_hash, ciphertext, dev_plaintext, created_at_ms
+      `select id, sender_pubkey_hash, ciphertext, created_at_ms
        from status_updates
        where sender_pubkey_hash = any($1::text[])
          and created_at_ms >= $2
@@ -76,7 +76,6 @@ class PostgresStatusRepository implements StatusRepository {
 
     return result.rows.map((row) => ({
       ciphertext: row.ciphertext,
-      ...(row.dev_plaintext ? { devPlaintext: row.dev_plaintext } : {}),
       id: row.id,
       senderPubkeyHash: row.sender_pubkey_hash,
       timestamp: Number(row.created_at_ms)
@@ -85,13 +84,14 @@ class PostgresStatusRepository implements StatusRepository {
 
   async upsertStatus(status: RelayStatusUpdate): Promise<void> {
     await this.client.query(
+      // dev_plaintext is intentionally never persisted server-side: the
+      // Postgres schema stays metadata-only (enforced by @nada/db tests).
       `insert into status_updates
-       (id, sender_pubkey_hash, ciphertext, dev_plaintext, created_at_ms, expires_at_ms, updated_at)
-       values ($1, $2, $3, $4, $5, $6, now())
+       (id, sender_pubkey_hash, ciphertext, created_at_ms, expires_at_ms, updated_at)
+       values ($1, $2, $3, $4, $5, now())
        on conflict (id) do update set
          sender_pubkey_hash = excluded.sender_pubkey_hash,
          ciphertext = excluded.ciphertext,
-         dev_plaintext = excluded.dev_plaintext,
          created_at_ms = excluded.created_at_ms,
          expires_at_ms = excluded.expires_at_ms,
          updated_at = now()`,
@@ -99,7 +99,6 @@ class PostgresStatusRepository implements StatusRepository {
         status.id || randomUUID(),
         status.senderPubkeyHash,
         status.ciphertext,
-        status.devPlaintext ?? null,
         status.timestamp,
         status.timestamp + STATUS_TTL_MS
       ]
