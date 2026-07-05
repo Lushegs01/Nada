@@ -8,7 +8,7 @@ import type { InvitePayload } from "@nada/types";
 import { IconButton, cn, Button, Avatar } from "@nada/ui";
 import { Sheet, X, Copy, QrCode, Download, Upload, Share2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import type { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 export function ContactSheet({
       identity,
