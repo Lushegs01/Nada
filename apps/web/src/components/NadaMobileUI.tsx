@@ -629,7 +629,7 @@ export const MobileHeader = ({
         </div>
         <span className={cn(
           "truncate text-[24px] font-extrabold tracking-[-0.02em]",
-          title === "NADA" ? "n-gradient-text" : "text-n-tx1"
+          title === "NADA" ? "text-white" : "text-n-tx1"
         )}>
           {title}
         </span>

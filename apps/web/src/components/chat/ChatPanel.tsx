@@ -7,7 +7,7 @@ import type { ContactRecord, MessageRecord } from "@nada/db";
 import type { PollData, PollOption } from "@nada/types";
 import { IconButton, IdentityOrb, Avatar, cn } from "@nada/ui";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
-import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, Check, CheckCheck, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, Check, CheckCheck, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed, Image as ImageIcon, Lock, ChevronLeft } from "lucide-react";
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { type VirtuosoHandle, Virtuoso } from "react-virtuoso";
 import { MessageContextAction } from "../panels/Dialogs";
@@ -96,6 +96,74 @@ function SwipeableMessageWrapper({ children, message, onReply, shouldAnimateIn, 
           <Reply size={20} />
         </motion.div>
       )}
+    </div>
+  );
+}
+
+function InteractiveMicButton({
+  onStart,
+  onStop,
+  onCancel,
+  onLock,
+  isHolding
+}: {
+  onStart: () => void;
+  onStop: () => void;
+  onCancel: () => void;
+  onLock: () => void;
+  isHolding: boolean;
+}) {
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const lockOpacity = useTransform(y, [0, -60], [0, 1]);
+
+  return (
+    <div className="relative">
+      <AnimatePresence>
+        {isHolding && (
+           <motion.div 
+             initial={{ opacity: 0, y: 20 }}
+             animate={{ opacity: 1, y: 0 }}
+             exit={{ opacity: 0, y: 20 }}
+             className="absolute -top-20 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none"
+           >
+             <motion.div style={{ opacity: lockOpacity }} className="grid h-10 w-10 place-items-center rounded-full bg-nada-surface-elevated border border-nada-border/20 shadow-lg text-nada-accent">
+               <Lock size={16} />
+             </motion.div>
+             <ChevronUp size={16} className="text-nada-secondary/50 animate-bounce" />
+           </motion.div>
+        )}
+      </AnimatePresence>
+
+      <motion.button
+        aria-label="Voice note"
+        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white transition-all duration-200 hover:scale-105 nada-logo-aura relative z-20"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          onStart();
+        }}
+        drag={isHolding}
+        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+        dragElastic={0.4}
+        style={{ x, y }}
+        onDrag={(e, info) => {
+          if (info.offset.y < -80) {
+            if ("vibrate" in navigator) navigator.vibrate(20);
+            onLock();
+          } else if (info.offset.x < -100) {
+            if ("vibrate" in navigator) navigator.vibrate(20);
+            onCancel();
+          }
+        }}
+        onPointerUp={(e) => {
+          if (isHolding) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+            onStop();
+          }
+        }}
+      >
+        <Mic size={17} strokeWidth={2.2} />
+      </motion.button>
     </div>
   );
 }
@@ -219,6 +287,7 @@ export function ChatPanel({
     const [showWallpaperPrompt, setShowWallpaperPrompt] = useState(false);
     const [showPollModal, setShowPollModal] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
+    const [recordingPhase, setRecordingPhase] = useState<"idle" | "holding" | "locked">("idle");
     const [recordingSeconds, setRecordingSeconds] = useState(0);
     const [showMuteModal, setShowMuteModal] = useState(false);
     const [showClearModal, setShowClearModal] = useState(false);
@@ -591,6 +660,7 @@ export function ChatPanel({
               // Use timeslice so ondataavailable fires frequently
               recorder.start(250);
               setIsRecording(true);
+              setRecordingPhase("holding");
               setRecordingSeconds(0);
               recordingSecondsRef.current = 0;
 
@@ -604,11 +674,16 @@ export function ChatPanel({
           };
     const stopRecording = () => {
             if (mediaRecorder.current && isRecording) {
+              if (recordingSecondsRef.current < 1) {
+                cancelRecording();
+                return;
+              }
               if (recordingTimer.current) window.clearInterval(recordingTimer.current);
               void recordingAudioContext.current?.close();
               recordingAudioContext.current = null;
               setRecordingAnalyser(null);
               setIsRecording(false);
+              setRecordingPhase("idle");
               // stop() triggers onstop async — chunks are finalized there
               mediaRecorder.current.stop();
             }
@@ -627,6 +702,7 @@ export function ChatPanel({
               mediaRecorder.current.stop();
               audioChunks.current = [];
               setIsRecording(false);
+              setRecordingPhase("idle");
             }
           };
     const openAttachmentPicker = (
@@ -2197,7 +2273,7 @@ export function ChatPanel({
           />
         ) : null}
         <div className="nada-message-lane flex items-center gap-2 px-4 md:px-6">
-          {!isRecording ? (
+          {recordingPhase !== "locked" ? (
             <>
               <input
                 accept={attachmentAccept}
@@ -2253,7 +2329,12 @@ export function ChatPanel({
                   })}
                 />
               ) : null}
-              <input
+              {recordingPhase === "holding" ? (
+                 <div className="flex-1 flex items-center justify-end pr-4 text-nada-secondary/70 animate-pulse font-medium text-sm">
+                   <ChevronLeft className="inline mr-1" size={16} /> Slide to cancel
+                 </div>
+              ) : (
+                <input
                 className="h-12 min-w-0 flex-1 rounded-full bg-n-s3/80 px-4 text-[14.5px] text-nada-primary outline-none backdrop-blur-md transition-all duration-200 placeholder:text-nada-secondary/45 focus:ring-2 focus:ring-n-accent/20 disabled:opacity-40"
                 disabled={peerIsBlocked}
                 onChange={(event) => {
@@ -2290,6 +2371,7 @@ export function ChatPanel({
                 placeholder="Type a message..."
                 value={messageText}
               />
+              )}
               {messageText.trim() ? (
                 <button
                   className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white transition-all duration-200 hover:scale-105 active:scale-90 nada-logo-aura"
@@ -2299,18 +2381,17 @@ export function ChatPanel({
                   <Send size={16} strokeWidth={2.4} />
                 </button>
               ) : (
-                <button
-                  aria-label="Voice note"
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white transition-all duration-200 hover:scale-105 active:scale-90 nada-logo-aura"
-                  onPointerDown={startRecording}
-                  type="button"
-                >
-                  <Mic size={17} strokeWidth={2.2} />
-                </button>
+                <InteractiveMicButton
+                  onStart={startRecording}
+                  onStop={stopRecording}
+                  onCancel={cancelRecording}
+                  onLock={() => setRecordingPhase("locked")}
+                  isHolding={recordingPhase === "holding"}
+                />
               )}
             </>
           ) : (
-            <div className="flex-1">
+            <div className="flex-1 animate-in slide-in-from-bottom-2">
               <VoiceRecorderBar 
                 seconds={recordingSeconds} 
                 onStop={stopRecording} 
