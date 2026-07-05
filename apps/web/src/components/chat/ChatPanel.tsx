@@ -2074,7 +2074,7 @@ export function ChatPanel({
 
       <form
         className={cn(
-          "nada-input-bar relative sticky bottom-0 z-header px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-6",
+          "relative sticky flex flex-col w-full bottom-0 z-header px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-6",
           peerIsBlocked && "pointer-events-none opacity-40"
         )}
         onSubmit={(event) => {
