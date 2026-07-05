@@ -1,0 +1,103 @@
+/* ═════════════════════════════════════════════════════════════════════════════
+   3. SIGNATURE — IDENTITY ORB
+   Generative gradient blob; morph is GPU-only border-radius cycling.
+   ═════════════════════════════════════════════════════════════════════════════ */
+.n-orb {
+  position: relative;
+  border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+  animation: orb-morph var(--dur-ambient) ease-in-out infinite;
+  will-change: border-radius;
+  overflow: hidden;
+}
+.n-orb::after {
+  /* specular top-left highlight — makes the blob feel lit */
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, transparent 46%, rgba(255, 255, 255, 0.05) 100%);
+  pointer-events: none;
+}
+
+@keyframes orb-morph {
+  0%, 100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+  25%      { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
+  50%      { border-radius: 50% 60% 30% 40% / 40% 70% 60% 50%; }
+  75%      { border-radius: 40% 30% 60% 70% / 70% 40% 50% 60%; }
+}
+
+@keyframes orb-glow {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+
+[data-ghost="true"] .n-orb {
+  filter: saturate(0.2) brightness(0.85);
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   8. GLASS & SURFACE TREATMENT
+   ═════════════════════════════════════════════════════════════════════════════ */
+.n-glass {
+  background: var(--n-s-glass);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  box-shadow: inset 0 0 0 1px rgb(var(--n-edge) / 0.06);
+}
+.n-glass-strong {
+  background: rgb(var(--n-s2) / 0.88);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--n-edge) / 0.08),
+    inset 0 1px 0 rgb(var(--n-edge) / 0.04);
+}
+.n-hairline {
+  box-shadow: inset 0 0 0 1px rgb(var(--n-edge) / 0.06);
+}
+.n-inner-light {
+  box-shadow: inset 0 1px 0 rgb(var(--n-edge) / 0.04);
+}
+
+/* Gradient text — iridescent accent */
+.n-gradient-text,
+.nada-accent-text {
+  background: var(--n-accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+@keyframes n-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+/* Skeleton — accent gradient shimmer over quiet surface */
+.n-skeleton,
+.nada-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgb(var(--n-s2));
+  border-radius: var(--n-r-sm);
+}
+.n-skeleton::after,
+.nada-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg,
+    transparent 20%,
+    rgba(124, 58, 237, 0.07) 40%,
+    rgba(37, 99, 235, 0.09) 50%,
+    rgba(16, 217, 138, 0.07) 60%,
+    transparent 80%);
+  background-size: 200% 100%;
+  animation: n-shimmer 1.8s linear infinite;
+}
+@keyframes n-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+

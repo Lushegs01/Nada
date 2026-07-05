@@ -212,8 +212,7 @@ code, kbd, pre, samp, .font-mono {
 }
 
 [data-ghost="true"] .nada-shell,
-[data-ghost="true"] .nada-app-frame,
-[data-ghost="true"] .nada-desktop-layout {
+[data-ghost="true"] .nada-app-frame {
   filter: saturate(0.14) brightness(0.76);
 }
 
@@ -235,9 +234,6 @@ code, kbd, pre, samp, .font-mono {
   [data-ghost="true"] .n-ghost-blur:focus-within {
     filter: blur(0px);
   }
-}
-[data-ghost="true"] .n-ghost-blur.n-revealed {
-  filter: blur(0px);
 }
 
 /* GHOST MODE badge — JetBrains Mono, fog particles behind */
@@ -381,11 +377,6 @@ body > * {
 .pl-safe-area { padding-left: var(--sai-left); }
 .pr-safe-area { padding-right: var(--sai-right); }
 
-.rounded-t-inherit {
-  border-top-left-radius: inherit;
-  border-top-right-radius: inherit;
-}
-
 .tap-highlight-none {
   -webkit-tap-highlight-color: transparent;
 }
@@ -399,917 +390,8 @@ body > * {
 }
 
 /* ═════════════════════════════════════════════════════════════════════════════
-   3. SIGNATURE — IDENTITY ORB
-   Generative gradient blob; morph is GPU-only border-radius cycling.
-   ═════════════════════════════════════════════════════════════════════════════ */
-.n-orb {
-  position: relative;
-  border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
-  animation: orb-morph var(--dur-ambient) ease-in-out infinite;
-  will-change: border-radius;
-  overflow: hidden;
-}
-.n-orb::after {
-  /* specular top-left highlight — makes the blob feel lit */
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, transparent 46%, rgba(255, 255, 255, 0.05) 100%);
-  pointer-events: none;
-}
-
-@keyframes orb-morph {
-  0%, 100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
-  25%      { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
-  50%      { border-radius: 50% 60% 30% 40% / 40% 70% 60% 50%; }
-  75%      { border-radius: 40% 30% 60% 70% / 70% 40% 50% 60%; }
-}
-
-@keyframes orb-glow {
-  0%, 100% { opacity: 0.6; }
-  50%      { opacity: 1; }
-}
-
-[data-ghost="true"] .n-orb {
-  filter: saturate(0.2) brightness(0.85);
-}
-
-/* ═════════════════════════════════════════════════════════════════════════════
-   4. SIGNATURE — WHISPER BUBBLES
-   Asymmetric radii; the pinched 6px corner implies direction. No tails.
-   ═════════════════════════════════════════════════════════════════════════════ */
-.n-bubble-sent,
-.n-bubble-recv {
-  position: relative;
-  padding: 10px 14px 8px;
-  min-width: 72px;
-  max-width: 100%;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  border-radius: var(--n-r-bubble-chain);
-}
-
-.n-bubble-sent {
-  background: rgb(var(--n-sent-bg));
-  background-image: linear-gradient(135deg, rgba(124, 110, 248, 0.10) 0%, transparent 42%);
-  border: 1px solid var(--n-sent-bd);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 2px 8px rgb(0 0 0 / 0.25);
-}
-.n-bubble-sent.has-tail,
-.n-bubble-sent.n-terminal {
-  border-radius: var(--n-r-bubble-sent);
-}
-/* gradient spine — 2px left border in the accent gradient */
-.n-bubble-sent::before {
-  content: "";
-  position: absolute;
-  left: -1px;
-  top: 7px;
-  bottom: 7px;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--n-accent-gradient-v);
-  opacity: 0.75;
-}
-
-.n-bubble-recv {
-  background: rgb(var(--n-recv-bg));
-  border: 1px solid var(--n-recv-bd);
-  box-shadow: inset 0 1px 0 rgb(var(--n-edge) / 0.03), 0 2px 8px rgb(0 0 0 / 0.20);
-}
-.n-bubble-recv.has-tail,
-.n-bubble-recv.n-terminal {
-  border-radius: var(--n-r-bubble-recv);
-}
-
-/* Freshly arrived — 3s accent glow pulse, then settles */
-.n-bubble-new {
-  animation: n-bubble-glow 3s ease-out 1;
-}
-@keyframes n-bubble-glow {
-  0%   { box-shadow: 0 0 0 0 rgb(124 58 237 / 0.00); }
-  18%  { box-shadow: 0 0 18px 1px rgb(124 58 237 / 0.34); }
-  60%  { box-shadow: 0 0 12px 0 rgb(124 58 237 / 0.16); }
-  100% { box-shadow: 0 0 0 0 rgb(124 58 237 / 0.00); }
-}
-
-@keyframes whisper-in {
-  0%   { opacity: 0; transform: translateY(4px) scale(0.97); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-.n-whisper-in {
-  animation: whisper-in 0.28s var(--ease-spring) both;
-}
-
-@keyframes bubble-send {
-  0%   { transform: translateY(0) scale(0.97); opacity: 0.7; }
-  55%  { transform: translateY(-3px) scale(1.005); }
-  100% { transform: translateY(0) scale(1); opacity: 1; }
-}
-.n-bubble-sent-anim {
-  animation: bubble-send 0.32s var(--ease-spring) both;
-}
-
-/* Dissolving message — particle fade */
-@keyframes particle-fade {
-  0%   { opacity: 1; transform: scale(1) translate(0, 0); filter: blur(0); }
-  60%  { opacity: 0.5; transform: scale(0.72) translate(4px, -8px); filter: blur(2px); }
-  100% { opacity: 0; transform: scale(0.30) translate(-6px, -18px); filter: blur(6px); }
-}
-.n-dissolve {
-  animation: particle-fade 0.9s var(--ease-in-expo) both;
-}
-
-@keyframes ghost-blur {
-  0%   { filter: blur(0); }
-  100% { filter: blur(6px); }
-}
-
-/* ═════════════════════════════════════════════════════════════════════════════
-   5. SIGNATURE — TIME RIBBON
-   1px spine on the leading edge; gradient node tracks scroll.
-   ═════════════════════════════════════════════════════════════════════════════ */
-.n-ribbon {
-  position: absolute;
-  top: 12px;
-  bottom: 12px;
-  left: max(10px, var(--sai-left));
-  width: 1px;
-  background: linear-gradient(180deg,
-    transparent 0%,
-    rgb(var(--n-edge) / 0.10) 8%,
-    rgb(var(--n-edge) / 0.10) 92%,
-    transparent 100%);
-  z-index: 6;
-  pointer-events: none;
-}
-.n-ribbon-node {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--n-accent-gradient);
-  box-shadow: 0 0 10px rgb(124 58 237 / 0.55), 0 0 3px rgb(124 58 237 / 0.80);
-  pointer-events: auto;
-  cursor: grab;
-}
-.n-ribbon-node:active {
-  cursor: grabbing;
-}
-.n-ribbon-label {
-  padding: 3px 9px;
-  border-radius: var(--n-r-pill);
-  background: rgb(var(--n-s3) / 0.90);
-  border: 1px solid rgb(var(--n-edge) / 0.08);
-  color: rgb(var(--n-tx2));
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-/* ═════════════════════════════════════════════════════════════════════════════
-   6. SIGNATURE — LIQUID COMPOSER
-   One floating capsule. Interior swaps; the capsule holds its shape.
-   ═════════════════════════════════════════════════════════════════════════════ */
-.n-composer {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  padding: 6px;
-  border-radius: var(--n-r-pill);
-  background: rgb(var(--n-s2) / 0.86);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  border: 1px solid rgb(var(--n-edge) / 0.07);
-  box-shadow:
-    inset 0 1px 0 rgb(var(--n-edge) / 0.04),
-    0 4px 16px rgb(0 0 0 / 0.45),
-    0 0 0 0 rgb(124 58 237 / 0);
-  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-normal) var(--ease-spring);
-}
-.n-composer:focus-within {
-  border-color: rgb(var(--n-accent-solid) / 0.40);
-  box-shadow:
-    inset 0 1px 0 rgb(var(--n-edge) / 0.05),
-    0 4px 20px rgb(0 0 0 / 0.50),
-    0 0 0 3px rgb(124 58 237 / 0.10);
-}
-
-.n-composer-send {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--n-r-pill);
-  background: var(--n-accent-gradient);
-  border: none;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  color: #E4E6F0;
-  box-shadow: var(--n-e-accent);
-  flex-shrink: 0;
-}
-.n-composer-send:disabled {
-  opacity: 0.38;
-  cursor: default;
-  box-shadow: none;
-}
-
-/* ═════════════════════════════════════════════════════════════════════════════
-   7. SIGNATURE — FLOATING ORB NAVIGATOR (mobile)
-   ═════════════════════════════════════════════════════════════════════════════ */
-.n-orb-nav {
-  position: fixed;
-  right: calc(18px + var(--sai-right));
-  bottom: calc(22px + var(--sai-bottom));
-  z-index: 700;
-}
-.n-orb-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px 10px 12px;
-  min-height: 44px;
-  border-radius: var(--n-r-pill);
-  background: rgb(var(--n-s3) / 0.92);
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  border: 1px solid rgb(var(--n-edge) / 0.08);
-  box-shadow: var(--n-e2);
-  color: rgb(var(--n-tx2));
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.003em;
-  cursor: pointer;
-}
-.n-orb-nav-item.active {
-  color: rgb(var(--n-tx1));
-  border-color: rgb(var(--n-accent-solid) / 0.45);
-  box-shadow: var(--n-e2), 0 0 14px rgb(124 58 237 / 0.30);
-}
-.n-orb-nav-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 690;
-  background: rgb(var(--nada-overlay) / 0.55);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-/* ═════════════════════════════════════════════════════════════════════════════
-   8. GLASS & SURFACE TREATMENT
-   ═════════════════════════════════════════════════════════════════════════════ */
-.n-glass {
-  background: var(--n-s-glass);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  box-shadow: inset 0 0 0 1px rgb(var(--n-edge) / 0.06);
-}
-.n-glass-strong {
-  background: rgb(var(--n-s2) / 0.88);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  box-shadow:
-    inset 0 0 0 1px rgb(var(--n-edge) / 0.08),
-    inset 0 1px 0 rgb(var(--n-edge) / 0.04);
-}
-.n-hairline {
-  box-shadow: inset 0 0 0 1px rgb(var(--n-edge) / 0.06);
-}
-.n-inner-light {
-  box-shadow: inset 0 1px 0 rgb(var(--n-edge) / 0.04);
-}
-
-/* Gradient text — iridescent accent */
-.n-gradient-text,
-.nada-accent-text {
-  background: var(--n-accent-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}
-
-@keyframes n-gradient-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50%      { background-position: 100% 50%; }
-}
-
-/* Skeleton — accent gradient shimmer over quiet surface */
-.n-skeleton,
-.nada-skeleton {
-  position: relative;
-  overflow: hidden;
-  background: rgb(var(--n-s2));
-  border-radius: var(--n-r-sm);
-}
-.n-skeleton::after,
-.nada-skeleton::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(100deg,
-    transparent 20%,
-    rgba(124, 58, 237, 0.07) 40%,
-    rgba(37, 99, 235, 0.09) 50%,
-    rgba(16, 217, 138, 0.07) 60%,
-    transparent 80%);
-  background-size: 200% 100%;
-  animation: n-shimmer 1.8s linear infinite;
-}
-@keyframes n-shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-/* ═════════════════════════════════════════════════════════════════════════════
-   9. APP LAYOUT SHELL
-   ═════════════════════════════════════════════════════════════════════════════ */
-.nada-shell {
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
-  width: 100%;
-  overflow: hidden;
-  position: relative;
-  background: rgb(var(--n-base));
-}
-
-.nada-desktop-layout {
-  display: flex;
-  height: 100dvh;
-  width: 100%;
-  overflow: hidden;
-}
-
-.nada-app-frame {
-  background:
-    radial-gradient(circle at 14% 0%, rgb(var(--n-accent-start) / 0.08), transparent 34%),
-    radial-gradient(circle at 86% 100%, rgb(var(--n-accent-end) / 0.05), transparent 38%),
-    rgb(var(--n-base));
-}
-
-.nada-desktop-shell {
-  background:
-    linear-gradient(135deg, rgb(var(--n-s1) / 0.96), rgb(var(--n-base) / 0.98)),
-    rgb(var(--n-base));
-  border: 1px solid rgb(var(--n-edge) / 0.06);
-  box-shadow:
-    0 28px 80px rgba(0, 0, 0, 0.62),
-    inset 0 0 0 1px rgb(var(--n-edge) / 0.03);
-}
-
-/* ── Navigation rail (desktop column 1) ── */
-.nada-rail {
-  width: var(--nada-rail-width);
-  min-width: var(--nada-rail-width);
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: calc(16px + var(--sai-top)) 0 20px;
-  background: rgb(var(--n-base) / 0.86);
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  border-right: 1px solid rgb(var(--n-edge) / 0.06);
-  z-index: 20;
-  gap: 2px;
-}
-
-.nada-rail-logo {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  overflow: hidden;
-  margin-bottom: 20px;
-  flex-shrink: 0;
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-spring);
-}
-.nada-rail-logo:hover {
-  transform: scale(1.06);
-}
-.nada-rail-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.nada-rail-nav {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  flex: 1;
-}
-
-.nada-rail-btn {
-  position: relative;
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--n-r-lg);
-  border: none;
-  background: transparent;
-  color: rgb(var(--n-tx3));
-  cursor: pointer;
-  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
-  outline: none;
-}
-.nada-rail-btn:hover {
-  background: var(--n-hover);
-  color: rgb(var(--n-tx2));
-}
-.nada-rail-btn.active {
-  background: var(--n-accent-gradient-subtle);
-  color: rgb(var(--n-tx1));
-}
-.nada-rail-btn.active::before {
-  content: "";
-  position: absolute;
-  left: -14px;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-top-right-radius: 4px;
-  border-bottom-right-radius: 4px;
-  background: var(--n-accent-gradient-v);
-  box-shadow: 0 0 8px rgb(124 110 248 / 0.4);
-}
-.nada-rail-btn:focus-visible {
-  box-shadow: 0 0 0 2px var(--n-focus-ring);
-}
-
-.nada-rail-badge {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: var(--n-r-pill);
-  background: var(--n-accent-gradient);
-  color: #FFFFFF;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-
-.nada-rail-spacer {
-  flex: 1;
-}
-
-.nada-rail-avatar {
-  width: 38px;
-  height: 38px;
-  cursor: pointer;
-  margin-top: auto;
-  transition: opacity var(--dur-fast) ease;
-  flex-shrink: 0;
-}
-.nada-rail-avatar:hover {
-  opacity: 0.85;
-}
-
-/* ── Sidebar (column 2) ── */
-.nada-sidebar {
-  width: var(--nada-sidebar-width);
-  min-width: var(--nada-sidebar-width);
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: rgb(var(--n-s1));
-  border-right: 1px solid rgb(var(--n-edge) / 0.06);
-  overflow: hidden;
-  z-index: 15;
-}
-
-.nada-sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: calc(14px + var(--sai-top)) 16px 10px;
-  flex-shrink: 0;
-}
-
-.nada-sidebar-title {
-  font-size: 24px;
-  font-weight: 800;
-  color: rgb(var(--n-tx1));
-  letter-spacing: -0.020em;
-}
-
-.nada-sidebar-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* ── Search ── */
-.nada-search-container {
-  padding: 0 12px 8px;
-  flex-shrink: 0;
-}
-
-.nada-search {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 38px;
-  padding: 0 14px;
-  background: rgb(var(--n-s3) / 0.55);
-  border-radius: var(--n-r-pill);
-  border: 1px solid rgb(var(--n-edge) / 0.05);
-  transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease, box-shadow var(--dur-normal) var(--ease-spring);
-}
-.nada-search:focus-within {
-  border-color: rgb(var(--n-accent-solid) / 0.45);
-  background: rgb(var(--n-s3) / 0.85);
-  box-shadow: 0 0 0 3px rgb(124 58 237 / 0.10);
-}
-.nada-search svg {
-  width: 15px;
-  height: 15px;
-  color: rgb(var(--n-tx3));
-  flex-shrink: 0;
-}
-.nada-search input {
-  flex: 1;
-  background: none;
-  border: none;
-  outline: none;
-  color: rgb(var(--n-tx1));
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: -0.003em;
-  font-family: inherit;
-}
-.nada-search input::placeholder {
-  color: rgb(var(--n-tx3));
-}
-
-/* ── Filter pills ── */
-.nada-filters {
-  display: flex;
-  gap: 6px;
-  padding: 4px 12px 10px;
-  flex-shrink: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.nada-filters::-webkit-scrollbar {
-  display: none;
-}
-
-.nada-filter-chip,
-.nada-filter-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 30px;
-  padding: 0 14px;
-  border-radius: var(--n-r-pill);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  background: transparent;
-  color: rgb(var(--n-tx2));
-  border: 1px solid rgb(var(--n-edge) / 0.08);
-  cursor: pointer;
-  transition: all var(--dur-fast) ease;
-  outline: none;
-}
-.nada-filter-chip:hover,
-.nada-filter-pill:hover {
-  background: rgb(var(--n-s2) / 0.70);
-  color: rgb(var(--n-tx1));
-}
-.nada-filter-chip.active,
-.nada-filter-pill-active {
-  background: var(--n-accent-gradient);
-  border-color: transparent;
-  color: #FFFFFF;
-  box-shadow: 0 2px 10px rgb(124 58 237 / 0.30);
-}
-.nada-filter-chip:focus-visible {
-  box-shadow: 0 0 0 2px var(--n-focus-ring);
-}
-
-/* ── Chat list ── */
-.nada-chat-list {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
-}
-
-.nada-chat-item {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 10px 14px;
-  cursor: pointer;
-  transition: background var(--dur-fast) ease;
-  position: relative;
-  min-height: 72px;
-}
-.nada-chat-item:hover {
-  background: var(--n-hover);
-}
-.nada-chat-item.active {
-  background: var(--n-active);
-}
-.nada-chat-item::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 74px;
-  right: 14px;
-  height: 1px;
-  background: rgb(var(--n-edge) / 0.05);
-}
-.nada-chat-item:last-child::after {
-  display: none;
-}
-
-.nada-chat-item-active {
-  background: rgb(var(--n-s3));
-}
-.nada-chat-item-active::before {
-  z-index: 20;
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--n-accent-gradient-v);
-  border-radius: 0 3px 3px 0;
-}
-
-/* ── Avatars — every instance renders an IdentityOrb; these wrappers remain
-      for layout compat ── */
-.nada-avatar {
-  position: relative;
-  width: 48px;
-  height: 48px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-}
-.nada-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 50%;
-}
-.nada-avatar-img {
-  border-radius: 50%;
-}
-.nada-avatar-initials {
-  font-size: 17px;
-  font-weight: 600;
-  color: rgb(var(--n-tx2));
-  text-transform: uppercase;
-  user-select: none;
-}
-.nada-avatar-sm {
-  width: 38px;
-  height: 38px;
-}
-.nada-avatar-sm .nada-avatar-initials {
-  font-size: 14px;
-}
-.nada-avatar-lg {
-  width: 56px;
-  height: 56px;
-}
-.nada-avatar-lg .nada-avatar-initials {
-  font-size: 20px;
-}
-
-.nada-online-dot,
-.nada-status-online {
-  position: absolute;
-  bottom: 1px;
-  right: 1px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: rgb(var(--n-success));
-  border: 2.5px solid rgb(var(--n-s1));
-  box-shadow: 0 0 8px rgb(var(--n-success) / 0.55);
-  z-index: 2;
-}
-
-.nada-chat-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.nada-chat-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.nada-chat-name {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.008em;
-  color: rgb(var(--n-tx1));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-  min-width: 0;
-}
-
-.nada-chat-time {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  font-weight: 500;
-  color: rgb(var(--n-tx3));
-  flex-shrink: 0;
-}
-.nada-chat-item.unread .nada-chat-time {
-  color: rgb(var(--n-accent-solid));
-}
-
-.nada-chat-preview {
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: -0.003em;
-  color: rgb(var(--n-tx3));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.nada-unread-badge {
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: var(--n-r-pill);
-  background: var(--n-accent-gradient);
-  color: #FFFFFF;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  flex-shrink: 0;
-  box-shadow: 0 2px 8px rgb(124 58 237 / 0.35);
-}
-.nada-unread-badge.muted {
-  background: rgb(var(--n-tx3));
-  box-shadow: none;
-}
-
-/* ── Conversation area (column 3) ── */
-.nada-conversation {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-width: 0;
-  position: relative;
-  background: rgb(var(--n-base));
-}
-
-.nada-chat-bg {
-  background:
-    radial-gradient(ellipse 90% 55% at 50% -10%, rgb(var(--n-accent-start) / 0.05), transparent 60%),
-    rgb(var(--n-base));
-}
-
-.nada-wallpaper,
-.nada-wallpaper-doodle {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  opacity: 0.03;
-  background-image:
-    radial-gradient(circle at 15% 20%, rgb(var(--n-edge) / 0.06) 1px, transparent 1px),
-    radial-gradient(circle at 85% 30%, rgb(var(--n-edge) / 0.04) 1px, transparent 1px),
-    radial-gradient(circle at 45% 70%, rgb(var(--n-edge) / 0.05) 1px, transparent 1px),
-    radial-gradient(circle at 70% 85%, rgb(var(--n-edge) / 0.04) 1px, transparent 1px);
-  background-size: 80px 80px, 120px 120px, 100px 100px, 90px 90px;
-  pointer-events: none;
-}
-
-/* ── Thread header — frosted glass ── */
-.nada-chat-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-height: var(--nada-header-height);
-  padding: var(--sai-top) 16px 0;
-  background: var(--n-s-glass);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  border-bottom: 1px solid rgb(var(--n-edge) / 0.05);
-  flex-shrink: 0;
-  z-index: 10;
-}
-
-.nada-chat-header-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.nada-chat-header-name {
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.012em;
-  color: rgb(var(--n-tx1));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.nada-chat-header-status {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.03em;
-  color: rgb(var(--n-tx3));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.nada-chat-header-status.online {
-  color: rgb(var(--n-success));
-}
-
-.nada-chat-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-/* ── Icon button ── */
-.nada-icon-btn {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--n-r-pill);
-  border: none;
-  background: transparent;
-  color: rgb(var(--n-tx3));
-  cursor: pointer;
-  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
-  outline: none;
-  flex-shrink: 0;
-}
-.nada-icon-btn:hover {
-  background: var(--n-hover);
-  color: rgb(var(--n-tx2));
-}
-.nada-icon-btn:active {
-  background: var(--n-active);
-}
-.nada-icon-btn:focus-visible {
-  box-shadow: 0 0 0 2px var(--n-focus-ring);
-}
-.nada-icon-btn.danger:hover {
-  color: rgb(var(--n-danger));
-  background: rgb(var(--n-danger) / 0.10);
-}
-
-/* ═════════════════════════════════════════════════════════════════════════════
    10. MESSAGES
    ═════════════════════════════════════════════════════════════════════════════ */
-.nada-messages {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
-  padding: 12px 24px 12px 40px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  position: relative;
-  z-index: 1;
-}
 
 .nada-message {
   display: flex;
@@ -1390,41 +472,6 @@ body > * {
   border-radius: var(--n-r-bubble-recv);
 }
 
-.nada-bubble-text {
-  font-size: 14px;
-  line-height: 1.55;
-  letter-spacing: -0.006em;
-  color: rgb(var(--n-tx1));
-  white-space: pre-wrap;
-}
-
-.nada-bubble-meta {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  margin-top: 2px;
-  float: right;
-  margin-left: 12px;
-}
-
-.nada-bubble-time {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: rgb(var(--n-tx3));
-  white-space: nowrap;
-}
-
-.nada-tick {
-  display: inline-flex;
-  color: rgb(var(--n-tx3));
-}
-.nada-tick.read {
-  color: rgb(var(--n-accent-end));
-}
-
 /* Reply quotes inside bubbles */
 .nada-reply-preview,
 .nada-reply-quote {
@@ -1434,20 +481,11 @@ body > * {
   background: rgb(0 0 0 / 0.20);
   border-left: 2px solid rgb(var(--n-accent-solid));
 }
-.nada-reply-preview-name,
 .nada-reply-sender {
   font-size: 12px;
   font-weight: 600;
   color: rgb(var(--n-accent-solid));
   margin-bottom: 2px;
-}
-.nada-reply-preview-text {
-  font-size: 12.5px;
-  color: rgb(var(--n-tx2));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 260px;
 }
 .nada-bubble-sent .nada-reply-quote {
   background: rgb(0 0 0 / 0.28);
@@ -1458,11 +496,6 @@ body > * {
 }
 
 /* Reactions */
-.nada-reaction-row {
-  display: flex;
-  gap: 3px;
-  margin-top: 2px;
-}
 .nada-reaction,
 .nada-reaction-chip {
   display: inline-flex;
@@ -1484,18 +517,8 @@ body > * {
   border-color: rgb(var(--n-accent-solid) / 0.55);
   background: var(--n-accent-gradient-subtle);
 }
-.nada-reaction-count {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  color: rgb(var(--n-tx2));
-}
 
 /* Date separator — superseded by the Time Ribbon; kept as quiet mono pill */
-.nada-date-separator {
-  display: flex;
-  justify-content: center;
-  padding: 12px 0 6px;
-}
 .nada-date-pill {
   padding: 4px 12px;
   border-radius: var(--n-r-pill);
@@ -1510,22 +533,6 @@ body > * {
   box-shadow: var(--n-e1);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-}
-
-.nada-system-msg {
-  text-align: center;
-  padding: 6px 0;
-}
-.nada-system-msg-text {
-  display: inline-block;
-  padding: 5px 14px;
-  border-radius: var(--n-r-pill);
-  background: rgb(var(--n-s2) / 0.75);
-  border: 1px solid rgb(var(--n-edge) / 0.05);
-  font-size: 12px;
-  color: rgb(var(--n-tx2));
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 
 /* Vanishing messages */
@@ -1564,93 +571,10 @@ body > * {
 /* ═════════════════════════════════════════════════════════════════════════════
    11. VOICE NOTES
    ═════════════════════════════════════════════════════════════════════════════ */
-.nada-voice-note {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 2px;
-  min-width: 200px;
-}
-
-.nada-vn-play {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: var(--n-accent-gradient);
-  display: grid;
-  place-items: center;
-  border: none;
-  cursor: pointer;
-  flex-shrink: 0;
-  color: #FFFFFF;
-  box-shadow: 0 2px 10px rgb(124 58 237 / 0.30);
-  transition: transform var(--dur-fast) var(--ease-spring);
-}
-.nada-vn-play:hover {
-  transform: scale(1.06);
-}
-
-.nada-vn-waveform {
-  flex: 1;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  gap: 1.5px;
-}
-.nada-vn-bar {
-  width: 3px;
-  border-radius: 2px;
-  background: rgb(var(--n-edge) / 0.24);
-  transition: background 80ms;
-}
-.nada-vn-bar.played {
-  background: rgb(var(--n-accent-solid));
-}
-
-.nada-vn-time {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  font-weight: 500;
-  color: rgb(var(--n-tx3));
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.nada-vn-speed {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10px;
-  font-weight: 600;
-  color: rgb(var(--n-tx2));
-  background: rgb(var(--n-s3) / 0.80);
-  border: 1px solid rgb(var(--n-edge) / 0.06);
-  padding: 2px 7px;
-  border-radius: var(--n-r-pill);
-  cursor: pointer;
-  transition: background var(--dur-fast) ease;
-}
-.nada-vn-speed:hover {
-  background: rgb(var(--n-s3));
-}
 
 /* ═════════════════════════════════════════════════════════════════════════════
    12. FILE CARDS
    ═════════════════════════════════════════════════════════════════════════════ */
-.nada-file-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--n-r-md);
-  background: rgb(0 0 0 / 0.18);
-  border: 1px solid rgb(var(--n-edge) / 0.04);
-  margin-bottom: 4px;
-  min-width: 220px;
-  cursor: pointer;
-  transition: background var(--dur-fast) ease;
-}
-.nada-file-card:hover {
-  background: rgb(0 0 0 / 0.26);
-}
 
 .nada-file-icon {
   width: 40px;
@@ -1661,24 +585,6 @@ body > * {
   place-items: center;
   flex-shrink: 0;
   color: rgb(var(--n-accent-solid));
-}
-
-.nada-file-info {
-  flex: 1;
-  min-width: 0;
-}
-.nada-file-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: rgb(var(--n-tx1));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.nada-file-size {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  color: rgb(var(--n-tx3));
 }
 
 .nada-file-action {
@@ -1718,64 +624,8 @@ body > * {
   gap: 0;
   flex-shrink: 0;
 }
-
-.nada-composer-input-wrap {
-  flex: 1;
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  min-height: 46px;
-  padding: 7px 14px;
-  border-radius: var(--n-r-pill);
-  background: rgb(var(--n-s2) / 0.86);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  border: 1px solid rgb(var(--n-edge) / 0.07);
-  box-shadow: inset 0 1px 0 rgb(var(--n-edge) / 0.04), 0 4px 16px rgb(0 0 0 / 0.35);
-  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-normal) var(--ease-spring);
-}
-.nada-composer-input-wrap:focus-within {
-  border-color: rgb(var(--n-accent-solid) / 0.40);
-  box-shadow:
-    inset 0 1px 0 rgb(var(--n-edge) / 0.05),
-    0 4px 20px rgb(0 0 0 / 0.40),
-    0 0 0 3px rgb(124 58 237 / 0.10);
-}
-
-.nada-composer-input {
-  flex: 1;
-  background: none;
-  border: none;
-  outline: none;
-  color: rgb(var(--n-tx1));
-  font-size: 15px;
-  letter-spacing: -0.008em;
-  font-family: inherit;
-  line-height: 1.4;
-  resize: none;
-  max-height: 120px;
-  min-height: 28px;
-  padding: 3px 0;
-}
-.nada-composer-input::placeholder {
-  color: rgb(var(--n-tx3));
-}
 /* When used as a standalone pill input (root-style markup) — seamless,
    borderless filled field (no outline "line" across the composer) */
-textarea.nada-composer-input,
-input.nada-composer-input {
-  background: rgb(var(--n-s3) / 0.82);
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  border: none;
-  border-radius: var(--n-r-pill);
-  box-shadow: none;
-  padding: 10px 16px;
-}
-textarea.nada-composer-input:focus,
-input.nada-composer-input:focus {
-  box-shadow: 0 0 0 3px rgb(var(--n-accent) / 0.12);
-}
 
 .nada-composer-send {
   width: 46px;
@@ -1952,7 +802,6 @@ input.nada-composer-input:focus {
 /* ═════════════════════════════════════════════════════════════════════════════
    16. MODALS, MENUS, TOASTS
    ═════════════════════════════════════════════════════════════════════════════ */
-.nada-modal-backdrop,
 .nada-overlay {
   position: fixed;
   inset: 0;
@@ -1965,7 +814,6 @@ input.nada-composer-input:focus {
   animation: nada-fade-in 150ms ease-out;
 }
 
-.nada-modal,
 .nada-sheet {
   background: rgb(var(--n-s2));
   border: 1px solid rgb(var(--n-edge) / 0.08);
@@ -1976,22 +824,6 @@ input.nada-composer-input:focus {
   overflow-y: auto;
   overscroll-behavior: contain;
   animation: nada-scale-in 200ms var(--ease-spring);
-}
-
-.nada-modal-header {
-  padding: 20px 20px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.nada-modal-title {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.014em;
-  color: rgb(var(--n-tx1));
-}
-.nada-modal-body {
-  padding: 0 20px 20px;
 }
 
 .nada-dropdown,
@@ -2058,38 +890,6 @@ input.nada-composer-input:focus {
   height: 1px;
   background: rgb(var(--n-edge) / 0.06);
   margin: 4px 6px;
-}
-
-.nada-toast {
-  position: fixed;
-  top: calc(16px + var(--sai-top));
-  right: calc(16px + var(--sai-right));
-  z-index: 500;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: rgb(var(--n-s3) / 0.92);
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  border-radius: var(--n-r-lg);
-  box-shadow: var(--n-e3);
-  border: 1px solid rgb(var(--n-edge) / 0.08);
-  animation: nada-slide-in-right 250ms var(--ease-spring);
-  cursor: pointer;
-  max-width: 360px;
-}
-.nada-toast-title {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: rgb(var(--n-tx1));
-}
-.nada-toast-body {
-  font-size: 12.5px;
-  color: rgb(var(--n-tx3));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .nada-confirm {
@@ -2182,40 +982,6 @@ input.nada-composer-input:focus {
     0 14px 42px rgba(0, 0, 0, 0.30);
 }
 
-.nada-panel {
-  position: absolute;
-  inset: 0;
-  z-index: 200;
-  background: rgb(var(--n-s1));
-  display: flex;
-  flex-direction: column;
-  animation: nada-slide-in-left 200ms var(--ease-spring);
-}
-.nada-panel-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  min-height: var(--nada-header-height);
-  padding: var(--sai-top) 16px 0;
-  background: var(--n-s-glass);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  border-bottom: 1px solid rgb(var(--n-edge) / 0.05);
-  flex-shrink: 0;
-}
-.nada-panel-title {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.014em;
-  color: rgb(var(--n-tx1));
-}
-.nada-panel-body {
-  flex: 1;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 8px 0 calc(8px + var(--sai-bottom));
-}
-
 /* ═════════════════════════════════════════════════════════════════════════════
    18. INPUTS, BUTTONS, TOGGLES
    ═════════════════════════════════════════════════════════════════════════════ */
@@ -2245,103 +1011,7 @@ input.nada-composer-input:focus {
   color: rgb(var(--n-tx3));
 }
 
-.nada-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 20px;
-  border-radius: var(--n-r-pill);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.006em;
-  font-family: inherit;
-  border: none;
-  cursor: pointer;
-  transition: transform var(--dur-instant) ease, box-shadow var(--dur-fast) ease, background var(--dur-fast) ease;
-  outline: none;
-}
-.nada-btn:focus-visible {
-  box-shadow: 0 0 0 2px var(--n-focus-ring);
-}
-.nada-btn:active {
-  transform: scale(0.97);
-}
-
-.nada-btn-primary {
-  background: var(--n-accent-gradient);
-  color: #FFFFFF;
-  box-shadow: var(--n-e-accent);
-}
-.nada-btn-primary:hover {
-  box-shadow: var(--n-e-accent-lg);
-}
-.nada-btn-primary:disabled {
-  opacity: 0.5;
-  cursor: default;
-  box-shadow: none;
-}
-
-.nada-btn-ghost {
-  background: transparent;
-  color: rgb(var(--n-tx2));
-}
-.nada-btn-ghost:hover {
-  background: var(--n-hover);
-  color: rgb(var(--n-tx1));
-}
-
-.nada-btn-danger {
-  background: rgb(var(--n-danger) / 0.12);
-  color: rgb(var(--n-danger));
-}
-.nada-btn-danger:hover {
-  background: rgb(var(--n-danger) / 0.20);
-}
-
 /* Premium CTA — now rides the signature gradient, not gold */
-.nada-btn-gold {
-  background: var(--n-accent-gradient);
-  color: #FFFFFF;
-  font-weight: 700;
-  box-shadow: var(--n-e-accent);
-}
-.nada-btn-gold:hover {
-  box-shadow: var(--n-e-accent-lg);
-}
-
-.nada-toggle {
-  width: 46px;
-  height: 26px;
-  min-width: 46px;
-  border-radius: 13px;
-  background: rgb(var(--n-s3));
-  border: 1px solid rgb(var(--n-edge) / 0.08);
-  cursor: pointer;
-  position: relative;
-  transition: background var(--dur-normal) ease, border-color var(--dur-normal) ease;
-  flex-shrink: 0;
-}
-.nada-toggle::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: rgb(var(--n-tx2));
-  transition: transform var(--dur-normal) var(--ease-spring), background var(--dur-normal) ease;
-}
-.nada-toggle.active {
-  background: var(--n-accent-gradient);
-  border-color: transparent;
-}
-.nada-toggle.active::after {
-  transform: translateX(20px);
-  background: #FFFFFF;
-}
 
 .nada-checkbox {
   accent-color: rgb(var(--n-accent-solid));
@@ -2506,16 +1176,6 @@ input.nada-composer-input:focus {
   display: block;
   width: 100%;
   border-radius: var(--n-r-lg);
-}
-.nada-img-bubble .nada-bubble-meta {
-  position: absolute;
-  bottom: 6px;
-  right: 8px;
-  background: rgb(0 0 0 / 0.55);
-  border-radius: 8px;
-  padding: 2px 8px;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 
 .nada-fab {
@@ -2763,9 +1423,6 @@ input.nada-composer-input:focus {
   :root {
     --nada-sidebar-width: 320px;
   }
-  .nada-messages {
-    padding: 12px 28px 12px 40px;
-  }
   .nada-message {
     max-width: 72%;
   }
@@ -2790,18 +1447,6 @@ input.nada-composer-input:focus {
     width: 100%;
     min-width: 100%;
     border-right: none;
-  }
-  .nada-desktop-layout.has-conversation .nada-sidebar {
-    display: none;
-  }
-  .nada-desktop-layout:not(.has-conversation) .nada-conversation {
-    display: none;
-  }
-  .nada-conversation {
-    width: 100%;
-  }
-  .nada-messages {
-    padding: 8px 12px 8px 24px;
   }
   .nada-message {
     max-width: 82%;
@@ -2917,14 +1562,9 @@ input.nada-composer-input:focus {
   body[data-theme="aurora"]::before {
     animation: none;
   }
-  .n-skeleton::after,
   .nada-skeleton::after {
     animation: none;
   }
-  .n-bubble-new,
-  .n-whisper-in,
-  .n-bubble-sent-anim,
-  .n-dissolve,
   .nada-message,
   .animate-aurora,
   .animate-logo-glow,

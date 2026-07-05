@@ -1,5 +1,7 @@
 "use client";
 /* eslint-disable */
+import "./app.css";
+import "./shared.css";
 import type {
   NotificationSettings, NotificationSoundChoice, NotificationPreviewPrivacy,
   NotificationRingtoneChoice, DeliveryGlyph, CommunityRecord, CommunityPost,

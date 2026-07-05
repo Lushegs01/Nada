@@ -1,0 +1,183 @@
+/* ═════════════════════════════════════════════════════════════════════════════
+   4. SIGNATURE — WHISPER BUBBLES
+   Asymmetric radii; the pinched 6px corner implies direction. No tails.
+   ═════════════════════════════════════════════════════════════════════════════ */
+.n-bubble-sent,
+.n-bubble-recv {
+  position: relative;
+  padding: 10px 14px 8px;
+  min-width: 72px;
+  max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  border-radius: var(--n-r-bubble-chain);
+}
+
+.n-bubble-sent {
+  background: rgb(var(--n-sent-bg));
+  background-image: linear-gradient(135deg, rgba(124, 110, 248, 0.10) 0%, transparent 42%);
+  border: 1px solid var(--n-sent-bd);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 2px 8px rgb(0 0 0 / 0.25);
+}
+.n-bubble-sent.has-tail,
+.n-bubble-sent.n-terminal {
+  border-radius: var(--n-r-bubble-sent);
+}
+/* gradient spine — 2px left border in the accent gradient */
+.n-bubble-sent::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--n-accent-gradient-v);
+  opacity: 0.75;
+}
+
+.n-bubble-recv {
+  background: rgb(var(--n-recv-bg));
+  border: 1px solid var(--n-recv-bd);
+  box-shadow: inset 0 1px 0 rgb(var(--n-edge) / 0.03), 0 2px 8px rgb(0 0 0 / 0.20);
+}
+.n-bubble-recv.has-tail,
+.n-bubble-recv.n-terminal {
+  border-radius: var(--n-r-bubble-recv);
+}
+
+/* Freshly arrived — 3s accent glow pulse, then settles */
+.n-bubble-new {
+  animation: n-bubble-glow 3s ease-out 1;
+}
+@keyframes n-bubble-glow {
+  0%   { box-shadow: 0 0 0 0 rgb(124 58 237 / 0.00); }
+  18%  { box-shadow: 0 0 18px 1px rgb(124 58 237 / 0.34); }
+  60%  { box-shadow: 0 0 12px 0 rgb(124 58 237 / 0.16); }
+  100% { box-shadow: 0 0 0 0 rgb(124 58 237 / 0.00); }
+}
+
+@keyframes whisper-in {
+  0%   { opacity: 0; transform: translateY(4px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.n-whisper-in {
+  animation: whisper-in 0.28s var(--ease-spring) both;
+}
+
+@keyframes bubble-send {
+  0%   { transform: translateY(0) scale(0.97); opacity: 0.7; }
+  55%  { transform: translateY(-3px) scale(1.005); }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.n-bubble-sent-anim {
+  animation: bubble-send 0.32s var(--ease-spring) both;
+}
+
+/* Dissolving message — particle fade */
+@keyframes particle-fade {
+  0%   { opacity: 1; transform: scale(1) translate(0, 0); filter: blur(0); }
+  60%  { opacity: 0.5; transform: scale(0.72) translate(4px, -8px); filter: blur(2px); }
+  100% { opacity: 0; transform: scale(0.30) translate(-6px, -18px); filter: blur(6px); }
+}
+.n-dissolve {
+  animation: particle-fade 0.9s var(--ease-in-expo) both;
+}
+
+@keyframes ghost-blur {
+  0%   { filter: blur(0); }
+  100% { filter: blur(6px); }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   5. SIGNATURE — TIME RIBBON
+   1px spine on the leading edge; gradient node tracks scroll.
+   ═════════════════════════════════════════════════════════════════════════════ */
+.n-ribbon {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: max(10px, var(--sai-left));
+  width: 1px;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgb(var(--n-edge) / 0.10) 8%,
+    rgb(var(--n-edge) / 0.10) 92%,
+    transparent 100%);
+  z-index: 6;
+  pointer-events: none;
+}
+.n-ribbon-node {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--n-accent-gradient);
+  box-shadow: 0 0 10px rgb(124 58 237 / 0.55), 0 0 3px rgb(124 58 237 / 0.80);
+  pointer-events: auto;
+  cursor: grab;
+}
+.n-ribbon-node:active {
+  cursor: grabbing;
+}
+.n-ribbon-label {
+  padding: 3px 9px;
+  border-radius: var(--n-r-pill);
+  background: rgb(var(--n-s3) / 0.90);
+  border: 1px solid rgb(var(--n-edge) / 0.08);
+  color: rgb(var(--n-tx2));
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   6. SIGNATURE — LIQUID COMPOSER
+   One floating capsule. Interior swaps; the capsule holds its shape.
+   ═════════════════════════════════════════════════════════════════════════════ */
+.n-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 6px;
+  border-radius: var(--n-r-pill);
+  background: rgb(var(--n-s2) / 0.86);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid rgb(var(--n-edge) / 0.07);
+  box-shadow:
+    inset 0 1px 0 rgb(var(--n-edge) / 0.04),
+    0 4px 16px rgb(0 0 0 / 0.45),
+    0 0 0 0 rgb(124 58 237 / 0);
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-normal) var(--ease-spring);
+}
+.n-composer:focus-within {
+  border-color: rgb(var(--n-accent-solid) / 0.40);
+  box-shadow:
+    inset 0 1px 0 rgb(var(--n-edge) / 0.05),
+    0 4px 20px rgb(0 0 0 / 0.50),
+    0 0 0 3px rgb(124 58 237 / 0.10);
+}
+
+.n-composer-send {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--n-r-pill);
+  background: var(--n-accent-gradient);
+  border: none;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: #E4E6F0;
+  box-shadow: var(--n-e-accent);
+  flex-shrink: 0;
+}
+.n-composer-send:disabled {
+  opacity: 0.38;
+  cursor: default;
+  box-shadow: none;
+}
+
