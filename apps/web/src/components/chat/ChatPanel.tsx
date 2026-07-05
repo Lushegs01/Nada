@@ -739,6 +739,26 @@ export function ChatPanel({
                       <Search size={14} className="text-nada-accent/70" />
                       Search in group
                     </button>
+                    <label className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors cursor-pointer">
+                      <Clock size={14} className="text-nada-accent/70 shrink-0" />
+                      <div className="flex-1 flex items-center justify-between">
+                        <span>Disappearing msgs</span>
+                        <select
+                          className="bg-nada-surface text-nada-secondary text-xs outline-none cursor-pointer rounded px-1.5 py-0.5 border border-nada-border/10 hover:border-nada-accent/30 transition-colors"
+                          onChange={(e) => {
+                            onDisappearingTimerChange(Number(e.target.value));
+                            setShowOptions(false);
+                          }}
+                          value={disappearingTimer}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <option value={0}>Off</option>
+                          <option value={60000}>1 min</option>
+                          <option value={3600000}>1 hr</option>
+                          <option value={86400000}>1 day</option>
+                        </select>
+                      </div>
+                    </label>
                     <button
                       className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
                       onClick={() => {
@@ -856,6 +876,26 @@ export function ChatPanel({
                       <Search size={14} className="text-nada-accent/70" />
                       Search in chat
                     </button>
+                    <label className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors cursor-pointer">
+                      <Clock size={14} className="text-nada-accent/70 shrink-0" />
+                      <div className="flex-1 flex items-center justify-between">
+                        <span>Disappearing msgs</span>
+                        <select
+                          className="bg-nada-surface text-nada-secondary text-xs outline-none cursor-pointer rounded px-1.5 py-0.5 border border-nada-border/10 hover:border-nada-accent/30 transition-colors"
+                          onChange={(e) => {
+                            onDisappearingTimerChange(Number(e.target.value));
+                            setShowOptions(false);
+                          }}
+                          value={disappearingTimer}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <option value={0}>Off</option>
+                          <option value={60000}>1 min</option>
+                          <option value={3600000}>1 hr</option>
+                          <option value={86400000}>1 day</option>
+                        </select>
+                      </div>
+                    </label>
                     <button
                       className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
                       onClick={() => {
@@ -1514,38 +1554,7 @@ export function ChatPanel({
         )}
       </AnimatePresence>
 
-      {/* Compact sub-toolbar: timer + search */}
-      <div
-        className="flex items-center gap-2 border-b border-nada-border/8 px-4 py-1.5"
-        style={{ background: "rgb(var(--nada-surface) / 0.4)", backdropFilter: "blur(8px)" }}
-      >
-        <Clock size={11} className="text-nada-secondary/35 shrink-0" />
-        <select
-          className="rounded-lg border border-nada-border/15 px-2 py-1 text-[11px] text-nada-secondary/70 outline-none cursor-pointer transition-colors hover:border-nada-accent/30"
-          style={{ background: "rgb(var(--nada-surface-elevated) / 0.6)" }}
-          onChange={(event) => { onDisappearingTimerChange(Number(event.target.value)); }}
-          value={disappearingTimer}
-        >
-          <option value={0}>Keep messages</option>
-          <option value={60000}>1 min</option>
-          <option value={3600000}>1 hour</option>
-          <option value={86400000}>1 day</option>
-        </select>
-        <div className="ml-auto">
-          <label
-            className="flex h-7 items-center gap-1.5 rounded-lg border border-nada-border/15 px-2.5 cursor-text transition-colors focus-within:border-nada-accent/35"
-            style={{ background: "rgb(var(--nada-surface-elevated) / 0.6)" }}
-          >
-            <Search size={11} className="text-nada-secondary/40" />
-            <input
-              className="w-24 bg-transparent text-[11px] text-nada-primary outline-none placeholder:text-nada-secondary/35"
-              onChange={(event) => { onMessageSearchChange(event.target.value); }}
-              placeholder="Search..."
-              value={messageSearchQuery}
-            />
-          </label>
-        </div>
-      </div>
+
       {uploadStatus ? (
         <div
           className="border-b border-nada-accent/15 px-4 py-2 text-[11.5px] font-medium text-nada-accent flex items-center gap-2"
