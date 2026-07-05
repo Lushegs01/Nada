@@ -2160,7 +2160,7 @@ export function ChatPanel({
                 />
               ) : null}
               <input
-                className="nada-composer-input h-12 min-w-0 flex-1 px-4 text-[14.5px] text-nada-primary outline-none transition-all duration-200 placeholder:text-nada-secondary/45 disabled:opacity-40"
+                className="h-12 min-w-0 flex-1 rounded-full bg-n-s3/80 px-4 text-[14.5px] text-nada-primary outline-none backdrop-blur-md transition-all duration-200 placeholder:text-nada-secondary/45 focus:ring-2 focus:ring-n-accent/20 disabled:opacity-40"
                 disabled={peerIsBlocked}
                 onChange={(event) => {
                   const val = event.target.value;
