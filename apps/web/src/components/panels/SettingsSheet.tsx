@@ -1,11 +1,10 @@
-import Image from "next/image";
-import { NotificationSettings, type NotificationTone, NOTIFICATION_SOUND_CHOICES, NOTIFICATION_RINGTONE_CHOICES } from "@/utils/dashboard-types";
+import { type NotificationSettings, type NotificationTone, NOTIFICATION_SOUND_CHOICES, NOTIFICATION_RINGTONE_CHOICES } from "@/utils/dashboard-types";
 import { notificationToneLabel, notificationRingtoneLabel } from "@/utils/helpers";
 import type { IdentityRecord } from "@nada/db";
-import type { IconButton, cn } from "@nada/ui";
-import { X, Edit3, Ghost, Flame, Bell, EyeOff, Eye, MessageCircle, Download, Trash2, ShieldAlert, Upload, QrCode, WifiOff, CreditCard, ChevronDown, Share2, Settings, FileText } from "lucide-react";
+import { IconButton, cn } from "@nada/ui";
+import { X, Edit3, Ghost, Flame, Bell, EyeOff, Eye, MessageCircle, Download, Trash2, ShieldAlert, Upload, QrCode, WifiOff, CreditCard, ChevronDown, Share2, Settings, FileText, Image as ImageIcon } from "lucide-react";
 import { Sheet } from "./Sheet";
-import { useState, ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 export function SettingsSheet({
       identity,
@@ -346,8 +345,8 @@ export function SettingsSheet({
 
       <SettingsSheetSection
         items={[
-          { icon: <Image size={15} />, label: "Theme", value: "Obsidian Gold", description: "Premium dark glass mode" },
-          { icon: <Image size={15} />, label: "Chat wallpaper", value: "Per-chat", description: "Set from the chat menu" },
+          { icon: <ImageIcon size={15} />, label: "Theme", value: "Obsidian Gold", description: "Premium dark glass mode" },
+          { icon: <ImageIcon size={15} />, label: "Chat wallpaper", value: "Per-chat", description: "Set from the chat menu" },
           { icon: <MessageCircle size={15} />, label: "Bubble style", value: "Soft glass", description: "Readable, compact, private" },
           { icon: <Flame size={15} />, label: "Accent color", value: "Purple + gold", description: "Primary actions and identity glow" }
         ]}
@@ -596,7 +595,7 @@ export function SettingsPreviewSection({
     return (
     <section>
       <p className="mb-2 px-1 text-[11px] font-bold uppercase text-nada-text-muted">{title}</p>
-      <div className="grid gap-2">{children}</div>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-2">{children}</div>
     </section>
     );
 }
@@ -616,7 +615,7 @@ export function SettingsPreviewButton({
         }): JSX.Element {
     return (
     <button
-      className="nada-settings-card flex w-full items-center gap-3 text-left"
+      className="nada-settings-card flex w-full min-w-0 items-center gap-3 text-left"
       onClick={onClick}
       type="button"
     >
@@ -624,7 +623,7 @@ export function SettingsPreviewButton({
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[14px] font-bold text-nada-primary">{label}</span>
+        <span className="block truncate text-[14px] font-bold text-nada-primary">{label}</span>
         <span className="block truncate text-[12px] text-nada-text-muted">{description}</span>
       </span>
       <span className="shrink-0 rounded-full bg-nada-surface/70 px-2.5 py-1 text-[10.5px] font-bold text-nada-secondary/70">

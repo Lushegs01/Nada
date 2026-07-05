@@ -1,10 +1,36 @@
 import { fetchSubscriptionStatus, startCheckout, redeemReferral } from "@/lib/billing";
 import type { IdentityRecord } from "@nada/db";
 import type { SubscriptionStatusResponse, PaidBillingPlan } from "@nada/types";
-import type { IconButton, Button } from "@nada/ui";
+import { IconButton, Button } from "@nada/ui";
 import { X, CreditCard, Gift } from "lucide-react";
 import { Sheet } from "./Sheet";
 import { useState, useEffect } from "react";
+
+const BILLING_PLANS: Array<{
+  description: string;
+  features: string[];
+  label: string;
+  plan: PaidBillingPlan;
+}> = [
+  {
+    description: "Launch-ready limits for heavier private messaging.",
+    features: ["Larger files", "Longer voice notes", "Premium themes", "More communities"],
+    label: "Pro",
+    plan: "pro"
+  },
+  {
+    description: "Advanced anonymous growth tools for creators.",
+    features: ["Verified anonymous profile", "Community catalog", "Bot API", "ZK analytics"],
+    label: "Business",
+    plan: "business"
+  },
+  {
+    description: "Private infrastructure for teams and operators.",
+    features: ["Self-hosted relay", "SLA", "Admin controls", "Compliance notes"],
+    label: "Enterprise",
+    plan: "enterprise"
+  }
+];
 
 export function BillingSheet({
       identity,

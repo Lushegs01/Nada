@@ -32,6 +32,17 @@ export const NADA_DEV_PLAINTEXT_ENABLED =
   process.env["NEXT_PUBLIC_NADA_DEV_PLAINTEXT"] === "true" &&
   process.env["NODE_ENV"] !== "production";
 
+// Relay envelope schema caps devPlaintext at 20k chars; attaching a larger
+// value (e.g. a base64 voice note) makes the relay reject the whole envelope.
+// Cap here so dev-plaintext mode never breaks delivery of large payloads.
+export const DEV_PLAINTEXT_MAX_CHARS = 20000;
+export function devPlaintextFor(body: string): { devPlaintext: string } | Record<string, never> {
+  if (!NADA_DEV_PLAINTEXT_ENABLED || body.length > DEV_PLAINTEXT_MAX_CHARS) {
+    return {};
+  }
+  return { devPlaintext: body };
+}
+
 if (
   process.env["NEXT_PUBLIC_NADA_DEV_PLAINTEXT"] === "true" &&
   process.env["NODE_ENV"] === "production"

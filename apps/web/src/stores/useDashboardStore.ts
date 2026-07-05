@@ -2,23 +2,14 @@
 import { create } from 'zustand';
 type Updater<T> = T | ((prev: T) => T);
 import type { ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
-import type { CommunityRecord, SafetyReport, NotificationSettings, GlobalSearchResult, ReportTarget } from "@/utils/dashboard-types";
+import type { CommunityRecord, SafetyReport, NotificationSettings, GlobalSearchResult, ReportTarget, PendingChatAction } from "@/utils/dashboard-types";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/utils/dashboard-types";
 
 type Panel = "settings" | "contacts" | "billing" | "share" | "migration" | "group" | "safetyReport" | "community_create" | "status_create" | null;
 
-interface PendingChatAction {
-  action: "delete" | "archive" | "unarchive" | "mute" | "unmute" | "block" | "unblock" | "delete-group";
-  chat?: ChatRecord | any;
-  chatId?: string;
-  contactHash?: string;
-  groupId?: string;
-  title?: string;
-}
-
 interface DashboardState {
   chatPref: import("@/lib/db").ChatPrefRecord;
-  setChatPref: (p: import("@/lib/db").ChatPrefRecord) => void;
+  setChatPref: (p: Updater<import("@/lib/db").ChatPrefRecord>) => void;
   // App State
   ghostMode: boolean;
   setGhostMode: (val: Updater<boolean>) => void;

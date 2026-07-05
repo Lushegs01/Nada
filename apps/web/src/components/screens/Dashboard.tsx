@@ -41,7 +41,7 @@ import { LaunchOnboardingSheet } from "../panels/Sheet";
 import { parseVoiceNoteBody } from "../VoiceNote";
 import { GroupsHome, CommunitiesHome, CommunityCreateSheet } from "./CommunitiesHome";
 import { StatusView, StatusCreateSheet, StatusViewerSheet } from "./StatusView";
-import { NotificationSettings, DEFAULT_NOTIFICATION_SETTINGS, type Panel, GlobalSearchResult, type PendingChatAction, ReportTarget, CommunityRecord, SafetyReport, COMMUNITIES_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, NADA_DEV_PLAINTEXT_ENABLED, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type CommunityDraft, type GroupDeletePayload } from "@/utils/dashboard-types";
+import { type NotificationSettings, DEFAULT_NOTIFICATION_SETTINGS, type Panel, type GlobalSearchResult, type PendingChatAction, type ReportTarget, type CommunityRecord, type SafetyReport, COMMUNITIES_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type CommunityDraft, type GroupDeletePayload } from "@/utils/dashboard-types";
 
 export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const searchParams = useSearchParams();
@@ -1590,7 +1590,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           ciphertext: msg.encryptedPayload,
           messageKind: msg.kind,
           ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
-          ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: msg.body } : {})
+          ...devPlaintextFor(msg.body)
         };
 
         const sent = sendEnvelope(envelope);
@@ -1638,7 +1638,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           ...(msg.mentions && msg.mentions.length > 0 ? { mentions: msg.mentions } : {}),
           ...(msg.expiresAt ? { expiresAt: msg.expiresAt } : {}),
           ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
-          ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: msg.body } : {})
+          ...devPlaintextFor(msg.body)
         };
         
         const sent = sendGroupEnvelope(groupEnvelope);
@@ -1718,7 +1718,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ...(message.mentions?.length ? { mentions: message.mentions } : {}),
                 ...(message.expiresAt ? { expiresAt: message.expiresAt } : {}),
                 ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: message.body } : {})
+                ...devPlaintextFor(message.body)
               });
             } else if (contact) {
               sent = sendEnvelope({
@@ -1730,7 +1730,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ciphertext,
                 messageKind,
                 ...(message.replyTo ? { replyTo: message.replyTo } : {}),
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: message.body } : {})
+                ...devPlaintextFor(message.body)
               });
             }
 
@@ -1892,13 +1892,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ...(mentions.length > 0 ? { mentions } : {}),
                 ...(expiresAt ? { expiresAt } : {})
               };
-              const groupEnvelope: GroupMessageEnvelope = NADA_DEV_PLAINTEXT_ENABLED
-                ? {
-                    ...baseEnvelope,
-                    // ⚠️ MVP_ONLY — replace before production
-                    devPlaintext: body
-                  }
-                : baseEnvelope;
+              // ⚠️ MVP_ONLY — replace before production
+              const groupEnvelope: GroupMessageEnvelope = { ...baseEnvelope, ...devPlaintextFor(body) };
               sent = sendGroupEnvelope(groupEnvelope);
             } else if (activeContact) {
               const baseEnvelope = {
@@ -1911,13 +1906,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 messageKind: "text" as const,
                 ...(replySnapshot ? { replyTo: replySnapshot } : {})
               };
-              const envelope: MessageEnvelope = NADA_DEV_PLAINTEXT_ENABLED
-                ? {
-                    ...baseEnvelope,
-                    // ⚠️ MVP_ONLY — replace before production
-                    devPlaintext: body
-                  }
-                : baseEnvelope;
+              // ⚠️ MVP_ONLY — replace before production
+              const envelope: MessageEnvelope = { ...baseEnvelope, ...devPlaintextFor(body) };
               sent = sendEnvelope(envelope);
             }
 
@@ -1984,14 +1974,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp, ciphertext, messageKind: "poll" as const,
                 ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {})
               };
-              const groupEnvelope: GroupMessageEnvelope = NADA_DEV_PLAINTEXT_ENABLED ? { ...baseEnvelope, devPlaintext: body } : baseEnvelope;
+              const groupEnvelope: GroupMessageEnvelope = { ...baseEnvelope, ...devPlaintextFor(body) };
               sent = sendGroupEnvelope(groupEnvelope);
             } else if (selectedContact) {
               const baseEnvelope = {
                 type: "message" as const, id, recipient: selectedContact.pubkeyHash, sender: identity.pubkeyHash,
                 timestamp, ciphertext, messageKind: "poll" as const
               };
-              const envelope: MessageEnvelope = NADA_DEV_PLAINTEXT_ENABLED ? { ...baseEnvelope, devPlaintext: body } : baseEnvelope;
+              const envelope: MessageEnvelope = { ...baseEnvelope, ...devPlaintextFor(body) };
               sent = sendEnvelope(envelope);
             }
 
@@ -2056,7 +2046,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                       sender: identity.pubkeyHash,
                       timestamp,
                       ciphertext,
-                      ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {}),
+                      ...devPlaintextFor(body),
                       proof
                     })
                   });
@@ -2073,7 +2063,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind: "status",
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
+                ...devPlaintextFor(body)
               });
             });
             
@@ -2120,7 +2110,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind: "system",
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
+                ...devPlaintextFor(body)
               });
             }
             showToast("Comment added.");
@@ -2166,7 +2156,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind: "system",
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
+                ...devPlaintextFor(body)
               });
             }
             return record;
@@ -2231,7 +2221,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind: "system",
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
+                ...devPlaintextFor(body)
               });
             });
             showToast("Status deleted.");
@@ -2372,7 +2362,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ciphertext,
                 messageKind,
                 ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {}),
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {}),
+                ...devPlaintextFor(body),
                 ...(replyToId ? { replyToId } : {}),
                 ...(replySnapshot ? { replyTo: replySnapshot } : {}),
                 ...(expiresAt ? { expiresAt } : {})
@@ -2387,7 +2377,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ciphertext,
                 messageKind,
                 ...(replySnapshot ? { replyTo: replySnapshot } : {}),
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
+                ...devPlaintextFor(body)
               });
             }
 
@@ -2502,7 +2492,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ciphertext,
                 messageKind: "voice_note",
                 ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {}),
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: structuredBody } : {}),
+                ...devPlaintextFor(structuredBody),
                 ...(replyToId ? { replyToId } : {}),
                 ...(replySnapshot ? { replyTo: replySnapshot } : {}),
                 ...(expiresAt ? { expiresAt } : {})
@@ -2517,7 +2507,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ciphertext,
                 messageKind: "voice_note",
                 ...(replySnapshot ? { replyTo: replySnapshot } : {}),
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: structuredBody } : {})
+                ...devPlaintextFor(structuredBody)
               });
             }
 
@@ -2804,7 +2794,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ciphertext,
                 messageKind,
                 senderKeyPackage: targetGroup.groupSenderKey,
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: bodyToForward } : {})
+                ...devPlaintextFor(bodyToForward)
               };
 
               const record: MessageRecord = {
@@ -2837,7 +2827,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind,
-                ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: bodyToForward } : {})
+                ...devPlaintextFor(bodyToForward)
               };
               const record: MessageRecord = {
                 id: envelopeId,
@@ -2980,7 +2970,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                   ciphertext,
                   messageKind: "system",
                   ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
-                  ...(NADA_DEV_PLAINTEXT_ENABLED ? { devPlaintext: body } : {})
+                  ...devPlaintextFor(body)
                 });
               }
 
@@ -3156,7 +3146,6 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           }}
           unreadCount={unreadCount}
           onNewChat={() => setPanel("contacts")}
-          onSettings={() => setPanel("settings")}
         />
         <aside
           className={cn(
@@ -3562,7 +3551,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             }}
             onNotify={showToast}
             onContactAdded={(contact) => {
-              setContacts((current) => [contact, ...current]);
+              setContacts((current) => [
+                contact,
+                ...current.filter((entry) => entry.pubkeyHash !== contact.pubkeyHash)
+              ]);
               setSelectedContactHash(contact.pubkeyHash);
               setMessageSearchQuery("");
               setPanel(null);
@@ -3723,9 +3715,19 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             contactsCount={contacts.length}
             groupsCount={chats.length}
             hasPostedStatus={allStatuses.some((status) => status.senderPubkeyHash === identity.pubkeyHash)}
+            onAddContact={() => {
+              setShowOnboarding(false);
+              void setGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY, "true");
+              setPanel("contacts");
+            }}
             onClose={() => {
               setShowOnboarding(false);
               void setGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY, "true");
+            }}
+            onCreateGroup={() => {
+              setShowOnboarding(false);
+              void setGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY, "true");
+              setPanel("group");
             }}
             onEnableNotifications={() => {
               void registerPushNotifications();
@@ -3734,6 +3736,11 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               setShowOnboarding(false);
               void setGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY, "true");
               setActiveTab("communities");
+            }}
+            onPostStatus={() => {
+              setShowOnboarding(false);
+              void setGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY, "true");
+              setPanel("status_create");
             }}
           />
         ) : null}

@@ -6,10 +6,9 @@ import { generateRandomUsername, formatRelativeTime, loadStatusComments, parseSt
 import type { IdentityRecord, ContactRecord, MessageRecord } from "@nada/db";
 import type { MediaAttachment } from "@nada/types";
 import { IdentityOrb, cn } from "@nada/ui";
-import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, CircleDashed, X, Trash2, MessageCircle, Send } from "lucide-react";
-import { useRef, useState, useEffect, useCallback, useMemo } from "react";
+import { Plus, CircleDashed, X, Trash2, MessageCircle, Send, Image as ImageIcon } from "lucide-react";
+import { useRef, useState, useEffect, useCallback, useMemo, type MouseEvent } from "react";
 
 export function StatusView({
       identity,
@@ -254,7 +253,7 @@ export function StatusCreateSheet({
             onClick={() => fileInputRef.current?.click()}
             type="button"
           >
-            <Image size={16} />
+            <ImageIcon size={16} />
             Add media
           </button>
         </div>

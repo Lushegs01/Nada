@@ -509,11 +509,13 @@ export const BottomNavigation = ({
 export const DesktopNavRail = ({
   activeTab,
   onTabChange,
-  unreadCount = 0
+  unreadCount = 0,
+  onNewChat
 }: {
   activeTab: string;
   onTabChange: (tab: string) => void;
   unreadCount?: number;
+  onNewChat?: () => void;
 }) => {
   return (
     <nav
@@ -522,9 +524,17 @@ export const DesktopNavRail = ({
         background: "linear-gradient(180deg, rgb(var(--n-s1) / 0.92), rgb(var(--n-base) / 0.96))"
       }}
     >
-      <div className="mb-3 grid h-10 w-10 place-items-center overflow-hidden rounded-[12px] nada-logo-aura">
+      <motion.button
+        aria-label="Start a new conversation"
+        className="mb-3 grid h-10 w-10 cursor-pointer place-items-center overflow-hidden rounded-[12px] nada-logo-aura focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-n-accent"
+        onClick={onNewChat}
+        title="New conversation"
+        type="button"
+        whileHover={{ scale: 1.06 }}
+        whileTap={{ scale: 0.94 }}
+      >
         <img src="/logo.webp" alt="NADA" className="h-full w-full object-cover" />
-      </div>
+      </motion.button>
       {NAV_TABS.map((tab) => {
         const Icon = tab.icon;
         const isActive = activeTab === tab.id;

@@ -1,6 +1,16 @@
 import { type PreparedMediaFile, formatBytes } from "@/lib/media-upload";
-import type { cn } from "@nada/ui";
-import { Camera, FileText, Video, Music, Flame, Loader2, Upload } from "lucide-react";
+import { cn } from "@nada/ui";
+import {
+  Camera,
+  FileText,
+  Video,
+  Music,
+  Flame,
+  Loader2,
+  Upload,
+  Image as ImageIcon,
+  type LucideIcon
+} from "lucide-react";
 
 export function AttachmentMenu({
       onPickAudio,
@@ -20,10 +30,10 @@ export function AttachmentMenu({
     const options: Array<{
         action?: () => void;
         comingSoon?: boolean;
-        icon: typeof Image;
+        icon: LucideIcon;
         label: string;
         }> = [
-            { label: "Photo", icon: Image, action: onPickImage },
+            { label: "Photo", icon: ImageIcon, action: onPickImage },
             { label: "Camera", icon: Camera, action: onPickCamera },
             { label: "Document", icon: FileText, action: onPickDocument },
             { label: "Video", icon: Video, action: onPickVideo },

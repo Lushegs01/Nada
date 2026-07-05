@@ -47,22 +47,28 @@ export function LaunchOnboardingSheet({
       contactsCount,
       groupsCount,
       hasPostedStatus,
+      onAddContact,
       onClose,
+      onCreateGroup,
       onEnableNotifications,
-      onOpenCommunity
+      onOpenCommunity,
+      onPostStatus
     }: {
           contactsCount: number;
           groupsCount: number;
           hasPostedStatus: boolean;
+          onAddContact: () => void;
           onClose: () => void;
+          onCreateGroup: () => void;
           onEnableNotifications: () => void;
           onOpenCommunity: () => void;
+          onPostStatus: () => void;
         }): JSX.Element {
     const steps = [
-            { done: contactsCount > 0, label: "Add an anonymous contact", meta: "Start a direct encrypted lane." },
-            { done: groupsCount > 0, label: "Create a private group", meta: "Invite-only rooms for trusted people." },
-            { done: hasPostedStatus, label: "Post a status", meta: "Share a vanishing thought." },
-            { done: false, label: "Enable notifications", meta: "Never miss calls or launch messages." }
+            { action: onAddContact, done: contactsCount > 0, label: "Add an anonymous contact", meta: "Start a direct encrypted lane." },
+            { action: onCreateGroup, done: groupsCount > 0, label: "Create a private group", meta: "Invite-only rooms for trusted people." },
+            { action: onPostStatus, done: hasPostedStatus, label: "Post a status", meta: "Share a vanishing thought." },
+            { action: onEnableNotifications, done: false, label: "Enable notifications", meta: "Never miss calls or launch messages." }
           ];
     return (
     <motion.div
@@ -91,12 +97,23 @@ export function LaunchOnboardingSheet({
             <X size={18} />
           </IconButton>
         </div>
-        <div className="mt-5 grid gap-2">
+        <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-2">
           {steps.map((step) => (
-            <div className="nada-settings-card flex items-center gap-3" key={step.label}>
+            <button
+              className={cn(
+                "nada-settings-card flex w-full items-center gap-3 text-left transition-colors",
+                step.done
+                  ? "cursor-default opacity-75"
+                  : "cursor-pointer hover:border-nada-accent/25 hover:bg-nada-surface-elevated/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nada-accent/50"
+              )}
+              disabled={step.done}
+              key={step.label}
+              onClick={step.action}
+              type="button"
+            >
               <span
                 className={cn(
-                  "grid h-9 w-9 place-items-center rounded-2xl font-mono text-[10px] font-bold",
+                  "grid h-9 w-9 shrink-0 place-items-center rounded-2xl font-mono text-[10px] font-bold",
                   step.done ? "bg-n-success/14 text-n-success" : "bg-nada-accent/12 text-nada-accent"
                 )}
               >
@@ -106,7 +123,12 @@ export function LaunchOnboardingSheet({
                 <span className="block text-sm font-bold text-nada-primary">{step.label}</span>
                 <span className="block text-xs text-nada-text-muted">{step.meta}</span>
               </span>
-            </div>
+              {!step.done ? (
+                <span aria-hidden className="shrink-0 text-nada-text-muted">
+                  ›
+                </span>
+              ) : null}
+            </button>
           ))}
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3">
