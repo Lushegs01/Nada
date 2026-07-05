@@ -2,6 +2,7 @@
 import type {
   NotificationSettings, NotificationSoundChoice, NotificationPreviewPrivacy,
   NotificationRingtoneChoice, DeliveryGlyph, CommunityRecord, CommunityPost,
+  WhisperEcho, WhisperReflection,
   SafetyReport, StatusCommentPayload, StatusReactionPayload, StatusDeletePayload,
   GroupDeletePayload
 } from "@/utils/dashboard-types";
@@ -295,6 +296,164 @@ export function parseCommunityRecords(raw: string | null): CommunityRecord[] {
     }
 }
 
+function parseWhisperReflections(raw: unknown): WhisperReflection[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item): WhisperReflection | null => {
+        if (!item || typeof item !== "object") return null;
+        const r = item as Partial<WhisperReflection>;
+        if (
+          typeof r.id !== "string" ||
+          typeof r.body !== "string" ||
+          typeof r.authorName !== "string" ||
+          typeof r.createdAt !== "number"
+        ) {
+          return null;
+        }
+        return {
+          authorHash: typeof r.authorHash === "string" ? r.authorHash : "",
+          authorName: r.authorName,
+          body: r.body,
+          createdAt: r.createdAt,
+          id: r.id
+        };
+      })
+      .filter((r): r is WhisperReflection => Boolean(r))
+      .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export function parseWhisperEchoes(raw: string | null): WhisperEcho[] {
+    if (!raw) return [];
+    try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item): WhisperEcho | null => {
+        if (!item || typeof item !== "object") return null;
+        const e = item as Partial<WhisperEcho>;
+        if (
+          typeof e.id !== "string" ||
+          typeof e.body !== "string" ||
+          typeof e.authorName !== "string" ||
+          typeof e.createdAt !== "number"
+        ) {
+          return null;
+        }
+        const rippleOf =
+          e.rippleOf &&
+          typeof e.rippleOf === "object" &&
+          typeof e.rippleOf.id === "string" &&
+          typeof e.rippleOf.body === "string" &&
+          typeof e.rippleOf.authorName === "string" &&
+          typeof e.rippleOf.createdAt === "number"
+            ? {
+                authorName: e.rippleOf.authorName,
+                body: e.rippleOf.body,
+                createdAt: e.rippleOf.createdAt,
+                id: e.rippleOf.id
+              }
+            : undefined;
+        return {
+          authorHash: typeof e.authorHash === "string" ? e.authorHash : "",
+          authorName: e.authorName,
+          body: e.body,
+          createdAt: e.createdAt,
+          echoCount:
+            typeof e.echoCount === "number" && e.echoCount >= 0 ? Math.floor(e.echoCount) : 0,
+          echoedByMe: e.echoedByMe === true,
+          id: e.id,
+          reflections: parseWhisperReflections(e.reflections),
+          rippleCount:
+            typeof e.rippleCount === "number" && e.rippleCount >= 0
+              ? Math.floor(e.rippleCount)
+              : 0,
+          rippledByMe: e.rippledByMe === true,
+          ...(rippleOf ? { rippleOf } : {})
+        };
+      })
+      .filter((e): e is WhisperEcho => Boolean(e))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    } catch {
+    return [];
+    }
+}
+
+// Starter Echoes so the shared Whispers feed feels alive on first open. These
+// mimic other anonymous NADA users posting to the global timeline.
+export function seedWhisperEchoes(): WhisperEcho[] {
+    const now = Date.now();
+    const minutes = (m: number) => now - m * 60_000;
+    const seed: Array<{
+      author: string;
+      body: string;
+      echoCount: number;
+      rippleCount: number;
+      minutesAgo: number;
+      reflections?: Array<{ author: string; body: string; minutesAgo: number }>;
+    }> = [
+      {
+        author: "quiet.fox",
+        body: "First Echo on NADA. No real names, no phone numbers, no tracking — just thoughts drifting through the network. Whisper something. 🌫️",
+        echoCount: 214,
+        rippleCount: 37,
+        minutesAgo: 6,
+        reflections: [
+          { author: "still.owl", body: "This is the internet I signed up for.", minutesAgo: 4 },
+          { author: "dry.pine", body: "Reflecting on this all morning.", minutesAgo: 2 }
+        ]
+      },
+      {
+        author: "amber.tide",
+        body: "Reminder: your identity here is a key, not a face. Post freely.",
+        echoCount: 128,
+        rippleCount: 12,
+        minutesAgo: 22
+      },
+      {
+        author: "slow.river",
+        body: "Shipped a tiny side project tonight and told absolutely no one who I really am. Somehow that made it more fun.",
+        echoCount: 89,
+        rippleCount: 5,
+        minutesAgo: 51,
+        reflections: [
+          { author: "north.ember", body: "Ripple this to the builders.", minutesAgo: 40 }
+        ]
+      },
+      {
+        author: "paper.moon",
+        body: "Whispers > timelines that scream for attention. It's calmer in here.",
+        echoCount: 302,
+        rippleCount: 64,
+        minutesAgo: 95
+      },
+      {
+        author: "grey.harbor",
+        body: "Anyone else just here to read and Echo quietly? 👀",
+        echoCount: 61,
+        rippleCount: 3,
+        minutesAgo: 140
+      }
+    ];
+    return seed.map((s) => ({
+      authorHash: "",
+      authorName: s.author,
+      body: s.body,
+      createdAt: minutes(s.minutesAgo),
+      echoCount: s.echoCount,
+      echoedByMe: false,
+      id: `seed-${s.author}-${s.minutesAgo}`,
+      reflections: (s.reflections ?? []).map((r, i) => ({
+        authorHash: "",
+        authorName: r.author,
+        body: r.body,
+        createdAt: minutes(r.minutesAgo),
+        id: `seed-${s.author}-${s.minutesAgo}-r${i}`
+      })),
+      rippleCount: s.rippleCount,
+      rippledByMe: false
+    }));
+}
+
 export function parseSafetyReports(raw: string | null): SafetyReport[] {
     if (!raw) return [];
     try {
@@ -327,6 +486,7 @@ export function parseSafetyReports(raw: string | null): SafetyReport[] {
           targetId: report.targetId,
           targetType:
             report.targetType === "community" ||
+            report.targetType === "whisper" ||
             report.targetType === "status" ||
             report.targetType === "message"
               ? report.targetType

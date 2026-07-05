@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 type Updater<T> = T | ((prev: T) => T);
 import type { ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
-import type { CommunityRecord, SafetyReport, NotificationSettings, GlobalSearchResult, ReportTarget, PendingChatAction } from "@/utils/dashboard-types";
+import type { CommunityRecord, WhisperEcho, SafetyReport, NotificationSettings, GlobalSearchResult, ReportTarget, PendingChatAction } from "@/utils/dashboard-types";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/utils/dashboard-types";
 
 type Panel = "settings" | "contacts" | "billing" | "share" | "migration" | "group" | "safetyReport" | "community_create" | "status_create" | null;
@@ -31,6 +31,8 @@ interface DashboardState {
   setAllStatuses: (statuses: Updater<MessageRecord[]>) => void;
   communities: CommunityRecord[];
   setCommunities: (communities: Updater<CommunityRecord[]>) => void;
+  whispers: WhisperEcho[];
+  setWhispers: (whispers: Updater<WhisperEcho[]>) => void;
   safetyReports: SafetyReport[];
   setSafetyReports: (reports: Updater<SafetyReport[]>) => void;
 
@@ -117,6 +119,8 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   setAllStatuses: (allStatuses) => set((state) => ({ allStatuses: typeof allStatuses === 'function' ? allStatuses(state.allStatuses) : allStatuses })),
   communities: [],
   setCommunities: (communities) => set((state) => ({ communities: typeof communities === 'function' ? communities(state.communities) : communities })),
+  whispers: [],
+  setWhispers: (whispers) => set((state) => ({ whispers: typeof whispers === 'function' ? whispers(state.whispers) : whispers })),
   safetyReports: [],
   setSafetyReports: (safetyReports) => set((state) => ({ safetyReports: typeof safetyReports === 'function' ? safetyReports(state.safetyReports) : safetyReports })),
 

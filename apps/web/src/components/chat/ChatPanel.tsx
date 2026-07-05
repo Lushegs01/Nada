@@ -7,7 +7,7 @@ import type { ContactRecord, MessageRecord } from "@nada/db";
 import type { PollData, PollOption } from "@nada/types";
 import { IconButton, IdentityOrb, Avatar, cn } from "@nada/ui";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
-import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, Check, CheckCheck, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed, Image as ImageIcon, Lock, ChevronLeft } from "lucide-react";
+import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, Check, CheckCheck, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed, Image as ImageIcon, Lock, ChevronLeft, Waves } from "lucide-react";
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { type VirtuosoHandle, Virtuoso } from "react-virtuoso";
 import { MessageContextAction } from "../panels/Dialogs";
@@ -2837,7 +2837,9 @@ export function GlobalSearchResults({
               type="button"
             >
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-nada-accent/12 text-nada-accent">
-                {result.targetType === "community" ? (
+                {result.targetType === "whisper" ? (
+                  <Waves size={15} />
+                ) : result.targetType === "community" ? (
                   <Users size={15} />
                 ) : result.targetType === "status" ? (
                   <CircleDashed size={15} />

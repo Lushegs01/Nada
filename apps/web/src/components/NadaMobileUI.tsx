@@ -16,7 +16,7 @@ import {
   ChevronRight,
   CircleDashed,
   Loader2,
-  Network,
+  Waves,
   X
 } from "lucide-react";
 import { cn, IdentityOrb } from "@nada/ui";
@@ -50,7 +50,7 @@ const NAV_TABS = [
   { id: "chats", label: "Chats", icon: MessageCircle },
   { id: "status", label: "Status", icon: CircleDashed },
   { id: "groups", label: "Groups", icon: Users },
-  { id: "communities", label: "Community", icon: Network },
+  { id: "whispers", label: "Whispers", icon: Waves },
   { id: "settings", label: "Settings", icon: Settings }
 ] as const;
 
@@ -597,7 +597,7 @@ const TAB_TITLES: Record<string, string> = {
   chats: "Messages",
   status: "Status",
   groups: "Groups",
-  communities: "Communities",
+  whispers: "Whispers",
   settings: "Settings"
 };
 

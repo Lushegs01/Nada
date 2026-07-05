@@ -53,6 +53,7 @@ if (
 }
 
 export const COMMUNITIES_SETTING_KEY = "communities.v1";
+export const WHISPERS_SETTING_KEY = "whispers.v1";
 export const REPORTS_SETTING_KEY = "safety.reports.v1";
 export const ONBOARDING_DISMISSED_SETTING_KEY = "onboarding.dismissed.v1";
 export const NOTIFICATION_SETTINGS_KEY = "notifications.settings.v1";
@@ -184,13 +185,53 @@ export type CommunityDraft = {
   title: string;
 };
 
+// ── Whispers: NADA's public feed ──────────────────────────────────────────
+// A single global timeline where every NADA user can post. Product wording:
+//   - a post is an "Echo"        (WhisperEcho)
+//   - a comment is a "Reflection" (WhisperReflection)
+//   - a like is an "Echo" action  (echoedByMe / echoCount)
+//   - a repost is a "Ripple"      (rippleOf / rippleCount)
+export type WhisperReflection = {
+  authorHash: string;
+  authorName: string;
+  body: string;
+  createdAt: number;
+  id: string;
+};
+
+// When an Echo is a Ripple of another Echo, it carries a lightweight snapshot
+// of the original so the quoted content survives even if the source is gone.
+export type WhisperRippleSource = {
+  authorName: string;
+  body: string;
+  createdAt: number;
+  id: string;
+};
+
+export type WhisperEcho = {
+  authorHash: string;
+  authorName: string;
+  body: string;
+  createdAt: number;
+  // "Likes" — kept as a count plus a personal flag so seeded/other-user
+  // activity can show realistic totals in this local-first feed.
+  echoCount: number;
+  echoedByMe: boolean;
+  id: string;
+  reflections: WhisperReflection[];
+  // "Reposts"
+  rippleCount: number;
+  rippledByMe: boolean;
+  rippleOf?: WhisperRippleSource;
+};
+
 export type SafetyReport = {
   category: "spam" | "harassment" | "illegal" | "impersonation" | "other";
   createdAt: number;
   id: string;
   notes: string;
   targetId: string;
-  targetType: "user" | "community" | "status" | "message";
+  targetType: "user" | "community" | "status" | "message" | "whisper";
   title: string;
 };
 
@@ -205,6 +246,6 @@ export type GlobalSearchResult = {
   label: string;
   meta: string;
   targetId: string;
-  targetType: "chat" | "group" | "message" | "status" | "community";
+  targetType: "chat" | "group" | "message" | "status" | "community" | "whisper";
 };
 export type DeliveryGlyph = "clock" | "check" | "double-check" | "double-check-read";
