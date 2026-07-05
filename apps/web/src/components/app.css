@@ -195,8 +195,6 @@
 
 /* ── Sidebar (column 2) ── */
 .nada-sidebar {
-  width: var(--nada-sidebar-width);
-  min-width: var(--nada-sidebar-width);
   height: 100%;
   display: flex;
   flex-direction: column;
