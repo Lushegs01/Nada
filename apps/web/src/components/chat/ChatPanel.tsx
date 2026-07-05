@@ -6,7 +6,7 @@ import { deliveryStatusGlyph } from "@/utils/helpers";
 import type { ContactRecord, MessageRecord } from "@nada/db";
 import type { PollData, PollOption } from "@nada/types";
 import { IconButton, IdentityOrb, Avatar, cn } from "@nada/ui";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, Check, CheckCheck, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed, Image as ImageIcon } from "lucide-react";
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { type VirtuosoHandle, Virtuoso } from "react-virtuoso";
@@ -14,6 +14,91 @@ import { MessageContextAction } from "../panels/Dialogs";
 import { isVoiceNoteMessage, VoiceRecorderBar, VoiceNoteBubble, parseVoiceNoteBody, isInlineImageMessage, parseInlineFileMessage, isInlineFileMessage } from "../VoiceNote";
 import { AttachmentPreview, AttachmentMenu } from "./AttachmentMenu";
 import type { MessageContextMenuState, GlobalSearchResult } from "@/utils/dashboard-types";
+
+function AnimatedCheckmark({ className, size = 13, strokeWidth = 2.6 }: { className?: string; size?: number; strokeWidth?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <motion.path
+        initial={{ pathLength: 0 }}
+        animate={{ pathLength: 1 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        d="M20 6L9 17l-5-5"
+      />
+    </svg>
+  );
+}
+
+function AnimatedDoubleCheckmark({ className, size = 14, strokeWidth = 2.6 }: { className?: string; size?: number; strokeWidth?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <motion.path
+        initial={{ pathLength: 0 }}
+        animate={{ pathLength: 1 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        d="M18 6 7 17l-5-5"
+      />
+      <motion.path
+        initial={{ pathLength: 0 }}
+        animate={{ pathLength: 1 }}
+        transition={{ duration: 0.3, ease: "easeOut", delay: 0.15 }}
+        d="m22 10-7.5 7.5L13 16"
+      />
+    </svg>
+  );
+}
+
+function SwipeableMessageWrapper({ children, message, onReply, shouldAnimateIn, ...props }: { children: React.ReactNode; message: any; onReply: (msg: any) => void; shouldAnimateIn: boolean; [key: string]: any }) {
+  const x = useMotionValue(0);
+  const isOutbound = message.direction === "outbound";
+  const replyOpacity = useTransform(x, isOutbound ? [0, -64] : [0, 64], [0, 1]);
+  const replyScale = useTransform(x, isOutbound ? [0, -64] : [0, 64], [0.5, 1.2]);
+
+  return (
+    <div className="group relative flex w-full items-center">
+      {!isOutbound && (
+        <motion.div style={{ opacity: replyOpacity, scale: replyScale, x: -24 }} className="absolute left-4 text-nada-accent pointer-events-none z-10">
+          <Reply size={20} />
+        </motion.div>
+      )}
+      
+      <motion.div
+        {...props}
+        className={cn(
+          "relative flex touch-pan-y px-1 py-0.5 w-full",
+          isOutbound ? "justify-end" : "justify-start"
+        )}
+        style={{ x }}
+        drag="x"
+        dragConstraints={
+          isOutbound
+            ? { left: -96, right: 0 }
+            : { left: 0, right: 96 }
+        }
+        dragDirectionLock
+        dragElastic={0.25}
+        dragSnapToOrigin={true}
+        dragTransition={{ bounceStiffness: 600, bounceDamping: 15 }}
+        onDragEnd={(_event, info) => {
+          if (Math.abs(info.offset.x) > 64) {
+            onReply(message);
+            if ("vibrate" in navigator) navigator.vibrate(10);
+          }
+        }}
+        initial={shouldAnimateIn ? { opacity: 0, y: 8, scale: 0.98 } : false}
+        animate={shouldAnimateIn ? { opacity: 1, y: 0, scale: 1 } : false}
+        transition={{ type: "spring", stiffness: 400, damping: 28 }}
+      >
+        {children}
+      </motion.div>
+
+      {isOutbound && (
+        <motion.div style={{ opacity: replyOpacity, scale: replyScale, x: 24 }} className="absolute right-4 text-nada-accent pointer-events-none z-10">
+          <Reply size={20} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
 
 export function ChatPanel({
       canAttachFile,
@@ -990,25 +1075,7 @@ export function ChatPanel({
         )}
       </header>
 
-      {/* Typing indicator — inline bubble style */}
-      {peerIsTyping && !peerIsBlocked && (
-        <div className="flex items-center gap-2.5 px-4 py-2 animate-fade-in border-b border-nada-border/8"
-          style={{ background: "rgb(var(--nada-surface) / 0.5)" }}
-        >
-          <div
-            className="flex items-center gap-1 rounded-2xl rounded-bl-[4px] px-3 py-2"
-            style={{
-              background: "rgb(var(--nada-surface-elevated) / 0.9)",
-              border: "1px solid rgb(var(--nada-border) / 0.15)"
-            }}
-          >
-            <span className="nada-typing-dot" />
-            <span className="nada-typing-dot" />
-            <span className="nada-typing-dot" />
-          </div>
-          <span className="text-[11.5px] text-nada-secondary/50">{title} is typing…</span>
-        </div>
-      )}
+
 
       {/* Blocked banner */}
       {peerIsBlocked && (
@@ -1727,35 +1794,15 @@ export function ChatPanel({
                   </span>
                 </div>
               )}
-              <motion.div
-                className={cn(
-                  "group relative flex touch-pan-y px-1 py-0.5",
-                  message.direction === "outbound" ? "justify-end" : "justify-start"
-                )}
-                drag="x"
-                dragConstraints={
-                  message.direction === "outbound"
-                    ? { left: -96, right: 0 }
-                    : { left: 0, right: 96 }
-                }
-                dragDirectionLock
-                dragElastic={0.25}
-                dragSnapToOrigin={true}
-                dragTransition={{ bounceStiffness: 600, bounceDamping: 15 }}
-                onDragEnd={(_event, info) => {
-                  if (Math.abs(info.offset.x) > 64) {
-                    onReply(message);
-                    if ("vibrate" in navigator) navigator.vibrate(10);
-                  }
-                }}
-                initial={shouldAnimateIn ? { opacity: 0, y: 8, scale: 0.98 } : false}
-                animate={shouldAnimateIn ? { opacity: 1, y: 0, scale: 1 } : false}
-                transition={{ type: "spring", stiffness: 400, damping: 28 }}
-                onContextMenu={(e) => {
+              <SwipeableMessageWrapper
+                message={message}
+                onReply={onReply}
+                shouldAnimateIn={shouldAnimateIn}
+                onContextMenu={(e: any) => {
                   e.preventDefault();
                   openMessageContextMenu(message, { x: e.clientX, y: e.clientY });
                 }}
-                onPointerDown={(e) => {
+                onPointerDown={(e: any) => {
                   if (e.pointerType === "mouse") return;
                   if (longPressTimer.current) clearTimeout(longPressTimer.current);
                   const point = { x: e.clientX, y: e.clientY };
@@ -1780,14 +1827,6 @@ export function ChatPanel({
                   }
                 }}
               >
-                <div
-                  className={cn(
-                    "pointer-events-none absolute top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-nada-accent/15 text-nada-accent opacity-0 transition-opacity group-active:opacity-100",
-                    message.direction === "outbound" ? "right-2" : "left-2"
-                  )}
-                >
-                  <Reply size={16} />
-                </div>
                 <div
                   className={cn(
                     "relative w-fit max-w-full text-[14.5px]",
@@ -1897,8 +1936,7 @@ export function ChatPanel({
                           }
                           if (glyphMeta.glyph === "check") {
                             return (
-                              <Check
-                                aria-label={glyphMeta.label}
+                              <AnimatedCheckmark
                                 className={glyphClass}
                                 size={13}
                                 strokeWidth={2.6}
@@ -1906,8 +1944,7 @@ export function ChatPanel({
                             );
                           }
                           return (
-                            <CheckCheck
-                              aria-label={glyphMeta.label}
+                            <AnimatedDoubleCheckmark
                               className={glyphClass}
                               size={14}
                               strokeWidth={2.6}
@@ -1943,7 +1980,7 @@ export function ChatPanel({
                     ))}
                   </div>
                 )}
-              </motion.div>
+              </SwipeableMessageWrapper>
               {hasReactions && <div className="h-5" />}
             </div>
           );
@@ -2092,6 +2129,31 @@ export function ChatPanel({
         }}
       >
         {/* Message reply preview */}
+
+        {/* Typing indicator — modern bubble docked to composer */}
+        <AnimatePresence>
+          {peerIsTyping && !peerIsBlocked && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, y: 10 }}
+              transition={{ type: "spring", stiffness: 400, damping: 25 }}
+              className="mb-2 flex items-center gap-2.5 px-2"
+            >
+              <div
+                className="flex items-center gap-1 rounded-2xl rounded-bl-[4px] px-3 py-2 shadow-sm"
+                style={{
+                  background: "rgb(var(--nada-surface-elevated) / 0.95)",
+                  border: "1px solid rgb(var(--nada-border) / 0.15)"
+                }}
+              >
+                <span className="nada-typing-dot" />
+                <span className="nada-typing-dot" />
+                <span className="nada-typing-dot" />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {replyMessage ? (
           <div
