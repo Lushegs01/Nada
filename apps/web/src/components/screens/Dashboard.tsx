@@ -7,6 +7,7 @@ import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/
 import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload } from "@/lib/media-message";
 import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib/media-upload";
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
+import { whispersRelayConfigured, queryWhisperFeed, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote } from "@/lib/whispers";
 import type { CallMode, LocalCallSession } from "@/lib/webrtc";
 import { createLocalCallSession } from "@/lib/webrtc";
 import { useDashboardStore } from "@/stores/useDashboardStore";
@@ -178,11 +179,13 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     ]).then(([communitiesValue, whispersValue, reportsValue, onboardingDismissed, notificationSettingsValue]) => {
       if (active) {
         setCommunities(parseCommunityRecords(communitiesValue));
-        // First open: seed the shared feed so it isn't empty. The seed is
-        // persisted so subsequent sessions keep any Echoes the user posted.
-        if (whispersValue) {
-          setWhispers(parseWhisperEchoes(whispersValue));
-        } else {
+        // Paint the cached feed instantly. When a relay is configured, the
+        // sync effect below replaces this with the authoritative global feed.
+        // With no relay, fall back to a local seed so the feed isn't empty.
+        const cachedWhispers = parseWhisperEchoes(whispersValue);
+        if (cachedWhispers.length > 0) {
+          setWhispers(cachedWhispers);
+        } else if (!whispersRelayConfigured()) {
           const seeded = seedWhisperEchoes();
           setWhispers(seeded);
           void setGlobalSetting(WHISPERS_SETTING_KEY, JSON.stringify(seeded));
@@ -264,6 +267,28 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     }, 60000);
     return () => window.clearInterval(intervalId);
     }, [syncStatusFeedFromRelay]);
+    // Whispers is a public global feed: pull the authoritative timeline from the
+    // relay so any user's Echo (and everyone's reactions/reflections/ripples)
+    // shows up on every device. Best-effort — falls back to the local cache.
+    const syncWhispersFromRelay = useCallback(async (): Promise<void> => {
+            const echoes = await queryWhisperFeed(identity.pubkeyHash, 100);
+            if (!echoes) return;
+            setWhispers(echoes);
+            await setGlobalSetting(WHISPERS_SETTING_KEY, JSON.stringify(echoes));
+          }, [identity.pubkeyHash, setWhispers]);
+    useEffect(() => {
+    if (!whispersRelayConfigured()) return;
+    void syncWhispersFromRelay();
+    const intervalId = window.setInterval(() => {
+      void syncWhispersFromRelay();
+    }, 20000);
+    const onFocus = () => void syncWhispersFromRelay();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+    };
+    }, [syncWhispersFromRelay]);
     useEffect(() => {
     if (!selectedStatusSenderHash) return;
     if (
@@ -2266,51 +2291,84 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             );
             void saveWhispers(next);
           }, [whispers, saveWhispers]);
+    // Every action updates local state optimistically for instant feedback, then
+    // (when a relay is configured) writes through to the relay and re-syncs so
+    // the change becomes visible to every other NADA user.
     const postEcho = (body: string): void => {
             const text = body.trim();
             if (!text) return;
+            const id = crypto.randomUUID();
+            const timestamp = Date.now();
+            const authorName = whisperAuthorName();
             const record: WhisperEcho = {
               authorHash: identity.pubkeyHash,
-              authorName: whisperAuthorName(),
+              authorName,
               body: text,
-              createdAt: Date.now(),
+              createdAt: timestamp,
               echoCount: 0,
               echoedByMe: false,
-              id: crypto.randomUUID(),
+              id,
               reflections: [],
               rippleCount: 0,
               rippledByMe: false
             };
             void saveWhispers([record, ...whispers]);
             showToast("Echo whispered to everyone.");
+            if (whispersRelayConfigured()) {
+              void publishEchoRemote({ author: identity.pubkeyHash, authorName, body: text, id, timestamp })
+                .then((ok) => {
+                  if (ok) void syncWhispersFromRelay();
+                  else showToast("Couldn't reach the feed. Your Echo is saved locally.");
+                });
+            }
           };
     const toggleEcho = (echoId: string): void => {
+            const target = whispers.find((echo) => echo.id === echoId);
+            const nextOn = !(target?.echoedByMe ?? false);
             updateWhisper(echoId, (echo) => ({
               ...echo,
               echoCount: Math.max(0, echo.echoCount + (echo.echoedByMe ? -1 : 1)),
               echoedByMe: !echo.echoedByMe
             }));
+            if (whispersRelayConfigured()) {
+              void reactRemote({ echoId, on: nextOn, reactor: identity.pubkeyHash, timestamp: Date.now() })
+                .then((ok) => {
+                  if (ok) void syncWhispersFromRelay();
+                });
+            }
           };
     const addReflection = (echoId: string, body: string): void => {
             const text = body.trim();
             if (!text) return;
+            const id = crypto.randomUUID();
+            const timestamp = Date.now();
+            const authorName = whisperAuthorName();
             updateWhisper(echoId, (echo) => ({
               ...echo,
               reflections: [
                 ...echo.reflections,
                 {
                   authorHash: identity.pubkeyHash,
-                  authorName: whisperAuthorName(),
+                  authorName,
                   body: text,
-                  createdAt: Date.now(),
-                  id: crypto.randomUUID()
+                  createdAt: timestamp,
+                  id
                 }
               ].slice(-200)
             }));
+            if (whispersRelayConfigured()) {
+              void reflectRemote({ author: identity.pubkeyHash, authorName, body: text, echoId, id, timestamp })
+                .then((ok) => {
+                  if (ok) void syncWhispersFromRelay();
+                });
+            }
           };
     const rippleEcho = (echoId: string): void => {
             const source = whispers.find((echo) => echo.id === echoId);
             if (!source || source.rippledByMe) return;
+            const id = crypto.randomUUID();
+            const timestamp = Date.now();
+            const authorName = whisperAuthorName();
             const rippleSource = source.rippleOf ?? {
               authorName: source.authorName,
               body: source.body,
@@ -2319,12 +2377,12 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             };
             const ripple: WhisperEcho = {
               authorHash: identity.pubkeyHash,
-              authorName: whisperAuthorName(),
+              authorName,
               body: "",
-              createdAt: Date.now(),
+              createdAt: timestamp,
               echoCount: 0,
               echoedByMe: false,
-              id: crypto.randomUUID(),
+              id,
               reflections: [],
               rippleCount: 0,
               rippledByMe: false,
@@ -2337,10 +2395,22 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             );
             void saveWhispers([ripple, ...next]);
             showToast("Rippled to the feed.");
+            if (whispersRelayConfigured()) {
+              void rippleRemote({ author: identity.pubkeyHash, authorName, echoId, id, rippleOf: rippleSource, timestamp })
+                .then((ok) => {
+                  if (ok) void syncWhispersFromRelay();
+                });
+            }
           };
     const deleteEcho = (echoId: string): void => {
             void saveWhispers(whispers.filter((echo) => echo.id !== echoId));
             showToast("Echo deleted.");
+            if (whispersRelayConfigured()) {
+              void deleteEchoRemote({ author: identity.pubkeyHash, id: echoId })
+                .then((ok) => {
+                  if (ok) void syncWhispersFromRelay();
+                });
+            }
           };
     const submitSafetyReport = useCallback(async ({
             category,

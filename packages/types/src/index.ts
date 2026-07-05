@@ -407,6 +407,70 @@ export const StatusDeleteRequestSchema = z.object({
   proof: IdentityProofSchema
 });
 
+// ── Whispers: NADA's public global feed ────────────────────────────────────
+// Unlike statuses, whispers are a public timeline visible to every user, so the
+// body is stored plaintext on the relay. Writes are still authenticated with an
+// identity proof so authorship can't be forged and only authors can delete.
+export const WhisperAuthorNameSchema = z.string().min(1).max(80);
+export const WhisperBodySchema = z.string().min(1).max(500);
+export const WhisperReflectionBodySchema = z.string().min(1).max(280);
+
+export const WhisperRippleSourceSchema = z.object({
+  id: UuidSchema,
+  authorName: WhisperAuthorNameSchema,
+  body: z.string().max(500),
+  createdAt: z.number().int().positive()
+});
+
+export const WhisperPublishRequestSchema = z.object({
+  id: UuidSchema,
+  author: PubkeyHashSchema,
+  authorName: WhisperAuthorNameSchema,
+  body: WhisperBodySchema,
+  timestamp: z.number().int().positive(),
+  proof: IdentityProofSchema
+});
+
+export const WhisperDeleteRequestSchema = z.object({
+  id: UuidSchema,
+  author: PubkeyHashSchema,
+  proof: IdentityProofSchema
+});
+
+export const WhisperReflectRequestSchema = z.object({
+  id: UuidSchema,
+  echoId: UuidSchema,
+  author: PubkeyHashSchema,
+  authorName: WhisperAuthorNameSchema,
+  body: WhisperReflectionBodySchema,
+  timestamp: z.number().int().positive(),
+  proof: IdentityProofSchema
+});
+
+export const WhisperReactRequestSchema = z.object({
+  echoId: UuidSchema,
+  reactor: PubkeyHashSchema,
+  on: z.boolean(),
+  timestamp: z.number().int().positive(),
+  proof: IdentityProofSchema
+});
+
+export const WhisperRippleRequestSchema = z.object({
+  id: UuidSchema,
+  echoId: UuidSchema,
+  author: PubkeyHashSchema,
+  authorName: WhisperAuthorNameSchema,
+  timestamp: z.number().int().positive(),
+  rippleOf: WhisperRippleSourceSchema,
+  proof: IdentityProofSchema
+});
+
+export const WhisperQueryRequestSchema = z.object({
+  viewerPubkeyHash: PubkeyHashSchema,
+  limit: z.number().int().min(1).max(200).optional(),
+  since: z.number().int().nonnegative().optional()
+});
+
 export const ReferralRedeemResponseSchema = z.object({
   accepted: z.boolean(),
   reward: z.string().min(1).nullable(),
@@ -487,6 +551,13 @@ export type PushSubscriptionRequest = z.infer<
 >;
 export type StatusPublishRequest = z.infer<typeof StatusPublishRequestSchema>;
 export type StatusDeleteRequest = z.infer<typeof StatusDeleteRequestSchema>;
+export type WhisperRippleSource = z.infer<typeof WhisperRippleSourceSchema>;
+export type WhisperPublishRequest = z.infer<typeof WhisperPublishRequestSchema>;
+export type WhisperDeleteRequest = z.infer<typeof WhisperDeleteRequestSchema>;
+export type WhisperReflectRequest = z.infer<typeof WhisperReflectRequestSchema>;
+export type WhisperReactRequest = z.infer<typeof WhisperReactRequestSchema>;
+export type WhisperRippleRequest = z.infer<typeof WhisperRippleRequestSchema>;
+export type WhisperQueryRequest = z.infer<typeof WhisperQueryRequestSchema>;
 export type CapabilityTokenPayload = z.infer<
   typeof CapabilityTokenPayloadSchema
 >;

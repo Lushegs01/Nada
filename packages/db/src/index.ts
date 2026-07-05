@@ -213,4 +213,50 @@ create table if not exists status_updates (
 create index if not exists status_updates_sender_created_idx
   on status_updates(sender_pubkey_hash, created_at_ms desc);
 create index if not exists status_updates_expires_idx on status_updates(expires_at_ms);
+
+-- Whispers: NADA's public global feed. Unlike statuses, whisper content is a
+-- public timeline visible to every user, so the body is stored in the clear.
+-- No personal data (phone/email) is ever persisted here.
+create table if not exists whisper_echoes (
+  id uuid primary key,
+  author_pubkey_hash text not null,
+  author_name text not null,
+  body text not null,
+  ripple_of_id uuid,
+  ripple_of_author_name text,
+  ripple_of_body text,
+  ripple_of_created_at_ms bigint,
+  created_at_ms bigint not null,
+  updated_at timestamptz not null
+);
+create index if not exists whisper_echoes_created_idx on whisper_echoes(created_at_ms desc);
+
+create table if not exists whisper_reflections (
+  id uuid primary key,
+  echo_id uuid not null,
+  author_pubkey_hash text not null,
+  author_name text not null,
+  body text not null,
+  created_at_ms bigint not null
+);
+create index if not exists whisper_reflections_echo_idx
+  on whisper_reflections(echo_id, created_at_ms);
+
+-- One row per user per echo — powers accurate global "Echo" (like) counts.
+create table if not exists whisper_reactions (
+  echo_id uuid not null,
+  reactor_pubkey_hash text not null,
+  created_at_ms bigint not null,
+  primary key (echo_id, reactor_pubkey_hash)
+);
+create index if not exists whisper_reactions_echo_idx on whisper_reactions(echo_id);
+
+-- One row per user per source echo — powers accurate global "Ripple" counts.
+create table if not exists whisper_ripples (
+  echo_id uuid not null,
+  rippler_pubkey_hash text not null,
+  created_at_ms bigint not null,
+  primary key (echo_id, rippler_pubkey_hash)
+);
+create index if not exists whisper_ripples_echo_idx on whisper_ripples(echo_id);
 `;

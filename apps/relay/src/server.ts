@@ -27,6 +27,7 @@ import { registerPushRoutes } from "./push-routes";
 import { registerStatusRoutes } from "./status-routes";
 import { registerTurnRoutes } from "./turn-routes";
 import { registerUploadRoutes } from "./upload-routes";
+import { registerWhisperRoutes } from "./whisper-routes";
 
 type ClientSocket = WebSocket;
 
@@ -80,6 +81,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
   await registerStatusRoutes(app as any, env);
   await registerTurnRoutes(app as any, env);
   await registerUploadRoutes(app as any, env);
+  await registerWhisperRoutes(app as any, env);
 
   app.addHook("onClose", async () => {
     await queue.close();
