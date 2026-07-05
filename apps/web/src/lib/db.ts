@@ -84,6 +84,9 @@ class NadaDexie extends Dexie {
     this.version(6).stores({
       messages: "id, chatId, [chatId+createdAt], kind, [kind+createdAt], status, expiresAt"
     });
+    this.version(7).stores({
+      messages: "id, chatId, [chatId+createdAt], kind, [kind+createdAt], status, expiresAt, createdAt"
+    });
   }
 }
 

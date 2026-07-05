@@ -514,94 +514,97 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     }
 
     let active = true;
-    void nadaDb.messages
-      .toArray()
-      .then((records) => {
-        if (!active) return;
-        const recentRecords = records
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .slice(0, 250);
-        const results: GlobalSearchResult[] = [];
+    const timeoutId = setTimeout(() => {
+      void nadaDb.messages
+        .orderBy("createdAt")
+        .reverse()
+        .limit(250)
+        .toArray()
+        .then((recentRecords) => {
+          if (!active) return;
+          const results: GlobalSearchResult[] = [];
 
-        for (const contact of contacts) {
-          const name = contact.localDisplayName;
-          if (name.toLowerCase().includes(query) || contact.pubkeyHash.toLowerCase().includes(query)) {
-            results.push({
-              id: `chat:${contact.pubkeyHash}`,
-              label: name,
-              meta: "Direct chat",
-              targetId: contact.pubkeyHash,
-              targetType: "chat"
-            });
+          for (const contact of contacts) {
+            const name = contact.localDisplayName;
+            if (name.toLowerCase().includes(query) || contact.pubkeyHash.toLowerCase().includes(query)) {
+              results.push({
+                id: `chat:${contact.pubkeyHash}`,
+                label: name,
+                meta: "Direct chat",
+                targetId: contact.pubkeyHash,
+                targetType: "chat"
+              });
+            }
           }
-        }
 
-        for (const group of chats) {
-          if (group.title.toLowerCase().includes(query)) {
-            results.push({
-              id: `group:${group.id}`,
-              label: group.title,
-              meta: `${group.memberPubkeyHashes.length} members`,
-              targetId: group.id,
-              targetType: "group"
-            });
+          for (const group of chats) {
+            if (group.title.toLowerCase().includes(query)) {
+              results.push({
+                id: `group:${group.id}`,
+                label: group.title,
+                meta: `${group.memberPubkeyHashes.length} members`,
+                targetId: group.id,
+                targetType: "group"
+              });
+            }
           }
-        }
 
-        for (const community of communities) {
-          const haystack = `${community.title} ${community.description} ${community.category} ${community.topics.join(" ")}`.toLowerCase();
-          if (haystack.includes(query)) {
-            results.push({
-              id: `community:${community.id}`,
-              label: community.title,
-              meta: `${community.category} community`,
-              targetId: community.id,
-              targetType: "community"
-            });
+          for (const community of communities) {
+            const haystack = `${community.title} ${community.description} ${community.category} ${community.topics.join(" ")}`.toLowerCase();
+            if (haystack.includes(query)) {
+              results.push({
+                id: `community:${community.id}`,
+                label: community.title,
+                meta: `${community.category} community`,
+                targetId: community.id,
+                targetType: "community"
+              });
+            }
           }
-        }
 
-        for (const status of visibleStatuses) {
-          const text = textFromMessage(status);
-          if (text.toLowerCase().includes(query)) {
-            const name =
-              status.senderPubkeyHash === identity.pubkeyHash
-                ? "My Status"
-                : contacts.find((contact) => contact.pubkeyHash === status.senderPubkeyHash)
-                    ?.localDisplayName ?? generateRandomUsername(status.senderPubkeyHash);
-            results.push({
-              id: `status:${status.id}`,
-              label: name,
-              meta: text.slice(0, 72) || "Status update",
-              targetId: status.senderPubkeyHash,
-              targetType: "status"
-            });
+          for (const status of visibleStatuses) {
+            const text = textFromMessage(status);
+            if (text.toLowerCase().includes(query)) {
+              const name =
+                status.senderPubkeyHash === identity.pubkeyHash
+                  ? "My Status"
+                  : contacts.find((contact) => contact.pubkeyHash === status.senderPubkeyHash)
+                      ?.localDisplayName ?? generateRandomUsername(status.senderPubkeyHash);
+              results.push({
+                id: `status:${status.id}`,
+                label: name,
+                meta: text.slice(0, 72) || "Status update",
+                targetId: status.senderPubkeyHash,
+                targetType: "status"
+              });
+            }
           }
-        }
 
-        for (const message of recentRecords) {
-          if (message.deletedAt) continue;
-          const preview = previewForMessage(message);
-          if (!preview.toLowerCase().includes(query)) continue;
-          const contact = contacts.find(
-            (item) => directChatId(identity.pubkeyHash, item.pubkeyHash) === message.chatId
-          );
-          const group = chats.find((item) => item.id === message.chatId);
-          results.push({
-            id: `message:${message.id}`,
-            label: group?.title ?? contact?.localDisplayName ?? "Message",
-            meta: preview.slice(0, 80),
-            targetId: message.id,
-            targetType: "message"
-          });
-          if (results.length >= 12) break;
-        }
+          for (const message of recentRecords) {
+            if (message.deletedAt) continue;
+            const preview = previewForMessage(message);
+            if (!preview.toLowerCase().includes(query)) continue;
+            const contact = contacts.find(
+              (item) => directChatId(identity.pubkeyHash, item.pubkeyHash) === message.chatId
+            );
+            const group = chats.find((item) => item.id === message.chatId);
+            results.push({
+              id: `message:${message.id}`,
+              label: group?.title ?? contact?.localDisplayName ?? "Message",
+              meta: preview.slice(0, 80),
+              targetId: message.id,
+              targetType: "message"
+            });
+            if (results.length >= 12) break;
+          }
 
-        setGlobalSearchResults(results.slice(0, 12));
-      });
+          setGlobalSearchResults(results.slice(0, 12));
+        });
+    }, 300);
 
     return () => {
       active = false;
+      clearTimeout(timeoutId);
     };
     }, [chats, communities, contacts, identity.pubkeyHash, searchQuery, visibleStatuses]);
     const sidebarChatItems = useMemo<ChatListModel[]>(() => {
