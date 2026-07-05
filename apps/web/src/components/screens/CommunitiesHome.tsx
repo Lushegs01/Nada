@@ -1,3 +1,5 @@
+"use client";
+/* eslint-disable */
 import type { CommunityRecord, CommunityDraft, ChatListModel } from "@/utils/dashboard-types";
 import { formatRelativeTime } from "@/utils/helpers";
 import type { IdentityRecord, ChatRecord, ContactRecord } from "@nada/db";

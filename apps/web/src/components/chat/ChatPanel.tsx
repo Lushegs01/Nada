@@ -1,3 +1,4 @@
+"use client";
 import { textFromMessage, messageKindFromRecord, previewForMessage, mediaFromMessage, decodeMessagePayload } from "@/lib/media-message";
 import { type PreparedMediaFile, validateMediaFile, prepareMediaFile, openDecryptedMedia, formatBytes } from "@/lib/media-upload";
 import type { CallMode } from "@/lib/webrtc";
@@ -5,7 +6,7 @@ import { deliveryStatusGlyph } from "@/utils/helpers";
 import type { ContactRecord, MessageRecord } from "@nada/db";
 import type { PollData, PollOption } from "@nada/types";
 import { IconButton, IdentityOrb, Avatar, cn } from "@nada/ui";
-import {} from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, Check, CheckCheck, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed } from "lucide-react";
 import type { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { type VirtuosoHandle, Virtuoso } from "react-virtuoso";

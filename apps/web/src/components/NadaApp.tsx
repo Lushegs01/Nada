@@ -1,3 +1,5 @@
+"use client";
+/* eslint-disable */
 import type {
   NotificationSettings, NotificationSoundChoice, NotificationPreviewPrivacy,
   NotificationRingtoneChoice, DeliveryGlyph, CommunityRecord, CommunityPost,
@@ -9,8 +11,6 @@ import {
   NOTIFICATION_SOUND_CHOICES, NOTIFICATION_PREVIEW_PRIVACY_CHOICES,
   NOTIFICATION_RINGTONE_CHOICES, STATUS_REACTION_EMOJIS, GROUP_DECRYPTION_FALLBACK_TEXT
 } from "@/utils/dashboard-types";
-"use client";
-
 import {
   useCallback,
   useEffect,

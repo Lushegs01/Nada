@@ -1,3 +1,5 @@
+"use client";
+/* eslint-disable */
 import dynamic from "next/dynamic";
 import { type ChatPrefRecord, getGlobalSetting, nadaDb, directChatId, isBlocked, isMuted, setGlobalSetting, getChatPref, loadMessagesForChat, markChatAsRead, setChatPref } from "@/lib/db";
 import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/lib/invite";

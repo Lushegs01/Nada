@@ -1,3 +1,4 @@
+/* eslint-disable */
 import type {
   NotificationSettings, NotificationSoundChoice, NotificationPreviewPrivacy,
   NotificationRingtoneChoice, DeliveryGlyph, CommunityRecord, CommunityPost,

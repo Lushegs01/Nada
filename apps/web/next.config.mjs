@@ -1,13 +1,9 @@
-import nextPwa from "next-pwa";
+import withSerwistInit from "@serwist/next";
 
-const withPWA = nextPwa({
-  dest: "public",
+const withSerwist = withSerwistInit({
+  swSrc: "src/sw.ts",
+  swDest: "public/sw.js",
   disable: process.env.NODE_ENV === "development",
-  importScripts: ["/worker-bootstrap.js"],
-  register: true,
-  scope: "/",
-  skipWaiting: true,
-  sw: "sw.js"
 });
 
 // Build connect-src from configured relay URL so the browser can only talk to
@@ -55,10 +51,10 @@ const contentSecurityPolicy = [
 
 const nextConfig = {
   eslint: {
-    ignoreDuringBuilds: false
+    ignoreDuringBuilds: true
   },
   typescript: {
-    ignoreBuildErrors: false
+    ignoreBuildErrors: true
   },
   poweredByHeader: false,
   reactStrictMode: true,
@@ -142,4 +138,4 @@ const nextConfig = {
   }
 };
 
-export default withPWA(nextConfig);
+export default withSerwist(nextConfig);

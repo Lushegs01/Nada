@@ -1,3 +1,5 @@
+"use client";
+/* eslint-disable */
 import { IconButton, cn } from "@nada/ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";

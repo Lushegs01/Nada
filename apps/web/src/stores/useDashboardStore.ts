@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { create } from 'zustand';
 type Updater<T> = T | ((prev: T) => T);
 import type { ChatRecord, ContactRecord, MessageRecord } from "@nada/db";

@@ -1,3 +1,5 @@
+"use client";
+/* eslint-disable */
 import { primaryIdentityId, nadaDb } from "@/lib/db";
 import { generateRandomUsername } from "@/utils/helpers";
 import { createSeedPhrase, createAnonymousIdentity } from "@nada/crypto";

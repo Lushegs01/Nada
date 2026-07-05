@@ -1,4 +1,5 @@
-import {} from "framer-motion";
+"use client";
+import { motion, AnimatePresence } from "framer-motion";
 
 export function Splash(): JSX.Element {
     return (
