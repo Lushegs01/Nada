@@ -1,4 +1,4 @@
-import type { motion } from "framer-motion";
+import {} from "framer-motion";
 
 export function Splash(): JSX.Element {
     return (

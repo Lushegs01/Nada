@@ -1,31 +1,39 @@
+import dynamic from "next/dynamic";
 import { type ChatPrefRecord, getGlobalSetting, nadaDb, directChatId, isBlocked, isMuted, setGlobalSetting, getChatPref, loadMessagesForChat, markChatAsRead, setChatPref } from "@/lib/db";
 import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/lib/invite";
 import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload } from "@/lib/media-message";
 import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib/media-upload";
-import type { getRelayHttpBaseUrl } from "@/lib/relay-url";
-import type { CallMode, LocalCallSession, createLocalCallSession } from "@/lib/webrtc";
-import type { useCallStore } from "@/stores/useCallStore";
-import type { useIdentityStore } from "@/stores/useIdentityStore";
-import type { useSocketStore } from "@/stores/useSocketStore";
+import { getRelayHttpBaseUrl } from "@/lib/relay-url";
+import type { CallMode, LocalCallSession } from "@/lib/webrtc";
+import { createLocalCallSession } from "@/lib/webrtc";
+import { useDashboardStore } from "@/stores/useDashboardStore";
+import { useCallStore } from "@/stores/useCallStore";
+import { useIdentityStore } from "@/stores/useIdentityStore";
+import { useSocketStore } from "@/stores/useSocketStore";
 import { parseCommunityRecords, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, extractMentions, statusCommentChatId, defaultCommunityChannels, defaultCommunityTopics, dataUrlSize, matchesSearch } from "@/utils/helpers";
 import { encryptGroupMessage, mockEncryptMessage, createGroupSenderKey } from "@nada/crypto";
 import type { IdentityRecord, ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
 import type { MessageEnvelope, ReplyToMessage, GroupMessageEnvelope, PollData, MediaAttachment, GroupInvitePayload } from "@nada/types";
 import { cn, GroupOrb, IdentityOrb } from "@nada/ui";
 import Dexie from "dexie";
-import type { AnimatePresence, motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Ghost, Bell, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import type { useRef, useState, useEffect, useCallback, useMemo } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { IncomingCallModal, VoiceCallOverlay, VideoCallOverlay } from "../CallOverlay";
-import { GlobalSearchResults, ChatPanel } from "../chat/ChatPanel";
+import { GlobalSearchResults } from "../chat/ChatPanel";
+const ChatPanel = dynamic(() => import("../chat/ChatPanel").then(m => m.ChatPanel), { ssr: false });
 import { GroupCallOverlay } from "../GroupCallOverlay";
 import { DesktopNavRail, MobileChatsHome, ArchivedRow, EmptyChatListState, ChatListItem } from "../NadaMobileUI";
-import { BillingSheet } from "../panels/BillingSheet";
-import { ContactSheet, MigrationSheet, ShareSheet, GroupSheet } from "../panels/ContactSheets";
+const BillingSheet = dynamic(() => import("../panels/BillingSheet").then(m => m.BillingSheet), { ssr: false });
+const ContactSheet = dynamic(() => import("../panels/ContactSheets").then(m => m.ContactSheet), { ssr: false });
+const MigrationSheet = dynamic(() => import("../panels/ContactSheets").then(m => m.MigrationSheet), { ssr: false });
+const ShareSheet = dynamic(() => import("../panels/ContactSheets").then(m => m.ShareSheet), { ssr: false });
+const GroupSheet = dynamic(() => import("../panels/ContactSheets").then(m => m.GroupSheet), { ssr: false });
 import { ConfirmChatActionDialog } from "../panels/Dialogs";
-import { SafetyReportSheet } from "../panels/SafetyReportSheet";
-import { SettingsDashboardPreview, SettingsSheet } from "../panels/SettingsSheet";
+const SafetyReportSheet = dynamic(() => import("../panels/SafetyReportSheet").then(m => m.SafetyReportSheet), { ssr: false });
+import { SettingsDashboardPreview } from "../panels/SettingsSheet";
+const SettingsSheet = dynamic(() => import("../panels/SettingsSheet").then(m => m.SettingsSheet), { ssr: false });
 import { LaunchOnboardingSheet } from "../panels/Sheet";
 import { parseVoiceNoteBody } from "../VoiceNote";
 import { GroupsHome, CommunitiesHome, CommunityCreateSheet } from "./CommunitiesHome";
@@ -56,9 +64,12 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const setSocketGhostMode = useSocketStore((state) => state.setGhostMode);
     const processedReactions = useRef<Set<string>>(new Set());
     const processedDeletions = useRef<Set<string>>(new Set());
-    const [ghostMode, setGhostMode] = useState(false);
-    const [mood, setMood] = useState("Available");
-    const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
+    const ghostMode = useDashboardStore((s) => s.ghostMode);
+    const setGhostMode = useDashboardStore((s) => s.setGhostMode);
+    const mood = useDashboardStore((s) => s.mood);
+    const setMood = useDashboardStore((s) => s.setMood);
+    const notificationSettings = useDashboardStore((s) => s.notificationSettings);
+    const setNotificationSettings = useDashboardStore((s) => s.setNotificationSettings);
     useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
@@ -75,39 +86,60 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       body.removeAttribute("data-ghost");
     };
     }, [ghostMode]);
-    const [chats, setChats] = useState<ChatRecord[]>([]);
-    const [contacts, setContacts] = useState<ContactRecord[]>([]);
-    const [disappearingTimer, setDisappearingTimer] = useState(0);
-    const [displayName, setDisplayName] = useState("NADA");
-    const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-    const [messageSearchQuery, setMessageSearchQuery] = useState("");
-    const [messages, setMessages] = useState<MessageRecord[]>([]);
-    const [panel, setPanel] = useState<Panel>(null);
-    const [replyToId, setReplyToId] = useState<string | null>(null);
-    const [searchQuery, setSearchQuery] = useState("");
-    const [globalSearchResults, setGlobalSearchResults] = useState<GlobalSearchResult[]>([]);
-    const [selectedContactHash, setSelectedContactHash] = useState<string | null>(null);
-    const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-    const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-    const [chatPref, setChatPrefState] = useState<ChatPrefRecord>({
-            chatId: "", mutedUntil: 0, clearedAt: 0, blockedPubkeyHashes: [],
-            pinnedMessageId: null, pinnedMessageBody: null, archivedAt: 0, updatedAt: 0
-          });
+    const chats = useDashboardStore((s) => s.chats);
+    const setChats = useDashboardStore((s) => s.setChats);
+    const contacts = useDashboardStore((s) => s.contacts);
+    const setContacts = useDashboardStore((s) => s.setContacts);
+    const disappearingTimer = useDashboardStore((s) => s.disappearingTimer);
+    const setDisappearingTimer = useDashboardStore((s) => s.setDisappearingTimer);
+    const displayName = useDashboardStore((s) => s.displayName);
+    const setDisplayName = useDashboardStore((s) => s.setDisplayName);
+    const editingMessageId = useDashboardStore((s) => s.editingMessageId);
+    const setEditingMessageId = useDashboardStore((s) => s.setEditingMessageId);
+    const messageSearchQuery = useDashboardStore((s) => s.messageSearchQuery);
+    const setMessageSearchQuery = useDashboardStore((s) => s.setMessageSearchQuery);
+    const messages = useDashboardStore((s) => s.messages);
+    const setMessages = useDashboardStore((s) => s.setMessages);
+    const panel = useDashboardStore((s) => s.panel);
+    const setPanel = useDashboardStore((s) => s.setPanel);
+    const replyToId = useDashboardStore((s) => s.replyToId);
+    const setReplyToId = useDashboardStore((s) => s.setReplyToId);
+    const searchQuery = useDashboardStore((s) => s.searchQuery);
+    const setSearchQuery = useDashboardStore((s) => s.setSearchQuery);
+    const globalSearchResults = useDashboardStore((s) => s.globalSearchResults);
+    const setGlobalSearchResults = useDashboardStore((s) => s.setGlobalSearchResults);
+    const selectedContactHash = useDashboardStore((s) => s.selectedContactHash);
+    const setSelectedContactHash = useDashboardStore((s) => s.setSelectedContactHash);
+    const selectedGroupId = useDashboardStore((s) => s.selectedGroupId);
+    const setSelectedGroupId = useDashboardStore((s) => s.setSelectedGroupId);
+    const uploadStatus = useDashboardStore((s) => s.uploadStatus);
+    const setUploadStatus = useDashboardStore((s) => s.setUploadStatus);
+    const chatPref = useDashboardStore((s) => s.chatPref);
+    const setChatPrefState = useDashboardStore((s) => s.setChatPref);
     const [archivedChatIds, setArchivedChatIds] = useState<Set<string>>(
             () => new Set()
           );
     const [mutedChatIds, setMutedChatIds] = useState<Set<string>>(
             () => new Set()
           );
-    const [showArchivedChats, setShowArchivedChats] = useState(false);
-    const [pendingChatAction, setPendingChatAction] = useState<PendingChatAction | null>(null);
-    const [blurShieldActive, setBlurShieldActive] = useState(false);
-    const [blurShieldRevealed, setBlurShieldRevealed] = useState(false);
-    const [showGhostModal, setShowGhostModal] = useState(false);
-    const [showMoodModal, setShowMoodModal] = useState(false);
-    const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
-    const [pendingReportTarget, setPendingReportTarget] = useState<ReportTarget | null>(null);
-    const [inAppNotification, setInAppNotification] = useState<{ id: string; title: string; body: string; chatId: string } | null>(null);
+    const showArchivedChats = useDashboardStore((s) => s.showArchivedChats);
+    const setShowArchivedChats = useDashboardStore((s) => s.setShowArchivedChats);
+    const pendingChatAction = useDashboardStore((s) => s.pendingChatAction);
+    const setPendingChatAction = useDashboardStore((s) => s.setPendingChatAction);
+    const blurShieldActive = useDashboardStore((s) => s.blurShieldActive);
+    const setBlurShieldActive = useDashboardStore((s) => s.setBlurShieldActive);
+    const blurShieldRevealed = useDashboardStore((s) => s.blurShieldRevealed);
+    const setBlurShieldRevealed = useDashboardStore((s) => s.setBlurShieldRevealed);
+    const showGhostModal = useDashboardStore((s) => s.showGhostModal);
+    const setShowGhostModal = useDashboardStore((s) => s.setShowGhostModal);
+    const showMoodModal = useDashboardStore((s) => s.showMoodModal);
+    const setShowMoodModal = useDashboardStore((s) => s.setShowMoodModal);
+    const forwardMessageId = useDashboardStore((s) => s.forwardMessageId);
+    const setForwardMessageId = useDashboardStore((s) => s.setForwardMessageId);
+    const pendingReportTarget = useDashboardStore((s) => s.pendingReportTarget);
+    const setPendingReportTarget = useDashboardStore((s) => s.setPendingReportTarget);
+    const inAppNotification = useDashboardStore((s) => s.inAppNotification);
+    const setInAppNotification = useDashboardStore((s) => s.setInAppNotification);
     useEffect(() => {
     if (!showGhostModal && !showMoodModal && !forwardMessageId) return;
     const handleEscape = (e: KeyboardEvent) => {
@@ -119,11 +151,16 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
     }, [showGhostModal, showMoodModal, forwardMessageId]);
-    const [allStatuses, setAllStatuses] = useState<MessageRecord[]>([]);
-    const [communities, setCommunities] = useState<CommunityRecord[]>([]);
-    const [safetyReports, setSafetyReports] = useState<SafetyReport[]>([]);
-    const [showOnboarding, setShowOnboarding] = useState(false);
-    const [selectedStatusSenderHash, setSelectedStatusSenderHash] = useState<string | null>(null);
+    const allStatuses = useDashboardStore((s) => s.allStatuses);
+    const setAllStatuses = useDashboardStore((s) => s.setAllStatuses);
+    const communities = useDashboardStore((s) => s.communities);
+    const setCommunities = useDashboardStore((s) => s.setCommunities);
+    const safetyReports = useDashboardStore((s) => s.safetyReports);
+    const setSafetyReports = useDashboardStore((s) => s.setSafetyReports);
+    const showOnboarding = useDashboardStore((s) => s.showOnboarding);
+    const setShowOnboarding = useDashboardStore((s) => s.setShowOnboarding);
+    const selectedStatusSenderHash = useDashboardStore((s) => s.selectedStatusSenderHash);
+    const setSelectedStatusSenderHash = useDashboardStore((s) => s.setSelectedStatusSenderHash);
     useEffect(() => {
     let active = true;
     void Promise.all([
@@ -369,7 +406,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             playNotificationTone
           ]);
     const [activeFilter] = useState("all");
-    const [activeTab, setActiveTab] = useState("chats");
+    const activeTab = useDashboardStore((s) => s.activeTab);
+    const setActiveTab = useDashboardStore((s) => s.setActiveTab);
     const [lastMessages, setLastMessages] = useState<Record<string, { body: string; ts: number }>>({});
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
     const processedGroupIncoming = useRef<Set<string>>(new Set());
@@ -435,7 +473,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             [chatPref, selectedContact]
           );
     const chatIsMuted = useMemo(() => isMuted(chatPref), [chatPref]);
-    const totalUnreadCount = useMemo(() => 
+    const unreadCount = useMemo(() => 
             Object.values(unreadCounts).reduce((acc, count) => acc + count, 0),
             [unreadCounts]
           );
@@ -3110,7 +3148,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             setShowGhostModal(false);
             setShowMoodModal(false);
           }}
-          totalUnreadCount={totalUnreadCount}
+          unreadCount={unreadCount}
           onNewChat={() => setPanel("contacts")}
           onSettings={() => setPanel("settings")}
         />
@@ -3123,7 +3161,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
         <MobileChatsHome
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          unreadTotal={totalUnreadCount}
+          unreadTotal={unreadCount}
           onComposeClick={() => setPanel("contacts")}
           selfSeed={identity.pubkeyHash}
           ghost={ghostMode}

@@ -1,5 +1,5 @@
 import { IconButton, cn } from "@nada/ui";
-import type { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 

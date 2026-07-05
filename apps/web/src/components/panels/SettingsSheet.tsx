@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { NotificationSettings, type NotificationTone, NOTIFICATION_SOUND_CHOICES, NOTIFICATION_RINGTONE_CHOICES } from "@/utils/dashboard-types";
 import { notificationToneLabel, notificationRingtoneLabel } from "@/utils/helpers";
 import type { IdentityRecord } from "@nada/db";

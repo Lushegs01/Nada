@@ -1,10 +1,10 @@
 import type { CommunityRecord, CommunityDraft, ChatListModel } from "@/utils/dashboard-types";
 import { formatRelativeTime } from "@/utils/helpers";
 import type { IdentityRecord, ChatRecord, ContactRecord } from "@nada/db";
-import type { cn } from "@nada/ui";
-import type { AnimatePresence, motion } from "framer-motion";
+import { cn } from "@nada/ui";
+import { motion, AnimatePresence } from "framer-motion";
 import { MessageCircle, Plus, Users, Flag, Trash2, Send, BarChart2, Sheet, X, ShieldAlert } from "lucide-react";
-import type { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 
 export function CommunitiesHome({
       communities,

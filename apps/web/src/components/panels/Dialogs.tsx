@@ -1,8 +1,8 @@
 import type { PendingChatAction } from "@/utils/dashboard-types";
-import type { cn } from "@nada/ui";
-import type { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Trash2, Archive } from "lucide-react";
 import type { ReactNode } from "react";
+import { cn } from "@nada/ui";
 
 export function ConfirmChatActionDialog({
       action,

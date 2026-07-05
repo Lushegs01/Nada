@@ -1,0 +1,189 @@
+import { create } from 'zustand';
+type Updater<T> = T | ((prev: T) => T);
+import type { ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
+import type { CommunityRecord, SafetyReport, NotificationSettings, GlobalSearchResult, ReportTarget } from "@/utils/dashboard-types";
+import { DEFAULT_NOTIFICATION_SETTINGS } from "@/utils/dashboard-types";
+
+type Panel = "settings" | "contacts" | "billing" | "share" | "migration" | "group" | "safetyReport" | "community_create" | "status_create" | null;
+
+interface PendingChatAction {
+  action: "delete" | "archive" | "unarchive" | "mute" | "unmute" | "block" | "unblock" | "delete-group";
+  chat?: ChatRecord | any;
+  chatId?: string;
+  contactHash?: string;
+  groupId?: string;
+  title?: string;
+}
+
+interface DashboardState {
+  chatPref: import("@/lib/db").ChatPrefRecord;
+  setChatPref: (p: import("@/lib/db").ChatPrefRecord) => void;
+  // App State
+  ghostMode: boolean;
+  setGhostMode: (val: Updater<boolean>) => void;
+  mood: string;
+  setMood: (val: Updater<string>) => void;
+  notificationSettings: NotificationSettings;
+  setNotificationSettings: (val: Updater<NotificationSettings>) => void;
+  showOnboarding: boolean;
+  setShowOnboarding: (val: Updater<boolean>) => void;
+
+  // Data Collections
+  chats: ChatRecord[];
+  setChats: (chats: Updater<ChatRecord[]>) => void;
+  contacts: ContactRecord[];
+  setContacts: (contacts: Updater<ContactRecord[]>) => void;
+  messages: MessageRecord[];
+  setMessages: (messages: Updater<MessageRecord[]>) => void;
+  allStatuses: MessageRecord[];
+  setAllStatuses: (statuses: Updater<MessageRecord[]>) => void;
+  communities: CommunityRecord[];
+  setCommunities: (communities: Updater<CommunityRecord[]>) => void;
+  safetyReports: SafetyReport[];
+  setSafetyReports: (reports: Updater<SafetyReport[]>) => void;
+
+  // Active Selections
+  selectedContactHash: string | null;
+  setSelectedContactHash: (hash: Updater<string | null>) => void;
+  selectedGroupId: string | null;
+  setSelectedGroupId: (id: Updater<string | null>) => void;
+  selectedStatusSenderHash: string | null;
+  setSelectedStatusSenderHash: (hash: Updater<string | null>) => void;
+  
+  // Chat specific state
+  disappearingTimer: number;
+  setDisappearingTimer: (val: Updater<number>) => void;
+  displayName: string;
+  setDisplayName: (val: Updater<string>) => void;
+  editingMessageId: string | null;
+  setEditingMessageId: (id: Updater<string | null>) => void;
+  replyToId: string | null;
+  setReplyToId: (id: Updater<string | null>) => void;
+  forwardMessageId: string | null;
+  setForwardMessageId: (id: Updater<string | null>) => void;
+  
+  // UI State
+  panel: Panel;
+  setPanel: (panel: Updater<Panel>) => void;
+  activeTab: string;
+  setActiveTab: (tab: Updater<string>) => void;
+  activeFilter: string;
+  setActiveFilter: (filter: Updater<string>) => void;
+  searchQuery: string;
+  setSearchQuery: (query: Updater<string>) => void;
+  messageSearchQuery: string;
+  setMessageSearchQuery: (query: Updater<string>) => void;
+  globalSearchResults: GlobalSearchResult[];
+  setGlobalSearchResults: (results: Updater<GlobalSearchResult[]>) => void;
+  uploadStatus: string | null;
+  setUploadStatus: (status: Updater<string | null>) => void;
+  
+  // Modals & Overlays
+  blurShieldActive: boolean;
+  setBlurShieldActive: (val: Updater<boolean>) => void;
+  blurShieldRevealed: boolean;
+  setBlurShieldRevealed: (val: Updater<boolean>) => void;
+  showGhostModal: boolean;
+  setShowGhostModal: (val: Updater<boolean>) => void;
+  showMoodModal: boolean;
+  setShowMoodModal: (val: Updater<boolean>) => void;
+  showArchivedChats: boolean;
+  setShowArchivedChats: (val: Updater<boolean>) => void;
+  
+  // Action state
+  pendingChatAction: PendingChatAction | null;
+  setPendingChatAction: (action: Updater<PendingChatAction | null>) => void;
+  pendingReportTarget: ReportTarget | null;
+  setPendingReportTarget: (target: Updater<ReportTarget | null>) => void;
+  inAppNotification: { id: string; title: string; body: string; chatId: string } | null;
+  setInAppNotification: (notif: Updater<{ id: string; title: string; body: string; chatId: string } | null>) => void;
+  
+  // Chat Prefs
+  archivedChatIds: Set<string>;
+  setArchivedChatIds: (ids: Updater<Set<string>>) => void;
+  mutedChatIds: Set<string>;
+  setMutedChatIds: (ids: Updater<Set<string>>) => void;
+}
+
+export const useDashboardStore = create<DashboardState>((set) => ({
+  ghostMode: false,
+  setGhostMode: (ghostMode) => set((state) => ({ ghostMode: typeof ghostMode === 'function' ? ghostMode(state.ghostMode) : ghostMode })),
+  mood: "Available",
+  setMood: (mood) => set((state) => ({ mood: typeof mood === 'function' ? mood(state.mood) : mood })),
+  notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
+  setNotificationSettings: (notificationSettings) => set((state) => ({ notificationSettings: typeof notificationSettings === 'function' ? notificationSettings(state.notificationSettings) : notificationSettings })),
+  showOnboarding: false,
+  setShowOnboarding: (showOnboarding) => set((state) => ({ showOnboarding: typeof showOnboarding === 'function' ? showOnboarding(state.showOnboarding) : showOnboarding })),
+
+  chats: [],
+  setChats: (chats) => set((state) => ({ chats: typeof chats === 'function' ? chats(state.chats) : chats })),
+  contacts: [],
+  setContacts: (contacts) => set((state) => ({ contacts: typeof contacts === 'function' ? contacts(state.contacts) : contacts })),
+  messages: [],
+  setMessages: (messages) => set((state) => ({ messages: typeof messages === 'function' ? messages(state.messages) : messages })),
+  allStatuses: [],
+  setAllStatuses: (allStatuses) => set((state) => ({ allStatuses: typeof allStatuses === 'function' ? allStatuses(state.allStatuses) : allStatuses })),
+  communities: [],
+  setCommunities: (communities) => set((state) => ({ communities: typeof communities === 'function' ? communities(state.communities) : communities })),
+  safetyReports: [],
+  setSafetyReports: (safetyReports) => set((state) => ({ safetyReports: typeof safetyReports === 'function' ? safetyReports(state.safetyReports) : safetyReports })),
+
+  selectedContactHash: null,
+  setSelectedContactHash: (selectedContactHash) => set((state) => ({ selectedContactHash: typeof selectedContactHash === 'function' ? selectedContactHash(state.selectedContactHash) : selectedContactHash })),
+  selectedGroupId: null,
+  setSelectedGroupId: (selectedGroupId) => set((state) => ({ selectedGroupId: typeof selectedGroupId === 'function' ? selectedGroupId(state.selectedGroupId) : selectedGroupId })),
+  selectedStatusSenderHash: null,
+  setSelectedStatusSenderHash: (selectedStatusSenderHash) => set((state) => ({ selectedStatusSenderHash: typeof selectedStatusSenderHash === 'function' ? selectedStatusSenderHash(state.selectedStatusSenderHash) : selectedStatusSenderHash })),
+
+  disappearingTimer: 0,
+  setDisappearingTimer: (disappearingTimer) => set((state) => ({ disappearingTimer: typeof disappearingTimer === 'function' ? disappearingTimer(state.disappearingTimer) : disappearingTimer })),
+  displayName: "NADA",
+  setDisplayName: (displayName) => set((state) => ({ displayName: typeof displayName === 'function' ? displayName(state.displayName) : displayName })),
+  editingMessageId: null,
+  setEditingMessageId: (editingMessageId) => set((state) => ({ editingMessageId: typeof editingMessageId === 'function' ? editingMessageId(state.editingMessageId) : editingMessageId })),
+  replyToId: null,
+  setReplyToId: (replyToId) => set((state) => ({ replyToId: typeof replyToId === 'function' ? replyToId(state.replyToId) : replyToId })),
+  forwardMessageId: null,
+  setForwardMessageId: (forwardMessageId) => set((state) => ({ forwardMessageId: typeof forwardMessageId === 'function' ? forwardMessageId(state.forwardMessageId) : forwardMessageId })),
+
+  panel: null,
+  setPanel: (panel) => set((state) => ({ panel: typeof panel === 'function' ? panel(state.panel) : panel })),
+  activeTab: "chats",
+  setActiveTab: (activeTab) => set((state) => ({ activeTab: typeof activeTab === 'function' ? activeTab(state.activeTab) : activeTab })),
+  activeFilter: "all",
+  setActiveFilter: (activeFilter) => set((state) => ({ activeFilter: typeof activeFilter === 'function' ? activeFilter(state.activeFilter) : activeFilter })),
+  searchQuery: "",
+  setSearchQuery: (searchQuery) => set((state) => ({ searchQuery: typeof searchQuery === 'function' ? searchQuery(state.searchQuery) : searchQuery })),
+  messageSearchQuery: "",
+  setMessageSearchQuery: (messageSearchQuery) => set((state) => ({ messageSearchQuery: typeof messageSearchQuery === 'function' ? messageSearchQuery(state.messageSearchQuery) : messageSearchQuery })),
+  globalSearchResults: [],
+  setGlobalSearchResults: (globalSearchResults) => set((state) => ({ globalSearchResults: typeof globalSearchResults === 'function' ? globalSearchResults(state.globalSearchResults) : globalSearchResults })),
+  uploadStatus: null,
+  setUploadStatus: (uploadStatus) => set((state) => ({ uploadStatus: typeof uploadStatus === 'function' ? uploadStatus(state.uploadStatus) : uploadStatus })),
+
+  blurShieldActive: false,
+  setBlurShieldActive: (blurShieldActive) => set((state) => ({ blurShieldActive: typeof blurShieldActive === 'function' ? blurShieldActive(state.blurShieldActive) : blurShieldActive })),
+  blurShieldRevealed: false,
+  setBlurShieldRevealed: (blurShieldRevealed) => set((state) => ({ blurShieldRevealed: typeof blurShieldRevealed === 'function' ? blurShieldRevealed(state.blurShieldRevealed) : blurShieldRevealed })),
+  showGhostModal: false,
+  setShowGhostModal: (showGhostModal) => set((state) => ({ showGhostModal: typeof showGhostModal === 'function' ? showGhostModal(state.showGhostModal) : showGhostModal })),
+  showMoodModal: false,
+  setShowMoodModal: (showMoodModal) => set((state) => ({ showMoodModal: typeof showMoodModal === 'function' ? showMoodModal(state.showMoodModal) : showMoodModal })),
+  showArchivedChats: false,
+  setShowArchivedChats: (showArchivedChats) => set((state) => ({ showArchivedChats: typeof showArchivedChats === 'function' ? showArchivedChats(state.showArchivedChats) : showArchivedChats })),
+
+  pendingChatAction: null,
+  setPendingChatAction: (pendingChatAction) => set((state) => ({ pendingChatAction: typeof pendingChatAction === 'function' ? pendingChatAction(state.pendingChatAction) : pendingChatAction })),
+  pendingReportTarget: null,
+  setPendingReportTarget: (pendingReportTarget) => set((state) => ({ pendingReportTarget: typeof pendingReportTarget === 'function' ? pendingReportTarget(state.pendingReportTarget) : pendingReportTarget })),
+  inAppNotification: null,
+  setInAppNotification: (inAppNotification) => set((state) => ({ inAppNotification: typeof inAppNotification === 'function' ? inAppNotification(state.inAppNotification) : inAppNotification })),
+
+  chatPref: { chatId: "", mutedUntil: 0, clearedAt: 0, blockedPubkeyHashes: [], pinnedMessageId: null, pinnedMessageBody: null, archivedAt: 0, updatedAt: 0 },
+  setChatPref: (chatPref) => set((state) => ({ chatPref: typeof chatPref === 'function' ? chatPref(state.chatPref) : chatPref })),
+
+  archivedChatIds: new Set(),
+  setArchivedChatIds: (archivedChatIds) => set((state) => ({ archivedChatIds: typeof archivedChatIds === 'function' ? archivedChatIds(state.archivedChatIds) : archivedChatIds })),
+  mutedChatIds: new Set(),
+  setMutedChatIds: (mutedChatIds) => set((state) => ({ mutedChatIds: typeof mutedChatIds === 'function' ? mutedChatIds(state.mutedChatIds) : mutedChatIds })),
+}));

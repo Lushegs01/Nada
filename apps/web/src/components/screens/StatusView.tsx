@@ -4,7 +4,8 @@ import { generateRandomUsername, formatRelativeTime, loadStatusComments, parseSt
 import type { IdentityRecord, ContactRecord, MessageRecord } from "@nada/db";
 import type { MediaAttachment } from "@nada/types";
 import { IdentityOrb, cn } from "@nada/ui";
-import type { motion, AnimatePresence } from "framer-motion";
+import Image from "next/image";
+import { motion, AnimatePresence } from "framer-motion";
 import { Plus, CircleDashed, X, Trash2, MessageCircle, Send } from "lucide-react";
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 
