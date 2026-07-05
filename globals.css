@@ -1750,21 +1750,21 @@ body > * {
 .nada-composer-input::placeholder {
   color: rgb(var(--n-tx3));
 }
-/* When used as a standalone pill input (root-style markup) */
+/* When used as a standalone pill input (root-style markup) — seamless,
+   borderless filled field (no outline "line" across the composer) */
 textarea.nada-composer-input,
 input.nada-composer-input {
   background: rgb(var(--n-s3) / 0.82);
   backdrop-filter: blur(12px) saturate(140%);
   -webkit-backdrop-filter: blur(12px) saturate(140%);
-  border: 1px solid rgb(var(--n-edge) / 0.07);
+  border: none;
   border-radius: var(--n-r-pill);
-  box-shadow: inset 0 1px 0 rgb(var(--n-edge) / 0.04);
+  box-shadow: none;
   padding: 10px 16px;
 }
 textarea.nada-composer-input:focus,
 input.nada-composer-input:focus {
-  border-color: rgb(var(--n-accent-solid) / 0.55);
-  box-shadow: 0 0 0 4px rgb(var(--n-accent) / 0.10), inset 0 1px 0 rgb(var(--n-edge) / 0.06);
+  box-shadow: 0 0 0 3px rgb(var(--n-accent) / 0.12);
 }
 
 .nada-composer-send {
