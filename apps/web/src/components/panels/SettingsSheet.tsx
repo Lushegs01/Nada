@@ -3,7 +3,8 @@ import { NotificationSettings, type NotificationTone, NOTIFICATION_SOUND_CHOICES
 import { notificationToneLabel, notificationRingtoneLabel } from "@/utils/helpers";
 import type { IdentityRecord } from "@nada/db";
 import type { IconButton, cn } from "@nada/ui";
-import { Sheet, X, Edit3, Ghost, Flame, Bell, EyeOff, Eye, MessageCircle, Download, Trash2, ShieldAlert, Upload, QrCode, WifiOff, CreditCard, ChevronDown, Share2, Settings, FileText } from "lucide-react";
+import { X, Edit3, Ghost, Flame, Bell, EyeOff, Eye, MessageCircle, Download, Trash2, ShieldAlert, Upload, QrCode, WifiOff, CreditCard, ChevronDown, Share2, Settings, FileText } from "lucide-react";
+import { Sheet } from "./Sheet";
 import { useState, ReactNode } from "react";
 
 export function SettingsSheet({

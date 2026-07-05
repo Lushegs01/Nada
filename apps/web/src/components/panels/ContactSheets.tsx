@@ -6,7 +6,8 @@ import { upsertContact, upsertGroupFromInvite } from "@/utils/helpers";
 import type { IdentityRecord, ContactRecord, ChatRecord } from "@nada/db";
 import type { InvitePayload } from "@nada/types";
 import { IconButton, cn, Button, Avatar } from "@nada/ui";
-import { Sheet, X, Copy, QrCode, Download, Upload, Share2 } from "lucide-react";
+import { X, Copy, QrCode, Download, Upload, Share2 } from "lucide-react";
+import { Sheet } from "./Sheet";
 import { QRCodeSVG } from "qrcode.react";
 import { useState, useMemo, useEffect } from "react";
 

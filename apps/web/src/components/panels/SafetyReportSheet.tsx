@@ -1,6 +1,7 @@
 import type { SafetyReport, ReportTarget } from "@/utils/dashboard-types";
 import { IconButton, cn } from "@nada/ui";
-import { Sheet, X } from "lucide-react";
+import { X } from "lucide-react";
+import { Sheet } from "./Sheet";
 import { useState } from "react";
 
 export function SafetyReportSheet({

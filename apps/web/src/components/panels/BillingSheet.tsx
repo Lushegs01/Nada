@@ -2,7 +2,8 @@ import { fetchSubscriptionStatus, startCheckout, redeemReferral } from "@/lib/bi
 import type { IdentityRecord } from "@nada/db";
 import type { SubscriptionStatusResponse, PaidBillingPlan } from "@nada/types";
 import type { IconButton, Button } from "@nada/ui";
-import { Sheet, X, CreditCard, Gift } from "lucide-react";
+import { X, CreditCard, Gift } from "lucide-react";
+import { Sheet } from "./Sheet";
 import { useState, useEffect } from "react";
 
 export function BillingSheet({
