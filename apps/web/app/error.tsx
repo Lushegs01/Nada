@@ -22,8 +22,16 @@ export default function Error({
           Your local data is still safe. This is a temporary issue — try
           reloading the view.
         </p>
-        <Button className="mt-6 w-full" onClick={reset}>
-          Try again
+        <Button className="mt-6 w-full" onClick={() => {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+          }
+          if ('caches' in window) {
+            caches.keys().then(names => names.forEach(n => caches.delete(n)));
+          }
+          window.location.reload();
+        }}>
+          Reload App
         </Button>
       </section>
     </main>
