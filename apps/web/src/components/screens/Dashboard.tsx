@@ -13,7 +13,7 @@ import { useDashboardStore } from "@/stores/useDashboardStore";
 import { useCallStore } from "@/stores/useCallStore";
 import { useIdentityStore } from "@/stores/useIdentityStore";
 import { useSocketStore } from "@/stores/useSocketStore";
-import { parseCommunityRecords, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, extractMentions, statusCommentChatId, defaultCommunityChannels, defaultCommunityTopics, dataUrlSize, matchesSearch } from "@/utils/helpers";
+import { parseCommunityRecords, parseWhisperEchoes, seedWhisperEchoes, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, extractMentions, statusCommentChatId, defaultCommunityChannels, defaultCommunityTopics, dataUrlSize, matchesSearch } from "@/utils/helpers";
 import { encryptGroupMessage, mockEncryptMessage, createGroupSenderKey } from "@nada/crypto";
 import type { IdentityRecord, ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
 import type { MessageEnvelope, ReplyToMessage, GroupMessageEnvelope, PollData, MediaAttachment, GroupInvitePayload } from "@nada/types";
@@ -39,9 +39,10 @@ import { SettingsDashboardPreview } from "../panels/SettingsSheet";
 const SettingsSheet = dynamic(() => import("../panels/SettingsSheet").then(m => m.SettingsSheet), { ssr: false });
 import { LaunchOnboardingSheet } from "../panels/Sheet";
 import { parseVoiceNoteBody } from "../VoiceNote";
-import { GroupsHome, CommunitiesHome, CommunityCreateSheet } from "./CommunitiesHome";
+import { GroupsHome } from "./CommunitiesHome";
+import { WhispersFeed } from "./WhispersFeed";
 import { StatusView, StatusCreateSheet, StatusViewerSheet } from "./StatusView";
-import { type NotificationSettings, DEFAULT_NOTIFICATION_SETTINGS, type Panel, type GlobalSearchResult, type PendingChatAction, type ReportTarget, type CommunityRecord, type SafetyReport, COMMUNITIES_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type CommunityDraft, type GroupDeletePayload } from "@/utils/dashboard-types";
+import { type NotificationSettings, DEFAULT_NOTIFICATION_SETTINGS, type Panel, type GlobalSearchResult, type PendingChatAction, type ReportTarget, type CommunityRecord, type WhisperEcho, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type CommunityDraft, type GroupDeletePayload } from "@/utils/dashboard-types";
 
 export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const searchParams = useSearchParams();
@@ -158,6 +159,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const setAllStatuses = useDashboardStore((s) => s.setAllStatuses);
     const communities = useDashboardStore((s) => s.communities);
     const setCommunities = useDashboardStore((s) => s.setCommunities);
+    const whispers = useDashboardStore((s) => s.whispers);
+    const setWhispers = useDashboardStore((s) => s.setWhispers);
     const safetyReports = useDashboardStore((s) => s.safetyReports);
     const setSafetyReports = useDashboardStore((s) => s.setSafetyReports);
     const showOnboarding = useDashboardStore((s) => s.showOnboarding);
@@ -168,12 +171,22 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     let active = true;
     void Promise.all([
       getGlobalSetting(COMMUNITIES_SETTING_KEY),
+      getGlobalSetting(WHISPERS_SETTING_KEY),
       getGlobalSetting(REPORTS_SETTING_KEY),
       getGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY),
       getGlobalSetting(NOTIFICATION_SETTINGS_KEY)
-    ]).then(([communitiesValue, reportsValue, onboardingDismissed, notificationSettingsValue]) => {
+    ]).then(([communitiesValue, whispersValue, reportsValue, onboardingDismissed, notificationSettingsValue]) => {
       if (active) {
         setCommunities(parseCommunityRecords(communitiesValue));
+        // First open: seed the shared feed so it isn't empty. The seed is
+        // persisted so subsequent sessions keep any Echoes the user posted.
+        if (whispersValue) {
+          setWhispers(parseWhisperEchoes(whispersValue));
+        } else {
+          const seeded = seedWhisperEchoes();
+          setWhispers(seeded);
+          void setGlobalSetting(WHISPERS_SETTING_KEY, JSON.stringify(seeded));
+        }
         setSafetyReports(parseSafetyReports(reportsValue));
         setShowOnboarding(onboardingDismissed !== "true");
         setNotificationSettings(parseNotificationSettings(notificationSettingsValue));
@@ -547,15 +560,15 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             }
           }
 
-          for (const community of communities) {
-            const haystack = `${community.title} ${community.description} ${community.category} ${community.topics.join(" ")}`.toLowerCase();
+          for (const echo of whispers) {
+            const haystack = `${echo.authorName} ${echo.body}`.toLowerCase();
             if (haystack.includes(query)) {
               results.push({
-                id: `community:${community.id}`,
-                label: community.title,
-                meta: `${community.category} community`,
-                targetId: community.id,
-                targetType: "community"
+                id: `whisper:${echo.id}`,
+                label: echo.authorName,
+                meta: echo.body.slice(0, 72) || "Echo",
+                targetId: echo.id,
+                targetType: "whisper"
               });
             }
           }
@@ -604,7 +617,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       active = false;
       clearTimeout(timeoutId);
     };
-    }, [chats, communities, contacts, identity.pubkeyHash, searchQuery, visibleStatuses]);
+    }, [chats, whispers, contacts, identity.pubkeyHash, searchQuery, visibleStatuses]);
     const sidebarChatItems = useMemo<ChatListModel[]>(() => {
             const groupItems = chats.map((chat) => {
               const chatId = chat.id;
@@ -688,10 +701,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             setSearchQuery("");
             setGlobalSearchResults([]);
 
-            if (result.targetType === "community") {
+            if (result.targetType === "whisper") {
               setSelectedContactHash(null);
               setSelectedGroupId(null);
-              setActiveTab("communities");
+              setActiveTab("whispers");
               return;
             }
 
@@ -2236,50 +2249,99 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             });
             showToast("Status deleted.");
           };
-    const createCommunity = async (draft: CommunityDraft): Promise<void> => {
-            const title = draft.title.trim();
-            const description = draft.description.trim();
-            if (!title || !description) {
-              showToast("Community name and description are required.");
-              return;
-            }
-
-            const now = Date.now();
-            const record: CommunityRecord = {
-              admins: [identity.pubkeyHash],
-              category: draft.category,
-              channels: defaultCommunityChannels(draft.category),
-              createdAt: now,
-              description,
-              id: crypto.randomUUID(),
-              joined: true,
-              memberCount: 1,
-              moderators: [],
-              posts: [],
-              privacy: draft.privacy,
-              title,
-              topics: defaultCommunityTopics(draft.category),
-              updatedAt: now
-            };
-            const next = [record, ...communities].sort((a, b) => b.updatedAt - a.updatedAt);
-            setCommunities(next);
-            await setGlobalSetting(COMMUNITIES_SETTING_KEY, JSON.stringify(next));
-            showToast("Community created.");
-          };
-    const saveCommunities = useCallback(async (next: CommunityRecord[]) => {
-            const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
-            setCommunities(sorted);
-            await setGlobalSetting(COMMUNITIES_SETTING_KEY, JSON.stringify(sorted));
-          }, []);
-    const updateCommunity = useCallback((
-            communityId: string,
-            updater: (community: CommunityRecord) => CommunityRecord
+    // ── Whispers feed actions ──────────────────────────────────────────────
+    const whisperAuthorName = (): string =>
+            displayName.trim() || generateRandomUsername(identity.pubkeyHash);
+    const saveWhispers = useCallback(async (next: WhisperEcho[]) => {
+            const sorted = [...next].sort((a, b) => b.createdAt - a.createdAt);
+            setWhispers(sorted);
+            await setGlobalSetting(WHISPERS_SETTING_KEY, JSON.stringify(sorted));
+          }, [setWhispers]);
+    const updateWhisper = useCallback((
+            echoId: string,
+            updater: (echo: WhisperEcho) => WhisperEcho
           ): void => {
-            const next = communities.map((community) =>
-              community.id === communityId ? updater(community) : community
+            const next = whispers.map((echo) =>
+              echo.id === echoId ? updater(echo) : echo
             );
-            void saveCommunities(next);
-          }, [communities, saveCommunities]);
+            void saveWhispers(next);
+          }, [whispers, saveWhispers]);
+    const postEcho = (body: string): void => {
+            const text = body.trim();
+            if (!text) return;
+            const record: WhisperEcho = {
+              authorHash: identity.pubkeyHash,
+              authorName: whisperAuthorName(),
+              body: text,
+              createdAt: Date.now(),
+              echoCount: 0,
+              echoedByMe: false,
+              id: crypto.randomUUID(),
+              reflections: [],
+              rippleCount: 0,
+              rippledByMe: false
+            };
+            void saveWhispers([record, ...whispers]);
+            showToast("Echo whispered to everyone.");
+          };
+    const toggleEcho = (echoId: string): void => {
+            updateWhisper(echoId, (echo) => ({
+              ...echo,
+              echoCount: Math.max(0, echo.echoCount + (echo.echoedByMe ? -1 : 1)),
+              echoedByMe: !echo.echoedByMe
+            }));
+          };
+    const addReflection = (echoId: string, body: string): void => {
+            const text = body.trim();
+            if (!text) return;
+            updateWhisper(echoId, (echo) => ({
+              ...echo,
+              reflections: [
+                ...echo.reflections,
+                {
+                  authorHash: identity.pubkeyHash,
+                  authorName: whisperAuthorName(),
+                  body: text,
+                  createdAt: Date.now(),
+                  id: crypto.randomUUID()
+                }
+              ].slice(-200)
+            }));
+          };
+    const rippleEcho = (echoId: string): void => {
+            const source = whispers.find((echo) => echo.id === echoId);
+            if (!source || source.rippledByMe) return;
+            const rippleSource = source.rippleOf ?? {
+              authorName: source.authorName,
+              body: source.body,
+              createdAt: source.createdAt,
+              id: source.id
+            };
+            const ripple: WhisperEcho = {
+              authorHash: identity.pubkeyHash,
+              authorName: whisperAuthorName(),
+              body: "",
+              createdAt: Date.now(),
+              echoCount: 0,
+              echoedByMe: false,
+              id: crypto.randomUUID(),
+              reflections: [],
+              rippleCount: 0,
+              rippledByMe: false,
+              rippleOf: rippleSource
+            };
+            const next = whispers.map((echo) =>
+              echo.id === echoId
+                ? { ...echo, rippleCount: echo.rippleCount + 1, rippledByMe: true }
+                : echo
+            );
+            void saveWhispers([ripple, ...next]);
+            showToast("Rippled to the feed.");
+          };
+    const deleteEcho = (echoId: string): void => {
+            void saveWhispers(whispers.filter((echo) => echo.id !== echoId));
+            showToast("Echo deleted.");
+          };
     const submitSafetyReport = useCallback(async ({
             category,
             notes,
@@ -3210,63 +3272,23 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 setMessageSearchQuery("");
               }}
             />
-          ) : activeTab === "communities" ? (
-            <CommunitiesHome
-              communities={communities}
+          ) : activeTab === "whispers" ? (
+            <WhispersFeed
+              displayName={displayName}
+              echoes={whispers}
               identity={identity}
-              onCreateCommunity={() => setPanel("community_create")}
-              onCopyInvite={(community) => {
-                const invite = `${window.location.origin}/?community=${encodeURIComponent(community.id)}`;
-                void navigator.clipboard?.writeText(invite);
-                showToast("Community invite copied.");
-              }}
-              onDeleteCommunity={(communityId) => {
-                const community = communities.find((item) => item.id === communityId);
-                void saveCommunities(communities.filter((item) => item.id !== communityId));
-                showToast(community ? `${community.title} deleted.` : "Community deleted.");
-              }}
-              onJoinCommunity={(communityId) => {
-                updateCommunity(communityId, (community) => ({
-                  ...community,
-                  joined: true,
-                  memberCount: community.joined ? community.memberCount : community.memberCount + 1,
-                  updatedAt: Date.now()
-                }));
-                showToast("Community joined.");
-              }}
-              onLeaveCommunity={(communityId) => {
-                updateCommunity(communityId, (community) => ({
-                  ...community,
-                  joined: false,
-                  memberCount: Math.max(1, community.memberCount - (community.joined ? 1 : 0)),
-                  updatedAt: Date.now()
-                }));
-                showToast("Community left.");
-              }}
-              onPostCommunity={(communityId, channelId, body) => {
-                updateCommunity(communityId, (community) => ({
-                  ...community,
-                  posts: [
-                    {
-                      authorName: displayName.trim() || generateRandomUsername(identity.pubkeyHash),
-                      body,
-                      channelId,
-                      createdAt: Date.now(),
-                      id: crypto.randomUUID()
-                    },
-                    ...community.posts
-                  ].slice(0, 120),
-                  updatedAt: Date.now()
-                }));
-                showToast("Community post added.");
-              }}
-              onReportCommunity={(community) => {
+              onAddReflection={addReflection}
+              onDeleteEcho={deleteEcho}
+              onPostEcho={postEcho}
+              onReportEcho={(echo) => {
                 setPendingReportTarget({
-                  id: community.id,
-                  title: community.title,
-                  type: "community"
+                  id: echo.id,
+                  title: `Echo by ${echo.authorName}`,
+                  type: "whisper"
                 });
               }}
+              onRipple={rippleEcho}
+              onToggleEcho={toggleEcho}
             />
           ) : activeTab === "settings" ? (
             <SettingsDashboardPreview
@@ -3311,7 +3333,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 {sidebarChatItems
                   .filter((item) => {
                     if (item.isArchived !== showArchivedChats) return false;
-                    if (activeTab === "communities" && !item.isGroup) return false;
+                    if (activeTab === "whispers" && !item.isGroup) return false;
                     if (activeFilter === "groups" && !item.isGroup) return false;
                     if (activeFilter === "unread" && item.unread === 0) return false;
                     return matchesSearch(
@@ -3611,17 +3633,6 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             }}
           />
         ) : null}
-        {panel === "community_create" ? (
-          <CommunityCreateSheet
-            onClose={() => {
-              setPanel(null);
-            }}
-            onCreate={(draft) => {
-              void createCommunity(draft);
-              setPanel(null);
-            }}
-          />
-        ) : null}
         {panel === "settings" ? (
           <SettingsSheet
             identity={identity}
@@ -3745,7 +3756,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             onOpenCommunity={() => {
               setShowOnboarding(false);
               void setGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY, "true");
-              setActiveTab("communities");
+              setActiveTab("whispers");
             }}
             onPostStatus={() => {
               setShowOnboarding(false);

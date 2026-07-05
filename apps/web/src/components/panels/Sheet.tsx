@@ -152,7 +152,7 @@ export function LaunchOnboardingSheet({
           onClick={onOpenCommunity}
           type="button"
         >
-          Explore communities
+          Open Whispers feed
         </button>
       </motion.div>
     </motion.div>
