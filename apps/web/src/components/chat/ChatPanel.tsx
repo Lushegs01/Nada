@@ -657,8 +657,7 @@ export function ChatPanel({
               };
 
               mediaRecorder.current = recorder;
-              // Use timeslice so ondataavailable fires frequently
-              recorder.start(250);
+              recorder.start();
               setIsRecording(true);
               setRecordingPhase("holding");
               setRecordingSeconds(0);

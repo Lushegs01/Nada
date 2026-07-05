@@ -50,7 +50,7 @@ function forceRealDuration(
     media.addEventListener("timeupdate", restore);
     try {
       // A very large time clamps to the real end and forces duration to resolve.
-      media.currentTime = 1e101;
+      media.currentTime = 10000000;
     } catch {
       /* ignore */
       if (guard) guard.current = false;
@@ -208,6 +208,7 @@ export function VoiceNoteBubble({
         height: 34,
         interact: true,
         normalize: true,
+        media: audioRef.current || undefined,
         url: src
       });
     } catch {
