@@ -192,7 +192,8 @@ export function ChatPanel({
       showVerifyKeyModal ||
       deleteSheetMessageId !== null ||
       messageMenu !== null ||
-      attachmentMenuOpen;
+      attachmentMenuOpen ||
+      showOptions;
     if (!anyOpen) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -206,6 +207,7 @@ export function ChatPanel({
       else if (deleteSheetMessageId !== null) setDeleteSheetMessageId(null);
       else if (messageMenu !== null) setMessageMenu(null);
       else if (attachmentMenuOpen) setAttachmentMenuOpen(false);
+      else if (showOptions) setShowOptions(false);
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
@@ -219,7 +221,8 @@ export function ChatPanel({
     showVerifyKeyModal,
     deleteSheetMessageId,
     messageMenu,
-    attachmentMenuOpen
+    attachmentMenuOpen,
+    showOptions
     ]);
     const [chatSearchActive, setChatSearchActive] = useState(false);
     const [chatSearchIdx, setChatSearchIdx] = useState(0);
@@ -1634,7 +1637,11 @@ export function ChatPanel({
           const isMenuOpen = activeMessageMenu === message.id;
 
           const reactions = message.reactions ?? {};
-          const hasReactions = Object.keys(reactions).length > 0;
+          // Poll votes are stored as reactions keyed by option id — they render
+          // inside the poll bubble itself, not as emoji chips.
+          const hasReactions =
+            Object.keys(reactions).length > 0 &&
+            messageKindFromRecord(message) !== "poll";
           const isPinned = pinnedMessageId === message.id;
           const isVanishing = Boolean(message.expiresAt && disappearingTimer > 0);
 

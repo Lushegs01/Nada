@@ -414,10 +414,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const [lastMessages, setLastMessages] = useState<Record<string, { body: string; ts: number }>>({});
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
     const processedGroupIncoming = useRef<Set<string>>(new Set());
-    const processedGroupInvite = useRef("");
     const processedIncoming = useRef<Set<string>>(new Set());
     const processedCallSignals = useRef<Set<string>>(new Set());
-    const processedInvite = useRef("");
     const callRingTimeoutRef = useRef<number | null>(null);
     const selectedContact = useMemo(
             () =>
@@ -1022,7 +1020,18 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           .map((contact) => nadaDb.contacts.put(contact))
       );
       if (active) {
-        setContacts(renamed);
+        // Merge instead of overwrite: an invite-link contact added while this
+        // initial read was in flight (first mount right after onboarding)
+        // must not be wiped by a stale empty snapshot.
+        setContacts((current) => {
+          const byHash = new Map(renamed.map((contact) => [contact.pubkeyHash, contact]));
+          for (const contact of current) {
+            if (!byHash.has(contact.pubkeyHash)) {
+              byHash.set(contact.pubkeyHash, contact);
+            }
+          }
+          return [...byHash.values()];
+        });
       }
     });
 
@@ -1049,7 +1058,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     void loadStatuses();
     }, [loadStatuses]);
     useEffect(() => {
-    if (!inviteToken || inviteToken === processedInvite.current) {
+    if (!inviteToken) {
       return;
     }
 
@@ -1059,7 +1068,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       return;
     }
 
-    processedInvite.current = inviteToken;
+    // No processed-token ref guard here: upsertContact is idempotent and a
+    // ref guard breaks under StrictMode double-invoke (the first run claims
+    // the token, its cleanup cancels the state updates, and the second run
+    // bails out early — leaving the UI empty right after onboarding).
     void upsertContact(payload).then(async () => {
       const records = await nadaDb.contacts.orderBy("addedAt").reverse().toArray();
       if (!active) {
@@ -1076,10 +1088,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     };
     }, [identity.pubkeyHash, inviteToken]);
     useEffect(() => {
-    if (
-      !groupInviteToken ||
-      groupInviteToken === processedGroupInvite.current
-    ) {
+    if (!groupInviteToken) {
       return;
     }
 
@@ -1088,7 +1097,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       return;
     }
 
-    processedGroupInvite.current = groupInviteToken;
+    // Idempotent upsert — see the direct-invite effect above for why there
+    // is deliberately no processed-token ref guard.
     let active = true;
     void upsertGroupFromInvite(identity, payload).then(async (chat) => {
       const chatRecords = await nadaDb.chats.orderBy("updatedAt").reverse().toArray();
