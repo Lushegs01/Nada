@@ -7414,7 +7414,7 @@ function ChatPanel({
               />
               <button
                 aria-label="Attach file"
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-nada-border/10 text-nada-secondary/70 transition-all duration-150 hover:border-nada-accent/35 hover:text-nada-accent hover:scale-105 active:scale-90"
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-nada-secondary/70 transition-all duration-150 hover:text-nada-accent hover:scale-105 active:scale-90"
                 style={{
                   background: "rgb(var(--nada-surface-elevated) / 0.7)",
                   backdropFilter: "blur(12px)"

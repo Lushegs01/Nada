@@ -16,6 +16,50 @@ function formatDur(totalSeconds: number): string {
     : `0:${s.toString().padStart(2, "0")}`;
 }
 
+/**
+ * MediaRecorder-produced WebM/Opus blobs frequently carry broken duration
+ * metadata (the Segment duration is missing when recorded with a timeslice),
+ * so the playback media element reports a wrong — often Infinity or roughly
+ * halved — duration and STOPS partway, resetting to the start as if finished.
+ *
+ * Seeking to the end once forces the browser to scan the whole stream and
+ * compute the true duration; after that, playback runs to completion. This is
+ * the standard, dependency-free fix for the Chrome MediaRecorder WebM bug.
+ */
+function forceRealDuration(
+  media: HTMLMediaElement | null | undefined,
+  knownSeconds: number,
+  guard?: { current: boolean }
+): void {
+  if (!media) return;
+  const apply = (): void => {
+    const d = media.duration;
+    const isBroken =
+      !Number.isFinite(d) || d <= 0 || (knownSeconds > 0 && d < knownSeconds - 0.75);
+    if (!isBroken) return;
+    if (guard) guard.current = true; // suppress the progress jump during the fix
+    const restore = (): void => {
+      media.removeEventListener("timeupdate", restore);
+      try {
+        media.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+      if (guard) guard.current = false;
+    };
+    media.addEventListener("timeupdate", restore);
+    try {
+      // A very large time clamps to the real end and forces duration to resolve.
+      media.currentTime = 1e101;
+    } catch {
+      /* ignore */
+      if (guard) guard.current = false;
+    }
+  };
+  if (media.readyState >= 1) apply();
+  else media.addEventListener("loadedmetadata", apply, { once: true });
+}
+
 // ── Voice note playback bubble ────────────────────────────────────────────────
 // The src is a data:audio/... base64 URI stored directly in the message body.
 // We use a real <audio> element managed through a ref to avoid SSR issues.
@@ -46,6 +90,7 @@ export function VoiceNoteBubble({
   const lastAutoPlayTokenRef = useRef(0);
   const pendingAutoPlayRef = useRef(false);
   const playbackRateRef = useRef<(typeof PLAYBACK_RATES)[number]>(1);
+  const durationFixRef = useRef(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -172,12 +217,23 @@ export function VoiceNoteBubble({
     wavesurfer.current = ws;
 
     ws.on("ready", () => {
-      const nextDuration = ws.getDuration();
       setLoading(false);
       applyPlaybackRate(playbackRateRef.current);
+      // Repair broken WebM duration on WaveSurfer's playback element so it
+      // doesn't stop halfway, and prefer the decoded duration for display.
+      const media = (ws as WaveSurfer & { getMediaElement?: () => HTMLMediaElement }).getMediaElement?.();
+      forceRealDuration(media, durationSeconds, durationFixRef);
+      if (media) {
+        media.addEventListener("durationchange", () => {
+          const fixed = media.duration;
+          if (Number.isFinite(fixed) && fixed > 0) setDuration(fixed);
+        });
+      }
+      const decoded = (ws as WaveSurfer & { getDecodedData?: () => { duration?: number } | null }).getDecodedData?.();
+      const nextDuration = decoded?.duration ?? ws.getDuration();
       setDuration(
-        Number.isFinite(nextDuration) && nextDuration > 0
-          ? nextDuration
+        Number.isFinite(nextDuration) && (nextDuration ?? 0) > 0
+          ? (nextDuration as number)
           : Math.max(durationSeconds, 0)
       );
       if (pendingAutoPlayRef.current) {
@@ -202,7 +258,7 @@ export function VoiceNoteBubble({
       ws.seekTo(0);
       notifyPlaybackEnd();
     });
-    ws.on("timeupdate", (cur) => setCurrentTime(cur));
+    ws.on("timeupdate", (cur) => { if (!durationFixRef.current) setCurrentTime(cur); });
 
     return () => {
       try {
@@ -287,14 +343,20 @@ export function VoiceNoteBubble({
           notifyPlaybackEnd();
         }}
         onLoadedMetadata={(event) => {
+          // Repair broken WebM duration so playback runs to the end.
+          forceRealDuration(event.currentTarget, durationSeconds, durationFixRef);
           const nextDuration = event.currentTarget.duration;
           if (Number.isFinite(nextDuration) && nextDuration > 0) {
             setDuration(nextDuration);
           }
         }}
+        onDurationChange={(event) => {
+          const d = event.currentTarget.duration;
+          if (Number.isFinite(d) && d > 0) setDuration(d);
+        }}
         onPause={() => setIsPlaying(false)}
         onPlay={() => setIsPlaying(true)}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onTimeUpdate={(event) => { if (!durationFixRef.current) setCurrentTime(event.currentTarget.currentTime); }}
         preload="metadata"
         src={src}
       />
