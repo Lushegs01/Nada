@@ -54,6 +54,10 @@ if (
 
 export const COMMUNITIES_SETTING_KEY = "communities.v1";
 export const WHISPERS_SETTING_KEY = "whispers.v1";
+export const WHISPER_NOTIFICATIONS_SETTING_KEY = "whispers.notifications.v1";
+export const WHISPER_PROFILE_SETTING_KEY = "whispers.profile.v1";
+/** Reply depth after which further nesting renders flat (still threaded in data). */
+export const WHISPER_THREAD_MAX_VISUAL_DEPTH = 4;
 export const REPORTS_SETTING_KEY = "safety.reports.v1";
 export const ONBOARDING_DISMISSED_SETTING_KEY = "onboarding.dismissed.v1";
 export const NOTIFICATION_SETTINGS_KEY = "notifications.settings.v1";
@@ -191,12 +195,60 @@ export type CommunityDraft = {
 //   - a comment is a "Reflection" (WhisperReflection)
 //   - a like is an "Echo" action  (echoedByMe / echoCount)
 //   - a repost is a "Ripple"      (rippleOf / rippleCount)
+//   - a follower is a "Ghost"     (WhisperProfile.followerCount)
+// Reflections thread: parentId points at the reflection being replied to
+// (undefined = a top-level reply to the Echo itself).
 export type WhisperReflection = {
   authorHash: string;
   authorName: string;
   body: string;
   createdAt: number;
   id: string;
+  parentId?: string;
+  /** Anonymous handle of the reply target, rendered as an "@name" mention. */
+  replyToName?: string;
+  /** Tombstone: deleted but kept as a placeholder because it has replies. */
+  deleted?: boolean;
+  likeCount: number;
+  likedByMe: boolean;
+  /** Direct replies to this reflection (drives "N replies" affordances). */
+  replyCount: number;
+};
+
+export type WhisperNotificationKind =
+  | "reflect"
+  | "reply"
+  | "echo"
+  | "reflection_echo"
+  | "ripple"
+  | "mention"
+  | "follow";
+
+export type WhisperNotification = {
+  actorHash: string;
+  actorName: string;
+  createdAt: number;
+  echoId?: string;
+  id: string;
+  kind: WhisperNotificationKind;
+  preview: string;
+  read: boolean;
+  reflectionId?: string;
+};
+
+export type WhisperProfile = {
+  bio: string;
+  displayName: string;
+  echoCount: number;
+  followedByMe: boolean;
+  followerCount: number;
+  followingCount: number;
+  institution: string;
+  joinedAt: number | null;
+  likesReceived: number;
+  pubkeyHash: string;
+  reflectionCount: number;
+  showActivity: boolean;
 };
 
 // When an Echo is a Ripple of another Echo, it carries a lightweight snapshot
@@ -218,6 +270,10 @@ export type WhisperEcho = {
   echoCount: number;
   echoedByMe: boolean;
   id: string;
+  /** Total live replies across the whole thread (authoritative counter). */
+  reflectionCount: number;
+  /** Loaded reflections: a small preview until the thread is opened, then the
+   *  lazily-paged thread. Always a subset when reflectionCount is larger. */
   reflections: WhisperReflection[];
   // "Reposts"
   rippleCount: number;

@@ -1,19 +1,47 @@
 import type { FastifyInstance } from "fastify";
 
 import {
+  NotificationQueryRequestSchema,
+  NotificationReadRequestSchema,
   WhisperDeleteRequestSchema,
+  WhisperFollowRequestSchema,
+  WhisperProfileGetRequestSchema,
+  WhisperProfileUpdateRequestSchema,
   WhisperPublishRequestSchema,
   WhisperQueryRequestSchema,
   WhisperReactRequestSchema,
   WhisperReflectRequestSchema,
+  WhisperReflectionDeleteRequestSchema,
+  WhisperReflectionQueryRequestSchema,
+  WhisperReflectionReactRequestSchema,
   WhisperRippleRequestSchema
 } from "@nada/types";
+import type { WhisperNotificationKind } from "@nada/types";
 
 import type { RelayEnv } from "./env";
 import { verifyIdentityProof } from "./identity-proof";
-import { createWhisperRepository } from "./whisper-repository";
+import {
+  createWhisperRepository,
+  notificationPreview,
+  type WhisperNotificationInput
+} from "./whisper-repository";
 
 const FEED_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+const DEFAULT_REFLECTION_PAGE = 25;
+const DEFAULT_NOTIFICATION_PAGE = 50;
+
+// Human copy for push notifications, keyed by notification kind. Whisper
+// content is public by design, so naming the actor in a push is safe — but we
+// still keep bodies to a short preview.
+const PUSH_COPY: Record<WhisperNotificationKind, string> = {
+  echo: "echoed your Echo",
+  follow: "is now one of your Ghosts",
+  mention: "mentioned you on Whispers",
+  reflect: "reflected on your Echo",
+  reflection_echo: "echoed your reflection",
+  reply: "replied to your reflection",
+  ripple: "rippled your Echo"
+};
 
 export async function registerWhisperRoutes(
   app: FastifyInstance,
@@ -24,6 +52,25 @@ export async function registerWhisperRoutes(
   app.addHook("onClose", async () => {
     await repository.close();
   });
+
+  // Single fan-out point for every whisper interaction: persists the
+  // notification (idempotent — duplicates are dropped by the store) and, only
+  // when a brand-new row was created, mirrors it to web push. New interaction
+  // kinds only need a new entry in PUSH_COPY, not new plumbing.
+  const notify = async (notification: WhisperNotificationInput): Promise<void> => {
+    const created = await repository.addNotification(notification);
+    if (!created) return;
+    void (app as any).sendPushNotification?.(
+      notification.recipientPubkeyHash,
+      JSON.stringify({
+        title: "Whispers",
+        body: `${notification.actorName} ${PUSH_COPY[notification.kind]}.`,
+        kind: "whisper",
+        chatId: notification.echoId ?? notification.actorPubkeyHash,
+        tag: `whisper:${notification.echoId ?? notification.kind}`
+      })
+    );
+  };
 
   // Create an Echo (a public post visible to everyone).
   app.post("/api/v1/whispers", async (request, reply) => {
@@ -52,7 +99,8 @@ export async function registerWhisperRoutes(
     return reply.send({ success: true });
   });
 
-  // Delete an Echo (only the author may delete their own).
+  // Delete an Echo (only the author may delete their own). Cascades replies,
+  // reactions, ripples and any notifications that pointed at it.
   app.post("/api/v1/whispers/delete", async (request, reply) => {
     const result = WhisperDeleteRequestSchema.safeParse(request.body);
     if (!result.success) {
@@ -75,7 +123,9 @@ export async function registerWhisperRoutes(
     return reply.send({ success: true });
   });
 
-  // Add a Reflection (a comment) to any Echo.
+  // Add a Reflection — either directly on an Echo or nested under another
+  // Reflection (threaded reply). Fans out notifications to the parent reply's
+  // author and the Echo's author (mention-aware), deduplicated downstream.
   app.post("/api/v1/whispers/reflect", async (request, reply) => {
     const result = WhisperReflectRequestSchema.safeParse(request.body);
     if (!result.success) {
@@ -94,14 +144,156 @@ export async function registerWhisperRoutes(
         reason: verification.reason
       });
     }
-    await repository.addReflection({
+    const created = await repository.addReflection({
       authorName: result.data.authorName,
       authorPubkeyHash: result.data.author,
       body: result.data.body,
       createdAt: result.data.timestamp,
       echoId: result.data.echoId,
-      id: result.data.id
+      id: result.data.id,
+      ...(result.data.parentId ? { parentId: result.data.parentId } : {}),
+      ...(result.data.replyToName ? { replyToName: result.data.replyToName } : {})
     });
+    if (!created.created) {
+      return reply
+        .code(404)
+        .send({ code: "echo_not_found", message: "Echo or parent reply not found." });
+    }
+
+    const preview = notificationPreview(result.data.body);
+    const base = {
+      actorName: result.data.authorName,
+      actorPubkeyHash: result.data.author,
+      createdAt: result.data.timestamp,
+      echoId: result.data.echoId,
+      preview,
+      reflectionId: result.data.id
+    };
+    if (created.parentAuthorPubkeyHash) {
+      await notify({
+        ...base,
+        kind: "reply",
+        recipientPubkeyHash: created.parentAuthorPubkeyHash
+      });
+    }
+    if (
+      created.echoAuthorPubkeyHash &&
+      created.echoAuthorPubkeyHash !== created.parentAuthorPubkeyHash
+    ) {
+      // An explicit "@name" of the Echo's author upgrades the notification to
+      // a mention — anonymity holds because only public handles are involved.
+      const mentionsEchoAuthor = Boolean(
+        created.echoAuthorName &&
+          result.data.body.toLowerCase().includes(`@${created.echoAuthorName.toLowerCase()}`)
+      );
+      await notify({
+        ...base,
+        kind: mentionsEchoAuthor ? "mention" : "reflect",
+        recipientPubkeyHash: created.echoAuthorPubkeyHash
+      });
+    }
+    return reply.send({ success: true });
+  });
+
+  // Read one Echo's threaded replies, newest top-level first. Each page of
+  // top-level replies carries all of its nested descendants, so the client can
+  // render complete sub-threads and lazily page through big conversations.
+  app.post("/api/v1/whispers/reflections/query", async (request, reply) => {
+    const result = WhisperReflectionQueryRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({
+        code: "invalid_reflection_query",
+        message: "Invalid reflection query."
+      });
+    }
+    const page = await repository.listReflections(
+      result.data.echoId,
+      result.data.viewerPubkeyHash,
+      result.data.limit ?? DEFAULT_REFLECTION_PAGE,
+      result.data.before
+    );
+    return reply.send(page);
+  });
+
+  // Delete a Reflection (author only). Leaf replies are removed outright;
+  // replies with children become tombstones so the thread stays intact.
+  app.post("/api/v1/whispers/reflect/delete", async (request, reply) => {
+    const result = WhisperReflectionDeleteRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({
+        code: "invalid_reflection_delete",
+        message: "Invalid reflection delete."
+      });
+    }
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "whisper-reflect-delete",
+      binding: result.data.id
+    });
+    if (!verification.ok || verification.pubkeyHash !== result.data.author) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+    const outcome = await repository.deleteReflection(result.data.id, result.data.author);
+    if (!outcome) {
+      return reply
+        .code(404)
+        .send({ code: "reflection_not_found", message: "Reflection not found." });
+    }
+    return reply.send({ success: true, outcome });
+  });
+
+  // Toggle a like on a Reflection.
+  app.post("/api/v1/whispers/reflect/react", async (request, reply) => {
+    const result = WhisperReflectionReactRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({
+        code: "invalid_reflection_reaction",
+        message: "Invalid reflection reaction."
+      });
+    }
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "whisper-reflect-react",
+      binding: result.data.reflectionId
+    });
+    if (!verification.ok || verification.pubkeyHash !== result.data.reactor) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+    const target = await repository.setReflectionReaction(
+      result.data.reflectionId,
+      result.data.reactor,
+      result.data.on,
+      result.data.timestamp
+    );
+    if (target) {
+      if (result.data.on) {
+        await notify({
+          actorName: result.data.reactorName ?? "Someone",
+          actorPubkeyHash: result.data.reactor,
+          createdAt: result.data.timestamp,
+          echoId: target.echoId,
+          kind: "reflection_echo",
+          preview: notificationPreview(target.body),
+          recipientPubkeyHash: target.authorPubkeyHash,
+          reflectionId: result.data.reflectionId
+        });
+      } else {
+        // Un-liking retracts the notification so inboxes never go stale.
+        await repository.removeNotification({
+          actorPubkeyHash: result.data.reactor,
+          echoId: target.echoId,
+          kind: "reflection_echo",
+          recipientPubkeyHash: target.authorPubkeyHash,
+          reflectionId: result.data.reflectionId
+        });
+      }
+    }
     return reply.send({ success: true });
   });
 
@@ -124,12 +316,32 @@ export async function registerWhisperRoutes(
         reason: verification.reason
       });
     }
-    await repository.setReaction(
+    const target = await repository.setReaction(
       result.data.echoId,
       result.data.reactor,
       result.data.on,
       result.data.timestamp
     );
+    if (target) {
+      if (result.data.on) {
+        await notify({
+          actorName: result.data.reactorName ?? "Someone",
+          actorPubkeyHash: result.data.reactor,
+          createdAt: result.data.timestamp,
+          echoId: result.data.echoId,
+          kind: "echo",
+          preview: notificationPreview(target.body),
+          recipientPubkeyHash: target.authorPubkeyHash
+        });
+      } else {
+        await repository.removeNotification({
+          actorPubkeyHash: result.data.reactor,
+          echoId: result.data.echoId,
+          kind: "echo",
+          recipientPubkeyHash: target.authorPubkeyHash
+        });
+      }
+    }
     return reply.send({ success: true });
   });
 
@@ -150,7 +362,7 @@ export async function registerWhisperRoutes(
         reason: verification.reason
       });
     }
-    await repository.addRipple(
+    const target = await repository.addRipple(
       result.data.echoId,
       result.data.author,
       result.data.timestamp
@@ -163,11 +375,24 @@ export async function registerWhisperRoutes(
       id: result.data.id,
       rippleOf: result.data.rippleOf
     });
+    if (target) {
+      await notify({
+        actorName: result.data.authorName,
+        actorPubkeyHash: result.data.author,
+        createdAt: result.data.timestamp,
+        echoId: result.data.echoId,
+        kind: "ripple",
+        preview: notificationPreview(target.body),
+        recipientPubkeyHash: target.authorPubkeyHash
+      });
+    }
     return reply.send({ success: true });
   });
 
   // Read the public feed. Reads-only, so no identity proof is required — the
   // viewer hash only personalises the echoedByViewer/rippledByViewer flags.
+  // Accepts an optional `before` cursor (pagination) and an optional
+  // `authorPubkeyHash` filter (profile timelines).
   app.post("/api/v1/whispers/query", async (request, reply) => {
     const result = WhisperQueryRequestSchema.safeParse(request.body);
     if (!result.success) {
@@ -177,9 +402,168 @@ export async function registerWhisperRoutes(
     }
     const echoes = await repository.listFeed(
       result.data.viewerPubkeyHash,
-      result.data.since ?? Date.now() - FEED_WINDOW_MS,
-      result.data.limit ?? 100
+      result.data.since ?? (result.data.authorPubkeyHash ? 0 : Date.now() - FEED_WINDOW_MS),
+      result.data.limit ?? 100,
+      {
+        ...(result.data.before ? { before: result.data.before } : {}),
+        ...(result.data.authorPubkeyHash
+          ? { authorPubkeyHash: result.data.authorPubkeyHash }
+          : {})
+      }
     );
     return reply.send({ echoes });
+  });
+
+  // Public profile card: anonymous handle, bio, stats and the viewer's follow
+  // state. Feed data is public by design, so reads need no identity proof.
+  app.post("/api/v1/whispers/profile/get", async (request, reply) => {
+    const result = WhisperProfileGetRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply
+        .code(400)
+        .send({ code: "invalid_profile_query", message: "Invalid profile query." });
+    }
+    const profile = await repository.getProfile(
+      result.data.pubkeyHash,
+      result.data.viewerPubkeyHash
+    );
+    return reply.send({ profile });
+  });
+
+  // Update your own profile (display name, bio, institution, privacy).
+  app.post("/api/v1/whispers/profile/update", async (request, reply) => {
+    const result = WhisperProfileUpdateRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply
+        .code(400)
+        .send({ code: "invalid_profile_update", message: "Invalid profile update." });
+    }
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "whisper-profile-update",
+      binding: result.data.author
+    });
+    if (!verification.ok || verification.pubkeyHash !== result.data.author) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+    await repository.upsertProfile({
+      bio: result.data.bio,
+      createdAt: result.data.timestamp,
+      displayName: result.data.displayName,
+      institution: result.data.institution,
+      pubkeyHash: result.data.author,
+      showActivity: result.data.showActivity
+    });
+    return reply.send({ success: true });
+  });
+
+  // Follow / unfollow ("Ghosts"). Following someone notifies them; unfollowing
+  // retracts that notification.
+  app.post("/api/v1/whispers/follow", async (request, reply) => {
+    const result = WhisperFollowRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply
+        .code(400)
+        .send({ code: "invalid_follow", message: "Invalid follow request." });
+    }
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "whisper-follow",
+      binding: result.data.followee
+    });
+    if (!verification.ok || verification.pubkeyHash !== result.data.follower) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+    if (result.data.follower === result.data.followee) {
+      return reply
+        .code(400)
+        .send({ code: "invalid_follow", message: "You cannot follow yourself." });
+    }
+    const created = await repository.setFollow(
+      result.data.follower,
+      result.data.followee,
+      result.data.on,
+      result.data.timestamp
+    );
+    if (result.data.on && created) {
+      await notify({
+        actorName: result.data.followerName,
+        actorPubkeyHash: result.data.follower,
+        createdAt: result.data.timestamp,
+        kind: "follow",
+        preview: "",
+        recipientPubkeyHash: result.data.followee
+      });
+    } else if (!result.data.on) {
+      await repository.removeNotification({
+        actorPubkeyHash: result.data.follower,
+        kind: "follow",
+        recipientPubkeyHash: result.data.followee
+      });
+    }
+    return reply.send({ success: true });
+  });
+
+  // Read your notification inbox. Requires an identity proof: an inbox reveals
+  // who interacted with you, which is more sensitive than the public feed.
+  app.post("/api/v1/whispers/notifications/query", async (request, reply) => {
+    const result = NotificationQueryRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({
+        code: "invalid_notification_query",
+        message: "Invalid notification query."
+      });
+    }
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "whisper-notifications-query",
+      binding: result.data.recipient
+    });
+    if (!verification.ok || verification.pubkeyHash !== result.data.recipient) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+    const page = await repository.listNotifications(
+      result.data.recipient,
+      result.data.limit ?? DEFAULT_NOTIFICATION_PAGE,
+      result.data.before
+    );
+    return reply.send(page);
+  });
+
+  // Mark notifications read — specific ids, or everything when ids is omitted.
+  app.post("/api/v1/whispers/notifications/read", async (request, reply) => {
+    const result = NotificationReadRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({
+        code: "invalid_notification_read",
+        message: "Invalid notification read request."
+      });
+    }
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "whisper-notifications-read",
+      binding: result.data.recipient
+    });
+    if (!verification.ok || verification.pubkeyHash !== result.data.recipient) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+    await repository.markNotificationsRead(
+      result.data.recipient,
+      result.data.timestamp,
+      result.data.ids
+    );
+    return reply.send({ success: true });
   });
 }

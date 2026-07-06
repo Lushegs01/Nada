@@ -208,7 +208,7 @@ export function VoiceNoteBubble({
         height: 34,
         interact: true,
         normalize: true,
-        media: audioRef.current || undefined,
+        ...(audioRef.current ? { media: audioRef.current } : {}),
         url: src
       });
     } catch {

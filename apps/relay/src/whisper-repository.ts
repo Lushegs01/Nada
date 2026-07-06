@@ -1,6 +1,9 @@
+import { randomUUID } from "node:crypto";
+
 import { Client } from "pg";
 
 import { POSTGRES_SCHEMA_SQL } from "@nada/db";
+import type { WhisperNotificationKind } from "@nada/types";
 
 import type { RelayEnv } from "./env";
 
@@ -29,6 +32,10 @@ export interface WhisperReflectionInput {
   createdAt: number;
   echoId: string;
   id: string;
+  /** Immediate parent Reflection when this is a nested (threaded) reply. */
+  parentId?: string;
+  /** Anonymous handle of the parent author, preserved as an "@name" mention. */
+  replyToName?: string;
 }
 
 export interface WhisperReflectionView {
@@ -37,10 +44,19 @@ export interface WhisperReflectionView {
   body: string;
   createdAt: number;
   id: string;
+  parentId?: string;
+  replyToName?: string;
+  /** Tombstone: the reply was deleted but keeps its slot to preserve the thread. */
+  deleted: boolean;
+  likeCount: number;
+  likedByViewer: boolean;
+  /** Direct (non-deleted) replies to this reflection. */
+  replyCount: number;
 }
 
 // A fully-aggregated Echo as returned to a specific viewer: global counts plus
-// whether this viewer has Echoed (liked) or Rippled it.
+// whether this viewer has Echoed (liked) or Rippled it. `reflections` is a
+// small newest-first preview; full threads are paged via listReflections.
 export interface WhisperEchoView {
   authorName: string;
   authorPubkeyHash: string;
@@ -49,28 +65,164 @@ export interface WhisperEchoView {
   echoCount: number;
   echoedByViewer: boolean;
   id: string;
+  reflectionCount: number;
   reflections: WhisperReflectionView[];
   rippleCount: number;
   rippledByViewer: boolean;
   rippleOf?: WhisperRippleSource;
 }
 
+export interface WhisperReflectionPage {
+  hasMore: boolean;
+  reflections: WhisperReflectionView[];
+  total: number;
+}
+
+// Context returned by mutations so the routes layer can fan out notifications
+// without issuing extra lookups (who owns the Echo / the parent reply).
+export interface ReflectionCreateResult {
+  created: boolean;
+  echoAuthorName?: string;
+  echoAuthorPubkeyHash?: string;
+  echoBody?: string;
+  parentAuthorPubkeyHash?: string;
+}
+
+export interface ReactionTargetResult {
+  authorPubkeyHash: string;
+  body: string;
+  echoId: string;
+}
+
+export interface WhisperProfileRecord {
+  bio: string;
+  displayName: string;
+  institution: string;
+  pubkeyHash: string;
+  showActivity: boolean;
+  createdAt: number;
+}
+
+export interface WhisperProfileView {
+  bio: string;
+  displayName: string;
+  echoCount: number;
+  followerCount: number;
+  followingCount: number;
+  followedByViewer: boolean;
+  institution: string;
+  joinedAt: number | null;
+  likesReceived: number;
+  pubkeyHash: string;
+  reflectionCount: number;
+  showActivity: boolean;
+}
+
+export interface WhisperNotificationInput {
+  actorName: string;
+  actorPubkeyHash: string;
+  createdAt: number;
+  echoId?: string;
+  kind: WhisperNotificationKind;
+  preview: string;
+  recipientPubkeyHash: string;
+  reflectionId?: string;
+}
+
+export interface WhisperNotificationView {
+  actorName: string;
+  actorPubkeyHash: string;
+  createdAt: number;
+  echoId?: string;
+  id: string;
+  kind: WhisperNotificationKind;
+  preview: string;
+  read: boolean;
+  reflectionId?: string;
+}
+
+export interface WhisperNotificationPage {
+  notifications: WhisperNotificationView[];
+  unreadCount: number;
+}
+
+const NOTIFICATION_PREVIEW_MAX = 140;
+
+export function notificationPreview(body: string): string {
+  const trimmed = body.trim().replace(/\s+/g, " ");
+  return trimmed.length > NOTIFICATION_PREVIEW_MAX
+    ? `${trimmed.slice(0, NOTIFICATION_PREVIEW_MAX - 1)}…`
+    : trimmed;
+}
+
 export interface WhisperRepository {
-  addReflection: (reflection: WhisperReflectionInput) => Promise<void>;
-  addRipple: (echoId: string, ripplerPubkeyHash: string, at: number) => Promise<void>;
+  addReflection: (reflection: WhisperReflectionInput) => Promise<ReflectionCreateResult>;
+  addRipple: (
+    echoId: string,
+    ripplerPubkeyHash: string,
+    at: number
+  ) => Promise<ReactionTargetResult | null>;
   close: () => Promise<void>;
   createEcho: (echo: WhisperEchoInput) => Promise<void>;
-  deleteEcho: (id: string, authorPubkeyHash: string) => Promise<void>;
+  deleteEcho: (id: string, authorPubkeyHash: string) => Promise<boolean>;
+  deleteReflection: (
+    id: string,
+    authorPubkeyHash: string
+  ) => Promise<"hard" | "soft" | null>;
   listFeed: (
     viewerPubkeyHash: string,
     since: number,
-    limit: number
+    limit: number,
+    options?: { authorPubkeyHash?: string; before?: number }
   ) => Promise<WhisperEchoView[]>;
+  listReflections: (
+    echoId: string,
+    viewerPubkeyHash: string,
+    limit: number,
+    before?: number
+  ) => Promise<WhisperReflectionPage>;
   setReaction: (
     echoId: string,
     reactorPubkeyHash: string,
     on: boolean,
     at: number
+  ) => Promise<ReactionTargetResult | null>;
+  setReflectionReaction: (
+    reflectionId: string,
+    reactorPubkeyHash: string,
+    on: boolean,
+    at: number
+  ) => Promise<ReactionTargetResult | null>;
+
+  getProfile: (
+    pubkeyHash: string,
+    viewerPubkeyHash: string
+  ) => Promise<WhisperProfileView>;
+  upsertProfile: (profile: WhisperProfileRecord) => Promise<void>;
+  setFollow: (
+    followerPubkeyHash: string,
+    followeePubkeyHash: string,
+    on: boolean,
+    at: number
+  ) => Promise<boolean>;
+
+  addNotification: (notification: WhisperNotificationInput) => Promise<boolean>;
+  removeNotification: (key: {
+    actorPubkeyHash: string;
+    echoId?: string;
+    kind: WhisperNotificationKind;
+    recipientPubkeyHash: string;
+    reflectionId?: string;
+  }) => Promise<void>;
+  listNotifications: (
+    recipientPubkeyHash: string,
+    limit: number,
+    before?: number
+  ) => Promise<WhisperNotificationPage>;
+  markNotificationsRead: (
+    recipientPubkeyHash: string,
+    at: number,
+    ids?: string[]
   ) => Promise<void>;
 }
 
@@ -83,7 +235,7 @@ export const WHISPER_SEED_ECHOES: WhisperSeedEcho[] = [
   {
     authorName: "nada.signal",
     authorPubkeyHash: SEED_AUTHOR_HASH,
-    body: "Welcome to Whispers — NADA's public feed. Post an Echo and everyone on NADA can see and interact with it. No real names, no followers, no tracking. 🌫️",
+    body: "Welcome to Whispers — NADA's public feed. Post an Echo and everyone on NADA can see and interact with it. No real names, no tracking. 🌫️",
     id: "00000000-0000-4000-8000-0000000000a1"
   },
   {
@@ -158,24 +310,56 @@ class PostgresWhisperRepository implements WhisperRepository {
     );
   }
 
-  async deleteEcho(id: string, authorPubkeyHash: string): Promise<void> {
+  async deleteEcho(id: string, authorPubkeyHash: string): Promise<boolean> {
     const result = await this.client.query(
       "delete from whisper_echoes where id = $1 and author_pubkey_hash = $2",
       [id, authorPubkeyHash]
     );
     // Only cascade child rows once we've confirmed the author owned the echo.
-    if (result.rowCount && result.rowCount > 0) {
-      await this.client.query("delete from whisper_reflections where echo_id = $1", [id]);
-      await this.client.query("delete from whisper_reactions where echo_id = $1", [id]);
-      await this.client.query("delete from whisper_ripples where echo_id = $1", [id]);
-    }
+    if (!result.rowCount || result.rowCount === 0) return false;
+    await this.client.query(
+      `delete from whisper_reflection_reactions
+       where reflection_id in (select id from whisper_reflections where echo_id = $1)`,
+      [id]
+    );
+    await this.client.query("delete from whisper_reflections where echo_id = $1", [id]);
+    await this.client.query("delete from whisper_reactions where echo_id = $1", [id]);
+    await this.client.query("delete from whisper_ripples where echo_id = $1", [id]);
+    // Stale notifications must not deep-link into a deleted Echo.
+    await this.client.query("delete from whisper_notifications where echo_id = $1", [id]);
+    return true;
   }
 
-  async addReflection(reflection: WhisperReflectionInput): Promise<void> {
-    await this.client.query(
+  async addReflection(
+    reflection: WhisperReflectionInput
+  ): Promise<ReflectionCreateResult> {
+    const echoResult = await this.client.query(
+      "select author_pubkey_hash, author_name, body from whisper_echoes where id = $1",
+      [reflection.echoId]
+    );
+    if (echoResult.rowCount === 0) return { created: false };
+
+    let rootId = reflection.id;
+    let parentAuthor: string | undefined;
+    if (reflection.parentId) {
+      const parentResult = await this.client.query(
+        `select author_pubkey_hash, root_id, deleted_at_ms from whisper_reflections
+         where id = $1 and echo_id = $2`,
+        [reflection.parentId, reflection.echoId]
+      );
+      // Reject replies to unknown parents or parents from another Echo so the
+      // thread structure can't be corrupted by a forged request.
+      if (parentResult.rowCount === 0) return { created: false };
+      const parent = parentResult.rows[0];
+      rootId = parent.root_id ?? reflection.parentId;
+      if (!parent.deleted_at_ms) parentAuthor = parent.author_pubkey_hash;
+    }
+
+    const inserted = await this.client.query(
       `insert into whisper_reflections
-         (id, echo_id, author_pubkey_hash, author_name, body, created_at_ms)
-       values ($1, $2, $3, $4, $5, $6)
+         (id, echo_id, author_pubkey_hash, author_name, body, created_at_ms,
+          parent_id, root_id, reply_to_name)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        on conflict (id) do nothing`,
       [
         reflection.id,
@@ -183,9 +367,60 @@ class PostgresWhisperRepository implements WhisperRepository {
         reflection.authorPubkeyHash,
         reflection.authorName,
         reflection.body,
-        reflection.createdAt
+        reflection.createdAt,
+        reflection.parentId ?? null,
+        reflection.parentId ? rootId : reflection.id,
+        reflection.replyToName ?? null
       ]
     );
+    if (!inserted.rowCount || inserted.rowCount === 0) return { created: false };
+    return {
+      created: true,
+      echoAuthorName: echoResult.rows[0].author_name,
+      echoAuthorPubkeyHash: echoResult.rows[0].author_pubkey_hash,
+      echoBody: echoResult.rows[0].body,
+      ...(parentAuthor ? { parentAuthorPubkeyHash: parentAuthor } : {})
+    };
+  }
+
+  async deleteReflection(
+    id: string,
+    authorPubkeyHash: string
+  ): Promise<"hard" | "soft" | null> {
+    const existing = await this.client.query(
+      `select author_pubkey_hash, deleted_at_ms from whisper_reflections where id = $1`,
+      [id]
+    );
+    if (existing.rowCount === 0) return null;
+    if (existing.rows[0].author_pubkey_hash !== authorPubkeyHash) return null;
+    if (existing.rows[0].deleted_at_ms) return null;
+
+    const children = await this.client.query(
+      "select count(*)::int as n from whisper_reflections where parent_id = $1",
+      [id]
+    );
+    const hasChildren = Number(children.rows[0].n) > 0;
+
+    await this.client.query(
+      "delete from whisper_reflection_reactions where reflection_id = $1",
+      [id]
+    );
+    await this.client.query(
+      "delete from whisper_notifications where reflection_id = $1",
+      [id]
+    );
+    if (hasChildren) {
+      // Tombstone: keep the row so child replies keep their place in the thread.
+      await this.client.query(
+        `update whisper_reflections
+         set body = '', reply_to_name = null, deleted_at_ms = $2
+         where id = $1`,
+        [id, Date.now()]
+      );
+      return "soft";
+    }
+    await this.client.query("delete from whisper_reflections where id = $1", [id]);
+    return "hard";
   }
 
   async setReaction(
@@ -193,7 +428,12 @@ class PostgresWhisperRepository implements WhisperRepository {
     reactorPubkeyHash: string,
     on: boolean,
     at: number
-  ): Promise<void> {
+  ): Promise<ReactionTargetResult | null> {
+    const target = await this.client.query(
+      "select author_pubkey_hash, body from whisper_echoes where id = $1",
+      [echoId]
+    );
+    if (target.rowCount === 0) return null;
     if (on) {
       await this.client.query(
         `insert into whisper_reactions (echo_id, reactor_pubkey_hash, created_at_ms)
@@ -207,21 +447,172 @@ class PostgresWhisperRepository implements WhisperRepository {
         [echoId, reactorPubkeyHash]
       );
     }
+    return {
+      authorPubkeyHash: target.rows[0].author_pubkey_hash,
+      body: target.rows[0].body,
+      echoId
+    };
   }
 
-  async addRipple(echoId: string, ripplerPubkeyHash: string, at: number): Promise<void> {
+  async setReflectionReaction(
+    reflectionId: string,
+    reactorPubkeyHash: string,
+    on: boolean,
+    at: number
+  ): Promise<ReactionTargetResult | null> {
+    const target = await this.client.query(
+      `select author_pubkey_hash, body, echo_id from whisper_reflections
+       where id = $1 and deleted_at_ms is null`,
+      [reflectionId]
+    );
+    if (target.rowCount === 0) return null;
+    if (on) {
+      await this.client.query(
+        `insert into whisper_reflection_reactions
+           (reflection_id, reactor_pubkey_hash, created_at_ms)
+         values ($1, $2, $3)
+         on conflict (reflection_id, reactor_pubkey_hash) do nothing`,
+        [reflectionId, reactorPubkeyHash, at]
+      );
+    } else {
+      await this.client.query(
+        `delete from whisper_reflection_reactions
+         where reflection_id = $1 and reactor_pubkey_hash = $2`,
+        [reflectionId, reactorPubkeyHash]
+      );
+    }
+    return {
+      authorPubkeyHash: target.rows[0].author_pubkey_hash,
+      body: target.rows[0].body,
+      echoId: target.rows[0].echo_id
+    };
+  }
+
+  async addRipple(
+    echoId: string,
+    ripplerPubkeyHash: string,
+    at: number
+  ): Promise<ReactionTargetResult | null> {
+    const target = await this.client.query(
+      "select author_pubkey_hash, body from whisper_echoes where id = $1",
+      [echoId]
+    );
+    if (target.rowCount === 0) return null;
     await this.client.query(
       `insert into whisper_ripples (echo_id, rippler_pubkey_hash, created_at_ms)
        values ($1, $2, $3)
        on conflict (echo_id, rippler_pubkey_hash) do nothing`,
       [echoId, ripplerPubkeyHash, at]
     );
+    return {
+      authorPubkeyHash: target.rows[0].author_pubkey_hash,
+      body: target.rows[0].body,
+      echoId
+    };
+  }
+
+  // Hydrate raw reflection rows with like counts, viewer likes and direct
+  // reply counts using three batched queries — never one query per row.
+  private async hydrateReflections(
+    rows: any[],
+    viewerPubkeyHash: string
+  ): Promise<WhisperReflectionView[]> {
+    if (rows.length === 0) return [];
+    const ids = rows.map((row) => row.id as string);
+    const [likeCounts, viewerLikes, replyCounts] = await Promise.all([
+      this.client.query(
+        `select reflection_id, count(*)::int as n from whisper_reflection_reactions
+         where reflection_id = any($1::uuid[]) group by reflection_id`,
+        [ids]
+      ),
+      this.client.query(
+        `select reflection_id from whisper_reflection_reactions
+         where reflection_id = any($1::uuid[]) and reactor_pubkey_hash = $2`,
+        [ids, viewerPubkeyHash]
+      ),
+      this.client.query(
+        `select parent_id, count(*)::int as n from whisper_reflections
+         where parent_id = any($1::uuid[]) and deleted_at_ms is null
+         group by parent_id`,
+        [ids]
+      )
+    ]);
+    const likeMap = new Map<string, number>(
+      likeCounts.rows.map((row) => [row.reflection_id, Number(row.n)])
+    );
+    const likedSet = new Set(viewerLikes.rows.map((row) => row.reflection_id as string));
+    const replyMap = new Map<string, number>(
+      replyCounts.rows.map((row) => [row.parent_id, Number(row.n)])
+    );
+    return rows.map((row) => ({
+      authorName: row.author_name,
+      authorPubkeyHash: row.author_pubkey_hash,
+      body: row.deleted_at_ms ? "" : row.body,
+      createdAt: Number(row.created_at_ms),
+      deleted: Boolean(row.deleted_at_ms),
+      id: row.id,
+      likeCount: likeMap.get(row.id) ?? 0,
+      likedByViewer: likedSet.has(row.id),
+      replyCount: replyMap.get(row.id) ?? 0,
+      ...(row.parent_id ? { parentId: row.parent_id } : {}),
+      ...(row.reply_to_name ? { replyToName: row.reply_to_name } : {})
+    }));
+  }
+
+  async listReflections(
+    echoId: string,
+    viewerPubkeyHash: string,
+    limit: number,
+    before?: number
+  ): Promise<WhisperReflectionPage> {
+    // Page over top-level replies newest-first; each page carries every nested
+    // descendant of its roots via the denormalised root_id — a single indexed
+    // query instead of a recursive walk. Tombstoned roots are kept because
+    // they anchor live children.
+    const rootsResult = await this.client.query(
+      `select id, echo_id, author_pubkey_hash, author_name, body, created_at_ms,
+              parent_id, root_id, reply_to_name, deleted_at_ms
+       from whisper_reflections
+       where echo_id = $1 and parent_id is null
+         and ($2::bigint is null or created_at_ms < $2)
+       order by created_at_ms desc
+       limit $3`,
+      [echoId, before ?? null, limit + 1]
+    );
+    const hasMore = rootsResult.rows.length > limit;
+    const roots = rootsResult.rows.slice(0, limit);
+    const rootIds = roots.map((row) => row.id as string);
+
+    const [descendants, totalResult] = await Promise.all([
+      rootIds.length > 0
+        ? this.client.query(
+            `select id, echo_id, author_pubkey_hash, author_name, body, created_at_ms,
+                    parent_id, root_id, reply_to_name, deleted_at_ms
+             from whisper_reflections
+             where root_id = any($1::uuid[]) and parent_id is not null
+             order by created_at_ms asc`,
+            [rootIds]
+          )
+        : Promise.resolve({ rows: [] as any[] }),
+      this.client.query(
+        `select count(*)::int as n from whisper_reflections
+         where echo_id = $1 and deleted_at_ms is null`,
+        [echoId]
+      )
+    ]);
+
+    const reflections = await this.hydrateReflections(
+      [...roots, ...descendants.rows],
+      viewerPubkeyHash
+    );
+    return { hasMore, reflections, total: Number(totalResult.rows[0].n) };
   }
 
   async listFeed(
     viewerPubkeyHash: string,
     since: number,
-    limit: number
+    limit: number,
+    options: { authorPubkeyHash?: string; before?: number } = {}
   ): Promise<WhisperEchoView[]> {
     const echoResult = await this.client.query(
       `select id, author_pubkey_hash, author_name, body,
@@ -229,61 +620,84 @@ class PostgresWhisperRepository implements WhisperRepository {
               created_at_ms
        from whisper_echoes
        where created_at_ms >= $1
+         and ($3::bigint is null or created_at_ms < $3)
+         and ($4::text is null or author_pubkey_hash = $4)
        order by created_at_ms desc
        limit $2`,
-      [since, limit]
+      [since, limit, options.before ?? null, options.authorPubkeyHash ?? null]
     );
     const echoIds = echoResult.rows.map((row) => row.id as string);
     if (echoIds.length === 0) return [];
 
-    const [reactionCounts, rippleCounts, viewerReactions, viewerRipples, reflections] =
-      await Promise.all([
-        this.client.query(
-          `select echo_id, count(*)::int as n from whisper_reactions
-           where echo_id = any($1::uuid[]) group by echo_id`,
-          [echoIds]
-        ),
-        this.client.query(
-          `select echo_id, count(*)::int as n from whisper_ripples
-           where echo_id = any($1::uuid[]) group by echo_id`,
-          [echoIds]
-        ),
-        this.client.query(
-          `select echo_id from whisper_reactions
-           where echo_id = any($1::uuid[]) and reactor_pubkey_hash = $2`,
-          [echoIds, viewerPubkeyHash]
-        ),
-        this.client.query(
-          `select echo_id from whisper_ripples
-           where echo_id = any($1::uuid[]) and rippler_pubkey_hash = $2`,
-          [echoIds, viewerPubkeyHash]
-        ),
-        this.client.query(
-          `select id, echo_id, author_pubkey_hash, author_name, body, created_at_ms
-           from whisper_reflections
-           where echo_id = any($1::uuid[])
-           order by created_at_ms asc`,
-          [echoIds]
-        )
-      ]);
+    const [
+      reactionCounts,
+      rippleCounts,
+      viewerReactions,
+      viewerRipples,
+      reflectionCounts,
+      previewRows
+    ] = await Promise.all([
+      this.client.query(
+        `select echo_id, count(*)::int as n from whisper_reactions
+         where echo_id = any($1::uuid[]) group by echo_id`,
+        [echoIds]
+      ),
+      this.client.query(
+        `select echo_id, count(*)::int as n from whisper_ripples
+         where echo_id = any($1::uuid[]) group by echo_id`,
+        [echoIds]
+      ),
+      this.client.query(
+        `select echo_id from whisper_reactions
+         where echo_id = any($1::uuid[]) and reactor_pubkey_hash = $2`,
+        [echoIds, viewerPubkeyHash]
+      ),
+      this.client.query(
+        `select echo_id from whisper_ripples
+         where echo_id = any($1::uuid[]) and rippler_pubkey_hash = $2`,
+        [echoIds, viewerPubkeyHash]
+      ),
+      this.client.query(
+        `select echo_id, count(*)::int as n from whisper_reflections
+         where echo_id = any($1::uuid[]) and deleted_at_ms is null
+         group by echo_id`,
+        [echoIds]
+      ),
+      // Newest few replies per Echo as a collapsed-card preview; the full
+      // thread is paged lazily through listReflections when expanded.
+      this.client.query(
+        `select id, echo_id, author_pubkey_hash, author_name, body, created_at_ms,
+                parent_id, root_id, reply_to_name, deleted_at_ms
+         from (
+           select r.*, row_number() over (
+             partition by echo_id order by created_at_ms desc
+           ) as rn
+           from whisper_reflections r
+           where echo_id = any($1::uuid[]) and deleted_at_ms is null
+         ) ranked
+         where rn <= 2`,
+        [echoIds]
+      )
+    ]);
 
     const countMap = (rows: Array<{ echo_id: string; n: number }>): Map<string, number> =>
       new Map(rows.map((row) => [row.echo_id, Number(row.n)]));
     const echoCounts = countMap(reactionCounts.rows);
     const rippleCountMap = countMap(rippleCounts.rows);
+    const reflectionCountMap = countMap(reflectionCounts.rows);
     const viewerEchoed = new Set(viewerReactions.rows.map((row) => row.echo_id as string));
     const viewerRippled = new Set(viewerRipples.rows.map((row) => row.echo_id as string));
-    const reflectionsByEcho = new Map<string, WhisperReflectionView[]>();
-    for (const row of reflections.rows) {
-      const list = reflectionsByEcho.get(row.echo_id) ?? [];
-      list.push({
-        authorName: row.author_name,
-        authorPubkeyHash: row.author_pubkey_hash,
-        body: row.body,
-        createdAt: Number(row.created_at_ms),
-        id: row.id
-      });
-      reflectionsByEcho.set(row.echo_id, list);
+
+    const previews = await this.hydrateReflections(previewRows.rows, viewerPubkeyHash);
+    const previewByEcho = new Map<string, WhisperReflectionView[]>();
+    for (const [index, row] of previewRows.rows.entries()) {
+      const view = previews[index]!;
+      const list = previewByEcho.get(row.echo_id) ?? [];
+      list.push(view);
+      previewByEcho.set(row.echo_id, list);
+    }
+    for (const list of previewByEcho.values()) {
+      list.sort((a, b) => a.createdAt - b.createdAt);
     }
 
     return echoResult.rows.map((row) => ({
@@ -294,7 +708,8 @@ class PostgresWhisperRepository implements WhisperRepository {
       echoCount: echoCounts.get(row.id) ?? 0,
       echoedByViewer: viewerEchoed.has(row.id),
       id: row.id,
-      reflections: reflectionsByEcho.get(row.id) ?? [],
+      reflectionCount: reflectionCountMap.get(row.id) ?? 0,
+      reflections: previewByEcho.get(row.id) ?? [],
       rippleCount: rippleCountMap.get(row.id) ?? 0,
       rippledByViewer: viewerRippled.has(row.id),
       ...(row.ripple_of_id
@@ -309,13 +724,246 @@ class PostgresWhisperRepository implements WhisperRepository {
         : {})
     }));
   }
+
+  async getProfile(
+    pubkeyHash: string,
+    viewerPubkeyHash: string
+  ): Promise<WhisperProfileView> {
+    const [profile, stats, follows, viewerFollow] = await Promise.all([
+      this.client.query(
+        `select display_name, bio, institution, show_activity, created_at_ms
+         from whisper_profiles where pubkey_hash = $1`,
+        [pubkeyHash]
+      ),
+      this.client.query(
+        `select
+           (select count(*)::int from whisper_echoes where author_pubkey_hash = $1)
+             as echo_count,
+           (select count(*)::int from whisper_reflections
+             where author_pubkey_hash = $1 and deleted_at_ms is null)
+             as reflection_count,
+           (select coalesce(min(created_at_ms), 0) from whisper_echoes
+             where author_pubkey_hash = $1) as first_echo_at,
+           (select count(*)::int from whisper_reactions r
+             join whisper_echoes e on e.id = r.echo_id
+             where e.author_pubkey_hash = $1) as echo_likes,
+           (select count(*)::int from whisper_reflection_reactions rr
+             join whisper_reflections f on f.id = rr.reflection_id
+             where f.author_pubkey_hash = $1) as reflection_likes`,
+        [pubkeyHash]
+      ),
+      this.client.query(
+        `select
+           (select count(*)::int from whisper_follows where followee_pubkey_hash = $1)
+             as followers,
+           (select count(*)::int from whisper_follows where follower_pubkey_hash = $1)
+             as following`,
+        [pubkeyHash]
+      ),
+      this.client.query(
+        `select 1 from whisper_follows
+         where follower_pubkey_hash = $2 and followee_pubkey_hash = $1`,
+        [pubkeyHash, viewerPubkeyHash]
+      )
+    ]);
+    const profileRow = profile.rows[0];
+    const statsRow = stats.rows[0];
+    const followRow = follows.rows[0];
+    const joinedAt =
+      Number(profileRow?.created_at_ms ?? 0) || Number(statsRow.first_echo_at) || null;
+    return {
+      bio: profileRow?.bio ?? "",
+      displayName: profileRow?.display_name ?? "",
+      echoCount: Number(statsRow.echo_count),
+      followedByViewer: (viewerFollow.rowCount ?? 0) > 0,
+      followerCount: Number(followRow.followers),
+      followingCount: Number(followRow.following),
+      institution: profileRow?.institution ?? "",
+      joinedAt,
+      likesReceived: Number(statsRow.echo_likes) + Number(statsRow.reflection_likes),
+      pubkeyHash,
+      reflectionCount: Number(statsRow.reflection_count),
+      showActivity: profileRow?.show_activity ?? true
+    };
+  }
+
+  async upsertProfile(profile: WhisperProfileRecord): Promise<void> {
+    await this.client.query(
+      `insert into whisper_profiles
+         (pubkey_hash, display_name, bio, institution, show_activity,
+          created_at_ms, updated_at)
+       values ($1, $2, $3, $4, $5, $6, now())
+       on conflict (pubkey_hash) do update set
+         display_name = excluded.display_name,
+         bio = excluded.bio,
+         institution = excluded.institution,
+         show_activity = excluded.show_activity,
+         updated_at = now()`,
+      [
+        profile.pubkeyHash,
+        profile.displayName,
+        profile.bio,
+        profile.institution,
+        profile.showActivity,
+        profile.createdAt
+      ]
+    );
+  }
+
+  async setFollow(
+    followerPubkeyHash: string,
+    followeePubkeyHash: string,
+    on: boolean,
+    at: number
+  ): Promise<boolean> {
+    if (followerPubkeyHash === followeePubkeyHash) return false;
+    if (on) {
+      const result = await this.client.query(
+        `insert into whisper_follows
+           (follower_pubkey_hash, followee_pubkey_hash, created_at_ms)
+         values ($1, $2, $3)
+         on conflict (follower_pubkey_hash, followee_pubkey_hash) do nothing`,
+        [followerPubkeyHash, followeePubkeyHash, at]
+      );
+      return Boolean(result.rowCount && result.rowCount > 0);
+    }
+    await this.client.query(
+      `delete from whisper_follows
+       where follower_pubkey_hash = $1 and followee_pubkey_hash = $2`,
+      [followerPubkeyHash, followeePubkeyHash]
+    );
+    return false;
+  }
+
+  async addNotification(notification: WhisperNotificationInput): Promise<boolean> {
+    // Never notify a user about their own action.
+    if (notification.recipientPubkeyHash === notification.actorPubkeyHash) return false;
+    const result = await this.client.query(
+      `insert into whisper_notifications
+         (id, recipient_pubkey_hash, actor_pubkey_hash, actor_name, kind,
+          echo_id, reflection_id, preview, created_at_ms)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       on conflict (recipient_pubkey_hash, actor_pubkey_hash, kind,
+                    coalesce(echo_id, '00000000-0000-0000-0000-000000000000'::uuid),
+                    coalesce(reflection_id, '00000000-0000-0000-0000-000000000000'::uuid))
+       do nothing`,
+      [
+        randomUUID(),
+        notification.recipientPubkeyHash,
+        notification.actorPubkeyHash,
+        notification.actorName,
+        notification.kind,
+        notification.echoId ?? null,
+        notification.reflectionId ?? null,
+        notification.preview,
+        notification.createdAt
+      ]
+    );
+    return Boolean(result.rowCount && result.rowCount > 0);
+  }
+
+  async removeNotification(key: {
+    actorPubkeyHash: string;
+    echoId?: string;
+    kind: WhisperNotificationKind;
+    recipientPubkeyHash: string;
+    reflectionId?: string;
+  }): Promise<void> {
+    await this.client.query(
+      `delete from whisper_notifications
+       where recipient_pubkey_hash = $1 and actor_pubkey_hash = $2 and kind = $3
+         and echo_id is not distinct from $4
+         and reflection_id is not distinct from $5`,
+      [
+        key.recipientPubkeyHash,
+        key.actorPubkeyHash,
+        key.kind,
+        key.echoId ?? null,
+        key.reflectionId ?? null
+      ]
+    );
+  }
+
+  async listNotifications(
+    recipientPubkeyHash: string,
+    limit: number,
+    before?: number
+  ): Promise<WhisperNotificationPage> {
+    const [rows, unread] = await Promise.all([
+      this.client.query(
+        `select id, actor_pubkey_hash, actor_name, kind, echo_id, reflection_id,
+                preview, created_at_ms, read_at_ms
+         from whisper_notifications
+         where recipient_pubkey_hash = $1
+           and ($2::bigint is null or created_at_ms < $2)
+         order by created_at_ms desc
+         limit $3`,
+        [recipientPubkeyHash, before ?? null, limit]
+      ),
+      this.client.query(
+        `select count(*)::int as n from whisper_notifications
+         where recipient_pubkey_hash = $1 and read_at_ms is null`,
+        [recipientPubkeyHash]
+      )
+    ]);
+    return {
+      notifications: rows.rows.map((row) => ({
+        actorName: row.actor_name,
+        actorPubkeyHash: row.actor_pubkey_hash,
+        createdAt: Number(row.created_at_ms),
+        id: row.id,
+        kind: row.kind,
+        preview: row.preview,
+        read: Boolean(row.read_at_ms),
+        ...(row.echo_id ? { echoId: row.echo_id } : {}),
+        ...(row.reflection_id ? { reflectionId: row.reflection_id } : {})
+      })),
+      unreadCount: Number(unread.rows[0].n)
+    };
+  }
+
+  async markNotificationsRead(
+    recipientPubkeyHash: string,
+    at: number,
+    ids?: string[]
+  ): Promise<void> {
+    if (ids && ids.length > 0) {
+      await this.client.query(
+        `update whisper_notifications set read_at_ms = $2
+         where recipient_pubkey_hash = $1 and id = any($3::uuid[])
+           and read_at_ms is null`,
+        [recipientPubkeyHash, at, ids]
+      );
+      return;
+    }
+    await this.client.query(
+      `update whisper_notifications set read_at_ms = $2
+       where recipient_pubkey_hash = $1 and read_at_ms is null`,
+      [recipientPubkeyHash, at]
+    );
+  }
+}
+
+interface MemoryReflection extends WhisperReflectionInput {
+  deletedAt?: number;
+  rootId: string;
+}
+
+interface MemoryNotification extends WhisperNotificationInput {
+  id: string;
+  readAt?: number;
 }
 
 class MemoryWhisperRepository implements WhisperRepository {
   private readonly echoes = new Map<string, WhisperEchoInput>();
-  private readonly reflections = new Map<string, WhisperReflectionInput[]>();
+  private readonly reflections = new Map<string, MemoryReflection>();
   private readonly reactions = new Map<string, Set<string>>();
+  private readonly reflectionReactions = new Map<string, Set<string>>();
   private readonly ripples = new Map<string, Set<string>>();
+  private readonly profiles = new Map<string, WhisperProfileRecord>();
+  /** follower → set of followees */
+  private readonly follows = new Map<string, Set<string>>();
+  private readonly notifications: MemoryNotification[] = [];
 
   seedSync(): void {
     for (const [index, echo] of WHISPER_SEED_ECHOES.entries()) {
@@ -329,61 +977,206 @@ class MemoryWhisperRepository implements WhisperRepository {
     this.echoes.clear();
     this.reflections.clear();
     this.reactions.clear();
+    this.reflectionReactions.clear();
     this.ripples.clear();
+    this.profiles.clear();
+    this.follows.clear();
+    this.notifications.length = 0;
   }
 
   async createEcho(echo: WhisperEchoInput): Promise<void> {
     if (!this.echoes.has(echo.id)) this.echoes.set(echo.id, echo);
   }
 
-  async deleteEcho(id: string, authorPubkeyHash: string): Promise<void> {
+  async deleteEcho(id: string, authorPubkeyHash: string): Promise<boolean> {
     const existing = this.echoes.get(id);
-    if (existing?.authorPubkeyHash === authorPubkeyHash) {
-      this.echoes.delete(id);
-      this.reflections.delete(id);
-      this.reactions.delete(id);
-      this.ripples.delete(id);
+    if (existing?.authorPubkeyHash !== authorPubkeyHash) return false;
+    this.echoes.delete(id);
+    for (const [reflectionId, reflection] of this.reflections) {
+      if (reflection.echoId === id) {
+        this.reflections.delete(reflectionId);
+        this.reflectionReactions.delete(reflectionId);
+      }
     }
+    this.reactions.delete(id);
+    this.ripples.delete(id);
+    this.pruneNotifications((n) => n.echoId === id);
+    return true;
   }
 
-  async addReflection(reflection: WhisperReflectionInput): Promise<void> {
-    if (!this.echoes.has(reflection.echoId)) return;
-    const list = this.reflections.get(reflection.echoId) ?? [];
-    if (list.some((item) => item.id === reflection.id)) return;
-    list.push(reflection);
-    this.reflections.set(reflection.echoId, list);
+  async addReflection(
+    reflection: WhisperReflectionInput
+  ): Promise<ReflectionCreateResult> {
+    const echo = this.echoes.get(reflection.echoId);
+    if (!echo) return { created: false };
+    if (this.reflections.has(reflection.id)) return { created: false };
+
+    let rootId = reflection.id;
+    let parentAuthor: string | undefined;
+    if (reflection.parentId) {
+      const parent = this.reflections.get(reflection.parentId);
+      if (!parent || parent.echoId !== reflection.echoId) return { created: false };
+      rootId = parent.rootId;
+      if (!parent.deletedAt) parentAuthor = parent.authorPubkeyHash;
+    }
+    this.reflections.set(reflection.id, { ...reflection, rootId });
+    return {
+      created: true,
+      echoAuthorName: echo.authorName,
+      echoAuthorPubkeyHash: echo.authorPubkeyHash,
+      echoBody: echo.body,
+      ...(parentAuthor ? { parentAuthorPubkeyHash: parentAuthor } : {})
+    };
+  }
+
+  async deleteReflection(
+    id: string,
+    authorPubkeyHash: string
+  ): Promise<"hard" | "soft" | null> {
+    const existing = this.reflections.get(id);
+    if (!existing || existing.authorPubkeyHash !== authorPubkeyHash) return null;
+    if (existing.deletedAt) return null;
+    this.reflectionReactions.delete(id);
+    this.pruneNotifications((n) => n.reflectionId === id);
+    const hasChildren = Array.from(this.reflections.values()).some(
+      (reflection) => reflection.parentId === id
+    );
+    if (hasChildren) {
+      const tombstone: MemoryReflection = {
+        ...existing,
+        body: "",
+        deletedAt: Date.now()
+      };
+      delete tombstone.replyToName;
+      this.reflections.set(id, tombstone);
+      return "soft";
+    }
+    this.reflections.delete(id);
+    return "hard";
   }
 
   async setReaction(
     echoId: string,
     reactorPubkeyHash: string,
     on: boolean
-  ): Promise<void> {
-    if (!this.echoes.has(echoId)) return;
+  ): Promise<ReactionTargetResult | null> {
+    const echo = this.echoes.get(echoId);
+    if (!echo) return null;
     const set = this.reactions.get(echoId) ?? new Set<string>();
     if (on) set.add(reactorPubkeyHash);
     else set.delete(reactorPubkeyHash);
     this.reactions.set(echoId, set);
+    return { authorPubkeyHash: echo.authorPubkeyHash, body: echo.body, echoId };
   }
 
-  async addRipple(echoId: string, ripplerPubkeyHash: string): Promise<void> {
+  async setReflectionReaction(
+    reflectionId: string,
+    reactorPubkeyHash: string,
+    on: boolean
+  ): Promise<ReactionTargetResult | null> {
+    const reflection = this.reflections.get(reflectionId);
+    if (!reflection || reflection.deletedAt) return null;
+    const set = this.reflectionReactions.get(reflectionId) ?? new Set<string>();
+    if (on) set.add(reactorPubkeyHash);
+    else set.delete(reactorPubkeyHash);
+    this.reflectionReactions.set(reflectionId, set);
+    return {
+      authorPubkeyHash: reflection.authorPubkeyHash,
+      body: reflection.body,
+      echoId: reflection.echoId
+    };
+  }
+
+  async addRipple(
+    echoId: string,
+    ripplerPubkeyHash: string
+  ): Promise<ReactionTargetResult | null> {
+    const echo = this.echoes.get(echoId);
+    if (!echo) return null;
     const set = this.ripples.get(echoId) ?? new Set<string>();
     set.add(ripplerPubkeyHash);
     this.ripples.set(echoId, set);
+    return { authorPubkeyHash: echo.authorPubkeyHash, body: echo.body, echoId };
+  }
+
+  private reflectionView(
+    reflection: MemoryReflection,
+    viewerPubkeyHash: string
+  ): WhisperReflectionView {
+    const likes = this.reflectionReactions.get(reflection.id) ?? new Set<string>();
+    const replyCount = Array.from(this.reflections.values()).filter(
+      (item) => item.parentId === reflection.id && !item.deletedAt
+    ).length;
+    return {
+      authorName: reflection.authorName,
+      authorPubkeyHash: reflection.authorPubkeyHash,
+      body: reflection.deletedAt ? "" : reflection.body,
+      createdAt: reflection.createdAt,
+      deleted: Boolean(reflection.deletedAt),
+      id: reflection.id,
+      likeCount: likes.size,
+      likedByViewer: likes.has(viewerPubkeyHash),
+      replyCount,
+      ...(reflection.parentId ? { parentId: reflection.parentId } : {}),
+      ...(reflection.replyToName ? { replyToName: reflection.replyToName } : {})
+    };
+  }
+
+  async listReflections(
+    echoId: string,
+    viewerPubkeyHash: string,
+    limit: number,
+    before?: number
+  ): Promise<WhisperReflectionPage> {
+    const all = Array.from(this.reflections.values()).filter(
+      (reflection) => reflection.echoId === echoId
+    );
+    const roots = all
+      .filter(
+        (reflection) =>
+          !reflection.parentId && (before === undefined || reflection.createdAt < before)
+      )
+      .sort((a, b) => b.createdAt - a.createdAt);
+    const pageRoots = roots.slice(0, limit);
+    const rootIds = new Set(pageRoots.map((reflection) => reflection.id));
+    const descendants = all
+      .filter((reflection) => reflection.parentId && rootIds.has(reflection.rootId))
+      .sort((a, b) => a.createdAt - b.createdAt);
+    return {
+      hasMore: roots.length > limit,
+      reflections: [...pageRoots, ...descendants].map((reflection) =>
+        this.reflectionView(reflection, viewerPubkeyHash)
+      ),
+      total: all.filter((reflection) => !reflection.deletedAt).length
+    };
   }
 
   async listFeed(
     viewerPubkeyHash: string,
     since: number,
-    limit: number
+    limit: number,
+    options: { authorPubkeyHash?: string; before?: number } = {}
   ): Promise<WhisperEchoView[]> {
     return Array.from(this.echoes.values())
-      .filter((echo) => echo.createdAt >= since)
+      .filter(
+        (echo) =>
+          echo.createdAt >= since &&
+          (options.before === undefined || echo.createdAt < options.before) &&
+          (options.authorPubkeyHash === undefined ||
+            echo.authorPubkeyHash === options.authorPubkeyHash)
+      )
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit)
       .map((echo) => {
         const reactionSet = this.reactions.get(echo.id) ?? new Set<string>();
         const rippleSet = this.ripples.get(echo.id) ?? new Set<string>();
+        const live = Array.from(this.reflections.values()).filter(
+          (reflection) => reflection.echoId === echo.id && !reflection.deletedAt
+        );
+        const preview = [...live]
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .slice(0, 2)
+          .sort((a, b) => a.createdAt - b.createdAt);
         return {
           authorName: echo.authorName,
           authorPubkeyHash: echo.authorPubkeyHash,
@@ -392,20 +1185,170 @@ class MemoryWhisperRepository implements WhisperRepository {
           echoCount: reactionSet.size,
           echoedByViewer: reactionSet.has(viewerPubkeyHash),
           id: echo.id,
-          reflections: (this.reflections.get(echo.id) ?? [])
-            .slice()
-            .sort((a, b) => a.createdAt - b.createdAt)
-            .map((reflection) => ({
-              authorName: reflection.authorName,
-              authorPubkeyHash: reflection.authorPubkeyHash,
-              body: reflection.body,
-              createdAt: reflection.createdAt,
-              id: reflection.id
-            })),
+          reflectionCount: live.length,
+          reflections: preview.map((reflection) =>
+            this.reflectionView(reflection, viewerPubkeyHash)
+          ),
           rippleCount: rippleSet.size,
           rippledByViewer: rippleSet.has(viewerPubkeyHash),
           ...(echo.rippleOf ? { rippleOf: echo.rippleOf } : {})
         };
       });
+  }
+
+  async getProfile(
+    pubkeyHash: string,
+    viewerPubkeyHash: string
+  ): Promise<WhisperProfileView> {
+    const profile = this.profiles.get(pubkeyHash);
+    const authoredEchoes = Array.from(this.echoes.values()).filter(
+      (echo) => echo.authorPubkeyHash === pubkeyHash
+    );
+    const authoredReflections = Array.from(this.reflections.values()).filter(
+      (reflection) => reflection.authorPubkeyHash === pubkeyHash && !reflection.deletedAt
+    );
+    let likesReceived = 0;
+    for (const echo of authoredEchoes) {
+      likesReceived += (this.reactions.get(echo.id) ?? new Set()).size;
+    }
+    for (const reflection of authoredReflections) {
+      likesReceived += (this.reflectionReactions.get(reflection.id) ?? new Set()).size;
+    }
+    let followerCount = 0;
+    for (const followees of this.follows.values()) {
+      if (followees.has(pubkeyHash)) followerCount += 1;
+    }
+    const firstEchoAt = authoredEchoes.reduce(
+      (min, echo) => Math.min(min, echo.createdAt),
+      Number.POSITIVE_INFINITY
+    );
+    return {
+      bio: profile?.bio ?? "",
+      displayName: profile?.displayName ?? "",
+      echoCount: authoredEchoes.length,
+      followedByViewer: this.follows.get(viewerPubkeyHash)?.has(pubkeyHash) ?? false,
+      followerCount,
+      followingCount: this.follows.get(pubkeyHash)?.size ?? 0,
+      institution: profile?.institution ?? "",
+      joinedAt:
+        profile?.createdAt ??
+        (Number.isFinite(firstEchoAt) ? firstEchoAt : null),
+      likesReceived,
+      pubkeyHash,
+      reflectionCount: authoredReflections.length,
+      showActivity: profile?.showActivity ?? true
+    };
+  }
+
+  async upsertProfile(profile: WhisperProfileRecord): Promise<void> {
+    const existing = this.profiles.get(profile.pubkeyHash);
+    this.profiles.set(profile.pubkeyHash, {
+      ...profile,
+      createdAt: existing?.createdAt ?? profile.createdAt
+    });
+  }
+
+  async setFollow(
+    followerPubkeyHash: string,
+    followeePubkeyHash: string,
+    on: boolean
+  ): Promise<boolean> {
+    if (followerPubkeyHash === followeePubkeyHash) return false;
+    const set = this.follows.get(followerPubkeyHash) ?? new Set<string>();
+    if (on) {
+      if (set.has(followeePubkeyHash)) return false;
+      set.add(followeePubkeyHash);
+      this.follows.set(followerPubkeyHash, set);
+      return true;
+    }
+    set.delete(followeePubkeyHash);
+    this.follows.set(followerPubkeyHash, set);
+    return false;
+  }
+
+  private notificationKey(notification: {
+    actorPubkeyHash: string;
+    echoId?: string;
+    kind: WhisperNotificationKind;
+    recipientPubkeyHash: string;
+    reflectionId?: string;
+  }): string {
+    return [
+      notification.recipientPubkeyHash,
+      notification.actorPubkeyHash,
+      notification.kind,
+      notification.echoId ?? "",
+      notification.reflectionId ?? ""
+    ].join("|");
+  }
+
+  async addNotification(notification: WhisperNotificationInput): Promise<boolean> {
+    if (notification.recipientPubkeyHash === notification.actorPubkeyHash) return false;
+    const key = this.notificationKey(notification);
+    if (this.notifications.some((item) => this.notificationKey(item) === key)) {
+      return false;
+    }
+    this.notifications.push({ ...notification, id: randomUUID() });
+    return true;
+  }
+
+  async removeNotification(key: {
+    actorPubkeyHash: string;
+    echoId?: string;
+    kind: WhisperNotificationKind;
+    recipientPubkeyHash: string;
+    reflectionId?: string;
+  }): Promise<void> {
+    const target = this.notificationKey(key);
+    this.pruneNotifications((item) => this.notificationKey(item) === target);
+  }
+
+  private pruneNotifications(
+    predicate: (notification: MemoryNotification) => boolean
+  ): void {
+    for (let index = this.notifications.length - 1; index >= 0; index -= 1) {
+      if (predicate(this.notifications[index]!)) this.notifications.splice(index, 1);
+    }
+  }
+
+  async listNotifications(
+    recipientPubkeyHash: string,
+    limit: number,
+    before?: number
+  ): Promise<WhisperNotificationPage> {
+    const mine = this.notifications.filter(
+      (item) => item.recipientPubkeyHash === recipientPubkeyHash
+    );
+    return {
+      notifications: mine
+        .filter((item) => before === undefined || item.createdAt < before)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, limit)
+        .map((item) => ({
+          actorName: item.actorName,
+          actorPubkeyHash: item.actorPubkeyHash,
+          createdAt: item.createdAt,
+          id: item.id,
+          kind: item.kind,
+          preview: item.preview,
+          read: Boolean(item.readAt),
+          ...(item.echoId ? { echoId: item.echoId } : {}),
+          ...(item.reflectionId ? { reflectionId: item.reflectionId } : {})
+        })),
+      unreadCount: mine.filter((item) => !item.readAt).length
+    };
+  }
+
+  async markNotificationsRead(
+    recipientPubkeyHash: string,
+    at: number,
+    ids?: string[]
+  ): Promise<void> {
+    const idSet = ids && ids.length > 0 ? new Set(ids) : null;
+    for (const item of this.notifications) {
+      if (item.recipientPubkeyHash !== recipientPubkeyHash || item.readAt) continue;
+      if (idSet && !idSet.has(item.id)) continue;
+      item.readAt = at;
+    }
   }
 }
