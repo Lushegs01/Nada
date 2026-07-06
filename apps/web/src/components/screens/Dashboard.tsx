@@ -7,7 +7,7 @@ import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/
 import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload } from "@/lib/media-message";
 import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib/media-upload";
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
-import { whispersRelayConfigured, queryWhisperFeed, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperProfile, updateWhisperProfileRemote, setFollowRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote } from "@/lib/whispers";
+import { whispersRelayConfigured, queryWhisperFeed, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote } from "@/lib/whispers";
 import type { CallMode, LocalCallSession } from "@/lib/webrtc";
 import { createLocalCallSession } from "@/lib/webrtc";
 import { useDashboardStore } from "@/stores/useDashboardStore";
@@ -43,8 +43,7 @@ import { parseVoiceNoteBody } from "../VoiceNote";
 import { GroupsHome } from "./CommunitiesHome";
 import { WhispersFeed, type WhisperThreadMeta } from "./WhispersFeed";
 import { NotificationsPanel } from "./NotificationsPanel";
-const WhisperProfileSheet = dynamic(() => import("../panels/WhisperProfileSheet").then(m => m.WhisperProfileSheet), { ssr: false });
-import type { WhisperProfileDraft } from "../panels/WhisperProfileSheet";
+import { ProfilePage } from "./ProfilePage";
 import { StatusView, StatusCreateSheet, StatusViewerSheet } from "./StatusView";
 import { type NotificationSettings, DEFAULT_NOTIFICATION_SETTINGS, type Panel, type GlobalSearchResult, type PendingChatAction, type ReportTarget, type CommunityRecord, type WhisperEcho, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type CommunityDraft, type GroupDeletePayload } from "@/utils/dashboard-types";
 
@@ -177,13 +176,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const [whisperFeedLoadingMore, setWhisperFeedLoadingMore] = useState(false);
     const [whisperFeedSyncing, setWhisperFeedSyncing] = useState(whispersRelayConfigured());
     const [notificationsLoading, setNotificationsLoading] = useState(false);
-    // Ghost profile sheet: whose profile is open, its data, and their timeline.
+    // Ghost profile page target: null = your own profile on the Profile tab.
     const [profileTarget, setProfileTarget] = useState<{ hash: string; name: string } | null>(null);
-    const [profileData, setProfileData] = useState<WhisperProfile | null>(null);
-    const [profileLoading, setProfileLoading] = useState(false);
-    const [profileEchoes, setProfileEchoes] = useState<WhisperEcho[]>([]);
-    const [profileEchoesLoading, setProfileEchoesLoading] = useState(false);
-    const [profileEchoesHasMore, setProfileEchoesHasMore] = useState(false);
     const lastWhisperAlertAt = useRef(0);
     const safetyReports = useDashboardStore((s) => s.safetyReports);
     const setSafetyReports = useDashboardStore((s) => s.setSafetyReports);
@@ -691,6 +685,26 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             }
           }
 
+          // Ghost profiles: any whisper author whose handle matches, one entry
+          // per author, listed ahead of individual Echo matches.
+          const seenGhosts = new Set<string>();
+          for (const echo of whispers) {
+            if (
+              echo.authorHash &&
+              !seenGhosts.has(echo.authorHash) &&
+              echo.authorName.toLowerCase().includes(query)
+            ) {
+              seenGhosts.add(echo.authorHash);
+              results.push({
+                id: `ghost:${echo.authorHash}`,
+                label: echo.authorName,
+                meta: "Ghost profile",
+                targetId: echo.authorHash,
+                targetType: "ghost"
+              });
+            }
+          }
+
           for (const echo of whispers) {
             const haystack = `${echo.authorName} ${echo.body}`.toLowerCase();
             if (haystack.includes(query)) {
@@ -831,6 +845,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             setPanel(null);
             setSearchQuery("");
             setGlobalSearchResults([]);
+
+            if (result.targetType === "ghost") {
+              setProfileTarget({ hash: result.targetId, name: result.label });
+              setSelectedContactHash(null);
+              setSelectedGroupId(null);
+              setActiveTab("profile");
+              return;
+            }
 
             if (result.targetType === "whisper") {
               setSelectedContactHash(null);
@@ -2695,6 +2717,15 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 });
             }
           };
+    // Route to a ghost's profile page (used from the feed, alerts, search and
+    // follow lists — every rendered identity funnels through here).
+    const openWhisperProfile = useCallback((hash: string, name: string): void => {
+            if (!hash) return;
+            setProfileTarget({ hash, name });
+            setSelectedContactHash(null);
+            setSelectedGroupId(null);
+            setActiveTab("profile");
+          }, [setActiveTab]);
     // ── Whisper notifications (Alerts tab) ─────────────────────────────────
     const markAllWhisperNotificationsRead = useCallback((): void => {
             setWhisperNotifications((current) => {
@@ -2723,7 +2754,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               }
             }
             if (notification.kind === "follow" || !notification.echoId) {
-              setProfileTarget({ hash: notification.actorHash, name: notification.actorName });
+              openWhisperProfile(notification.actorHash, notification.actorName);
               return;
             }
             const echoId = notification.echoId;
@@ -2736,160 +2767,99 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               // The Echo fell outside the loaded window — refresh, then focus.
               void syncWhispersFromRelay().then(() => setFocusedEchoId(echoId));
             }
-          }, [identity.pubkeyHash, setActiveTab, setFocusedEchoId, setWhisperNotifications, setWhisperUnreadCount, syncWhispersFromRelay, whispers]);
+          }, [identity.pubkeyHash, openWhisperProfile, setActiveTab, setFocusedEchoId, setWhisperNotifications, setWhisperUnreadCount, syncWhispersFromRelay, whispers]);
     // ── Ghost profiles ──────────────────────────────────────────────────────
-    // With no relay, build a best-effort profile from the locally cached feed
-    // so the sheet still works in local-first mode.
-    const localProfileFor = useCallback((hash: string, name: string): WhisperProfile => {
-            const authored = whispers.filter((echo) => echo.authorHash === hash);
-            const authoredReflections = whispers.flatMap((echo) =>
-              echo.reflections.filter(
-                (reflection) => reflection.authorHash === hash && !reflection.deleted
-              )
-            );
-            return {
-              bio: "",
-              displayName: name,
-              echoCount: authored.length,
-              followedByMe: false,
-              followerCount: 0,
-              followingCount: 0,
-              institution: "",
-              joinedAt: authored.length > 0
-                ? Math.min(...authored.map((echo) => echo.createdAt))
-                : null,
-              likesReceived:
-                authored.reduce((sum, echo) => sum + echo.echoCount, 0) +
-                authoredReflections.reduce((sum, r) => sum + r.likeCount, 0),
-              pubkeyHash: hash,
-              reflectionCount: authoredReflections.length,
-              showActivity: true
-            };
-          }, [whispers]);
-    const loadProfileEchoes = useCallback((hash: string, before?: number): void => {
-            if (!whispersRelayConfigured()) {
-              setProfileEchoes(
-                whispers
-                  .filter((echo) => echo.authorHash === hash)
-                  .sort((a, b) => b.createdAt - a.createdAt)
-              );
-              setProfileEchoesHasMore(false);
-              return;
-            }
-            setProfileEchoesLoading(true);
-            void queryWhisperFeed(identity.pubkeyHash, 20, {
-              authorPubkeyHash: hash,
-              ...(before ? { before } : {})
-            }).then((echoes) => {
-              setProfileEchoesLoading(false);
-              if (!echoes) return;
-              setProfileEchoesHasMore(echoes.length >= 20);
-              setProfileEchoes((current) => {
-                if (!before) return echoes;
-                const known = new Set(current.map((echo) => echo.id));
-                return [...current, ...echoes.filter((echo) => !known.has(echo.id))];
-              });
-            });
-          }, [identity.pubkeyHash, whispers]);
-    const openWhisperProfile = useCallback((hash: string, name: string): void => {
-            if (!hash) return;
-            setProfileTarget({ hash, name });
-          }, []);
-    useEffect(() => {
-    if (!profileTarget) {
-      setProfileData(null);
-      setProfileEchoes([]);
-      setProfileEchoesHasMore(false);
-      return;
-    }
-    let active = true;
-    setProfileLoading(true);
-    if (!whispersRelayConfigured()) {
-      setProfileData(localProfileFor(profileTarget.hash, profileTarget.name));
-      loadProfileEchoes(profileTarget.hash);
-      setProfileLoading(false);
-      return;
-    }
-    void queryWhisperProfile(profileTarget.hash, identity.pubkeyHash).then((profile) => {
-      if (!active) return;
-      setProfileData(profile ?? localProfileFor(profileTarget.hash, profileTarget.name));
-      setProfileLoading(false);
-    });
-    loadProfileEchoes(profileTarget.hash);
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [profileTarget, identity.pubkeyHash]);
-    const toggleFollowProfile = useCallback((): void => {
-            if (!profileTarget || !profileData) return;
-            const nextOn = !profileData.followedByMe;
-            setProfileData({
-              ...profileData,
-              followedByMe: nextOn,
-              followerCount: Math.max(0, profileData.followerCount + (nextOn ? 1 : -1))
-            });
-            showToast(nextOn ? "You're now haunting this ghost." : "Unfollowed.");
-            if (whispersRelayConfigured()) {
-              void setFollowRemote({
-                followee: profileTarget.hash,
-                follower: identity.pubkeyHash,
-                followerName: whisperAuthorName(),
-                on: nextOn,
-                timestamp: Date.now()
-              });
-            }
-          }, [identity.pubkeyHash, profileData, profileTarget, showToast]);
-    const saveWhisperProfile = useCallback((draft: WhisperProfileDraft): void => {
-            if (!profileData) return;
-            setProfileData({
-              ...profileData,
-              bio: draft.bio,
-              displayName: draft.displayName,
-              institution: draft.institution,
-              showActivity: draft.showActivity
-            });
-            showToast("Profile saved.");
-            if (whispersRelayConfigured()) {
-              void updateWhisperProfileRemote({
-                author: identity.pubkeyHash,
-                bio: draft.bio,
-                displayName: draft.displayName,
-                institution: draft.institution,
-                showActivity: draft.showActivity,
-                timestamp: Date.now()
-              });
-            }
-          }, [identity.pubkeyHash, profileData, showToast]);
-    const shareWhisperProfile = useCallback((): void => {
-            if (!profileTarget) return;
-            const url = `${window.location.origin}/?ghost=${profileTarget.hash}`;
-            const title = `${profileData?.displayName || profileTarget.name} on NADA Whispers`;
-            if (navigator.share) {
-              void navigator.share({ title, url }).catch(() => {});
-              return;
-            }
-            void navigator.clipboard
-              .writeText(url)
-              .then(() => showToast("Profile link copied."))
-              .catch(() => showToast("Couldn't copy the profile link."));
-          }, [profileData, profileTarget, showToast]);
+    // The ProfilePage screen fetches its own data; the Dashboard only routes
+    // to it and provides the cross-app actions (message, block, report).
     // Jump from a profile's timeline into the main feed with that Echo focused.
-    const openEchoFromProfile = useCallback((echo: WhisperEcho): void => {
-            setProfileTarget(null);
-            setWhispers((current) =>
-              current.some((item) => item.id === echo.id) ? current : [...current, echo]
-            );
+    const openEchoFromProfile = useCallback((echoId: string, echo?: WhisperEcho): void => {
+            if (echo) {
+              setWhispers((current) =>
+                current.some((item) => item.id === echoId) ? current : [...current, echo]
+              );
+            }
             setActiveTab("whispers");
             setSelectedContactHash(null);
             setSelectedGroupId(null);
-            setFocusedEchoId(echo.id);
-          }, [setActiveTab, setFocusedEchoId, setWhispers]);
-    // Shared profile links (…/?ghost=<hash>) deep-link straight into the sheet.
+            if (echo || whispers.some((item) => item.id === echoId)) {
+              setFocusedEchoId(echoId);
+            } else {
+              void syncWhispersFromRelay().then(() => setFocusedEchoId(echoId));
+            }
+          }, [setActiveTab, setFocusedEchoId, setWhispers, syncWhispersFromRelay, whispers]);
+    // "Message" from a profile: create (or reuse) the contact with their
+    // relay-verified pubkey and drop straight into the direct chat. The chat
+    // id is deterministic, so an existing conversation is always reused.
+    const messageGhost = useCallback(async (profile: WhisperProfile): Promise<void> => {
+            if (!profile.pubkey) {
+              showToast("This ghost can't be messaged yet.");
+              return;
+            }
+            const existing = await nadaDb.contacts.get(profile.pubkeyHash);
+            const contact: ContactRecord = existing ?? {
+              id: profile.pubkeyHash,
+              pubkeyHash: profile.pubkeyHash,
+              publicKey: profile.pubkey,
+              localDisplayName:
+                profile.displayName || generateRandomUsername(profile.pubkeyHash),
+              addedAt: Date.now(),
+              trustStatus: "unverified"
+            };
+            if (!existing) {
+              await nadaDb.contacts.put(contact);
+              setContacts((current) =>
+                current.some((item) => item.pubkeyHash === contact.pubkeyHash)
+                  ? current
+                  : [contact, ...current]
+              );
+            }
+            setSelectedGroupId(null);
+            setSelectedContactHash(contact.pubkeyHash);
+            setMessageSearchQuery("");
+            setActiveTab("chats");
+          }, [setActiveTab, setContacts, showToast]);
+    // Block state for the open profile — backed by the direct chat's local
+    // preference record, same mechanism the chat screen uses.
+    const [profileBlocked, setProfileBlocked] = useState(false);
+    useEffect(() => {
+    if (!profileTarget || profileTarget.hash === identity.pubkeyHash) {
+      setProfileBlocked(false);
+      return;
+    }
+    let active = true;
+    void getChatPref(directChatId(identity.pubkeyHash, profileTarget.hash)).then((pref) => {
+      if (active) setProfileBlocked(isBlocked(pref, profileTarget.hash));
+    });
+    return () => {
+      active = false;
+    };
+    }, [profileTarget, identity.pubkeyHash]);
+    const toggleBlockGhost = useCallback(async (hash: string, block: boolean): Promise<void> => {
+            const chatId = directChatId(identity.pubkeyHash, hash);
+            const pref = await getChatPref(chatId);
+            const blockedPubkeyHashes = block
+              ? Array.from(new Set([...pref.blockedPubkeyHashes, hash]))
+              : pref.blockedPubkeyHashes.filter((item) => item !== hash);
+            await setChatPref(chatId, { blockedPubkeyHashes });
+            setProfileBlocked(block);
+            setChatPrefState((current) =>
+              current.chatId === chatId ? { ...current, blockedPubkeyHashes } : current
+            );
+            showToast(block ? "Ghost blocked." : "Ghost unblocked.");
+          }, [identity.pubkeyHash, setChatPrefState, showToast]);
+    const reportGhost = useCallback((profile: WhisperProfile): void => {
+            setPendingReportTarget({
+              id: profile.pubkeyHash,
+              title: profile.displayName || "Ghost",
+              type: "user"
+            });
+          }, [setPendingReportTarget]);
+    // Shared profile links (…/?ghost=<hash>) deep-link straight to the page.
     const ghostParam = searchParams.get("ghost") ?? "";
     useEffect(() => {
     if (!ghostParam) return;
-    setProfileTarget({ hash: ghostParam, name: "Ghost" });
+    openWhisperProfile(ghostParam, "Ghost");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ghostParam]);
     const submitSafetyReport = useCallback(async ({
             category,
@@ -3761,6 +3731,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           activeTab={activeTab}
           alertCount={whisperUnreadCount}
           onTabChange={(tab) => {
+            // The nav's Profile entry is always the hub for YOUR identity.
+            if (tab === "profile") setProfileTarget(null);
             setActiveTab(tab);
             setPanel(null);
             setShowGhostModal(false);
@@ -3785,6 +3757,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           ghost={ghostMode}
           activeTab={activeTab}
           onTabChange={(tab) => {
+            if (tab === "profile") setProfileTarget(null);
             setActiveTab(tab);
             setPanel(null);
             setShowGhostModal(false);
@@ -3858,8 +3831,32 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               notifications={whisperNotifications}
               onMarkAllRead={markAllWhisperNotificationsRead}
               onOpenNotification={openWhisperNotification}
+              onOpenProfile={openWhisperProfile}
               relayConfigured={whispersRelayConfigured()}
               unreadCount={whisperUnreadCount}
+            />
+          ) : activeTab === "profile" ? (
+            <ProfilePage
+              identity={identity}
+              isBlocked={profileBlocked}
+              key={(profileTarget ?? { hash: identity.pubkeyHash }).hash}
+              localEchoes={whispers}
+              onBack={
+                profileTarget && profileTarget.hash !== identity.pubkeyHash
+                  ? () => {
+                      setProfileTarget(null);
+                      setActiveTab("whispers");
+                    }
+                  : undefined
+              }
+              onMessage={(profile) => void messageGhost(profile)}
+              onOpenEcho={openEchoFromProfile}
+              onOpenProfile={openWhisperProfile}
+              onReport={reportGhost}
+              onToast={showToast}
+              onToggleBlock={(hash, block) => void toggleBlockGhost(hash, block)}
+              target={profileTarget ?? { hash: identity.pubkeyHash, name: whisperAuthorName() }}
+              viewerName={whisperAuthorName()}
             />
           ) : activeTab === "settings" ? (
             <SettingsDashboardPreview
@@ -4055,6 +4052,15 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
         peerIsBlocked={peerIsBlocked}
         peerIsTyping={peerIsTyping}
         onViewProfile={() => { /* Handled internally by ChatPanel */ }}
+        onOpenGhostProfile={
+          selectedContact
+            ? () =>
+                openWhisperProfile(
+                  selectedContact.pubkeyHash,
+                  selectedContact.localDisplayName
+                )
+            : undefined
+        }
         onMute={async (duration) => {
           if (!selectedChatId) return;
           const mutedUntil = duration === 0 ? 0 : duration === -1 ? null : Date.now() + duration;
@@ -4146,31 +4152,6 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       />
 
       <AnimatePresence>
-        {profileTarget ? (
-          <WhisperProfileSheet
-            echoes={profileEchoes}
-            echoesHasMore={profileEchoesHasMore}
-            echoesLoading={profileEchoesLoading}
-            fallbackName={profileTarget.name}
-            isSelf={profileTarget.hash === identity.pubkeyHash}
-            loading={profileLoading}
-            onClose={() => setProfileTarget(null)}
-            onLoadMoreEchoes={() =>
-              loadProfileEchoes(
-                profileTarget.hash,
-                profileEchoes.length > 0
-                  ? Math.min(...profileEchoes.map((echo) => echo.createdAt))
-                  : undefined
-              )
-            }
-            onOpenEcho={openEchoFromProfile}
-            onSaveProfile={saveWhisperProfile}
-            onShareProfile={shareWhisperProfile}
-            onToggleFollow={toggleFollowProfile}
-            profile={profileData}
-            relayConfigured={whispersRelayConfigured()}
-          />
-        ) : null}
         {panel === "contacts" ? (
           <ContactSheet
             identity={identity}

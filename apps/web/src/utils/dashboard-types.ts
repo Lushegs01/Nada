@@ -236,9 +236,14 @@ export type WhisperNotification = {
   reflectionId?: string;
 };
 
+export type WhisperDmPrivacy = "everyone" | "ghosts" | "none";
+
 export type WhisperProfile = {
+  /** Small self-chosen data-URL image; empty = gradient identity orb. */
+  avatar: string;
   bio: string;
   displayName: string;
+  dmPrivacy: WhisperDmPrivacy;
   echoCount: number;
   followedByMe: boolean;
   followerCount: number;
@@ -246,9 +251,25 @@ export type WhisperProfile = {
   institution: string;
   joinedAt: number | null;
   likesReceived: number;
+  /** Relay-verified Ed25519 pubkey (base64); enables "Message" without an invite. */
+  pubkey: string;
   pubkeyHash: string;
   reflectionCount: number;
   showActivity: boolean;
+  showLikes: boolean;
+};
+
+/** A reflection on a profile's "Reflects" tab, with its Echo context. */
+export type WhisperAuthorReflection = WhisperReflection & {
+  echoAuthorName: string;
+  echoBody: string;
+  echoId: string;
+};
+
+export type WhisperFollowEntry = {
+  avatar: string;
+  displayName: string;
+  pubkeyHash: string;
 };
 
 // When an Echo is a Ripple of another Echo, it carries a lightweight snapshot
@@ -302,6 +323,6 @@ export type GlobalSearchResult = {
   label: string;
   meta: string;
   targetId: string;
-  targetType: "chat" | "group" | "message" | "status" | "community" | "whisper";
+  targetType: "chat" | "group" | "message" | "status" | "community" | "whisper" | "ghost";
 };
 export type DeliveryGlyph = "clock" | "check" | "double-check" | "double-check-read";

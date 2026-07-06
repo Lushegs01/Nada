@@ -435,12 +435,16 @@ describe("profiles and follows", () => {
       Date.now()
     );
     await repo.upsertProfile({
+      avatar: "",
       bio: "night thoughts only",
       createdAt: Date.now() - 90_000,
       displayName: "alice.ghost",
+      dmPrivacy: "everyone",
       institution: "Midnight U",
+      pubkey: "",
       pubkeyHash: alice,
-      showActivity: true
+      showActivity: true,
+      showLikes: true
     });
     await repo.setFollow(bob, alice, true, Date.now());
     await repo.setFollow(carol, alice, true, Date.now());
@@ -468,6 +472,77 @@ describe("profiles and follows", () => {
     expect(await repo.setFollow(bob, alice, true, Date.now())).toBe(false); // repeat
     expect(await repo.setFollow(bob, alice, false, Date.now())).toBe(false); // unfollow
     expect((await repo.getProfile(alice, bob)).followerCount).toBe(0);
+  });
+
+  it("captures a verified pubkey and preserves it across profile edits", async () => {
+    const repo = await repoWithEcho();
+    // First authenticated write records the author's verified pubkey.
+    await repo.recordAuthorPubkey(alice, "alice.ghost", "PUBKEY_A", Date.now());
+    expect((await repo.getProfile(alice, bob)).pubkey).toBe("PUBKEY_A");
+    // A later profile edit without a pubkey must not erase it.
+    await repo.upsertProfile({
+      avatar: "data:image/png;base64,xyz",
+      bio: "new bio",
+      createdAt: Date.now(),
+      displayName: "alice.ghost",
+      dmPrivacy: "ghosts",
+      institution: "",
+      pubkey: "",
+      pubkeyHash: alice,
+      showActivity: true,
+      showLikes: false
+    });
+    const profile = await repo.getProfile(alice, bob);
+    expect(profile.pubkey).toBe("PUBKEY_A");
+    expect(profile.avatar).toBe("data:image/png;base64,xyz");
+    expect(profile.dmPrivacy).toBe("ghosts");
+    expect(profile.showLikes).toBe(false);
+  });
+
+  it("lists a user's authored reflections with their Echo context", async () => {
+    const repo = await repoWithEcho();
+    await repo.addReflection({
+      authorName: "bob.ghost",
+      authorPubkeyHash: bob,
+      body: "bob reflects",
+      createdAt: Date.now(),
+      echoId,
+      id: "20000000-0000-4000-8000-000000000080"
+    });
+    const reflections = await repo.listAuthorReflections(bob, alice, 10);
+    expect(reflections).toHaveLength(1);
+    expect(reflections[0]?.body).toBe("bob reflects");
+    expect(reflections[0]?.echoId).toBe(echoId);
+    expect(reflections[0]?.echoBody).toBe("thread me");
+    expect(reflections[0]?.echoAuthorName).toBe("alice.ghost");
+  });
+
+  it("lists liked Echoes newest-like-first", async () => {
+    const repo = await repoWithEcho();
+    await repo.createEcho({
+      authorName: "bob.ghost",
+      authorPubkeyHash: bob,
+      body: "second echo",
+      createdAt: Date.now() - 10_000,
+      id: "10000000-0000-4000-8000-0000000000e4"
+    });
+    await repo.setReaction(echoId, carol, true, Date.now() - 5000);
+    await repo.setReaction("10000000-0000-4000-8000-0000000000e4", carol, true, Date.now());
+    const liked = await repo.listLikedEchoes(carol, carol, 10);
+    expect(liked.map((echo) => echo.body)).toEqual(["second echo", "thread me"]);
+    expect(liked.every((echo) => echo.echoedByViewer)).toBe(true);
+  });
+
+  it("lists followers and following with profile names", async () => {
+    const repo = await repoWithEcho();
+    await repo.recordAuthorPubkey(bob, "bob.ghost", "PUBKEY_B", Date.now());
+    await repo.setFollow(bob, alice, true, Date.now());
+    const followers = await repo.listFollows(alice, "followers", 50);
+    expect(followers).toHaveLength(1);
+    expect(followers[0]?.pubkeyHash).toBe(bob);
+    expect(followers[0]?.displayName).toBe("bob.ghost");
+    const following = await repo.listFollows(bob, "following", 50);
+    expect(following.map((entry) => entry.pubkeyHash)).toEqual([alice]);
   });
 
   it("filters the feed by author for profile timelines", async () => {

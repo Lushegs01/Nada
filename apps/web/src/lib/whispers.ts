@@ -6,7 +6,10 @@
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
 import { useIdentityStore } from "@/stores/useIdentityStore";
 import type {
+  WhisperAuthorReflection,
+  WhisperDmPrivacy,
   WhisperEcho,
+  WhisperFollowEntry,
   WhisperNotification,
   WhisperNotificationKind,
   WhisperProfile,
@@ -60,8 +63,10 @@ type RelayNotification = {
 };
 
 type RelayProfile = {
+  avatar?: string;
   bio: string;
   displayName: string;
+  dmPrivacy?: WhisperDmPrivacy;
   echoCount: number;
   followedByViewer: boolean;
   followerCount: number;
@@ -69,9 +74,11 @@ type RelayProfile = {
   institution: string;
   joinedAt: number | null;
   likesReceived: number;
+  pubkey?: string;
   pubkeyHash: string;
   reflectionCount: number;
   showActivity: boolean;
+  showLikes?: boolean;
 };
 
 function mapReflection(reflection: RelayReflection): WhisperReflection {
@@ -283,8 +290,10 @@ export async function queryWhisperProfile(
   if (!data?.profile) return null;
   const profile = data.profile;
   return {
+    avatar: profile.avatar ?? "",
     bio: profile.bio,
     displayName: profile.displayName,
+    dmPrivacy: profile.dmPrivacy ?? "everyone",
     echoCount: profile.echoCount,
     followedByMe: profile.followedByViewer,
     followerCount: profile.followerCount,
@@ -292,18 +301,23 @@ export async function queryWhisperProfile(
     institution: profile.institution,
     joinedAt: profile.joinedAt,
     likesReceived: profile.likesReceived,
+    pubkey: profile.pubkey ?? "",
     pubkeyHash: profile.pubkeyHash,
     reflectionCount: profile.reflectionCount,
-    showActivity: profile.showActivity
+    showActivity: profile.showActivity,
+    showLikes: profile.showLikes ?? true
   };
 }
 
 export async function updateWhisperProfileRemote(input: {
   author: string;
+  avatar: string;
   bio: string;
   displayName: string;
+  dmPrivacy: WhisperDmPrivacy;
   institution: string;
   showActivity: boolean;
+  showLikes: boolean;
   timestamp: number;
 }): Promise<boolean> {
   const proof = await useIdentityStore
@@ -311,6 +325,70 @@ export async function updateWhisperProfileRemote(input: {
     .signProof("whisper-profile-update", input.author);
   if (!proof) return false;
   return post("/api/v1/whispers/profile/update", { ...input, proof });
+}
+
+/** A profile's authored reflections (public read, newest first). */
+export async function queryAuthorReflections(
+  pubkeyHash: string,
+  viewerPubkeyHash: string,
+  limit = 25,
+  before?: number
+): Promise<WhisperAuthorReflection[] | null> {
+  const data = await postJson<{
+    reflections?: Array<RelayReflection & { echoAuthorName: string; echoBody: string; echoId: string }>;
+  }>("/api/v1/whispers/profile/reflections", {
+    pubkeyHash,
+    viewerPubkeyHash,
+    limit,
+    ...(before ? { before } : {})
+  });
+  if (!data) return null;
+  return (data.reflections ?? []).map((reflection) => ({
+    ...mapReflection(reflection),
+    echoAuthorName: reflection.echoAuthorName,
+    echoBody: reflection.echoBody,
+    echoId: reflection.echoId
+  }));
+}
+
+/** Echoes a profile has liked. When reading your own hidden list, a proof is
+ *  attached so the relay can authorise it. Returns null when unreachable or
+ *  the list is private to you. */
+export async function queryLikedEchoes(
+  pubkeyHash: string,
+  viewerPubkeyHash: string,
+  limit = 25,
+  before?: number
+): Promise<WhisperEcho[] | null> {
+  const proof =
+    pubkeyHash === viewerPubkeyHash
+      ? await useIdentityStore.getState().signProof("whisper-likes-query", pubkeyHash)
+      : null;
+  const data = await postJson<{ echoes?: RelayEcho[] }>(
+    "/api/v1/whispers/profile/likes",
+    {
+      pubkeyHash,
+      viewerPubkeyHash,
+      limit,
+      ...(before ? { before } : {}),
+      ...(proof ? { proof } : {})
+    }
+  );
+  if (!data) return null;
+  return (data.echoes ?? []).map(mapEcho);
+}
+
+export async function queryFollowList(
+  pubkeyHash: string,
+  direction: "followers" | "following",
+  limit = 100
+): Promise<WhisperFollowEntry[] | null> {
+  const data = await postJson<{ entries?: WhisperFollowEntry[] }>(
+    "/api/v1/whispers/profile/follows",
+    { pubkeyHash, direction, limit }
+  );
+  if (!data) return null;
+  return data.entries ?? [];
 }
 
 export async function setFollowRemote(input: {

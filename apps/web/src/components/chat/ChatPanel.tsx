@@ -202,6 +202,7 @@ export function ChatPanel({
       peerIsBlocked,
       peerIsTyping,
       onViewProfile,
+      onOpenGhostProfile,
       onMute,
       onClearChat,
       onBlock,
@@ -258,6 +259,8 @@ export function ChatPanel({
           peerIsBlocked: boolean;
           peerIsTyping: boolean;
           onViewProfile: () => void;
+          /** Jump to the peer's full Ghost profile page (Whispers identity). */
+          onOpenGhostProfile?: (() => void) | undefined;
           onMute: (duration: number) => void;
           onClearChat: () => void;
           onBlock: () => void;
@@ -827,8 +830,13 @@ export function ChatPanel({
         <IconButton className="md:hidden" label="Back" onClick={onBack}>
           <ArrowLeft size={18} />
         </IconButton>
-        {/* Identity orb — shared-element seed matches the chat list */}
-        <motion.div layoutId={`orb-${title}`} className="relative shrink-0">
+        {/* Identity orb — shared-element seed matches the chat list. Tapping
+            the identity (orb or name) opens the peer's profile panel. */}
+        <motion.div
+          layoutId={`orb-${title}`}
+          className={cn("relative shrink-0", !isGroup && contact && "cursor-pointer")}
+          onClick={!isGroup && contact ? () => setShowProfilePanel(true) : undefined}
+        >
           <IdentityOrb
             seed={title}
             size="lg"
@@ -837,7 +845,15 @@ export function ChatPanel({
           />
         </motion.div>
         <div className="min-w-0 flex-1 py-2">
-          <h2 className="truncate text-[15px] font-bold text-nada-primary md:text-[16px]">{title}</h2>
+          <h2
+            className={cn(
+              "truncate text-[15px] font-bold text-nada-primary md:text-[16px]",
+              !isGroup && contact && "cursor-pointer hover:text-nada-accent transition-colors"
+            )}
+            onClick={!isGroup && contact ? () => setShowProfilePanel(true) : undefined}
+          >
+            {title}
+          </h2>
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 md:mt-1">
             <span className="nada-security-pill max-md:!hidden py-1 text-[10.5px]">
               {isGroup ? "Invite-only encrypted room" : "End-to-end encrypted"}
@@ -1663,6 +1679,17 @@ export function ChatPanel({
                   >
                     <MessageCircle size={16} className="text-nada-secondary" /> Message
                   </button>
+                  {onOpenGhostProfile ? (
+                    <button
+                      className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-nada-primary hover:bg-nada-muted transition-colors"
+                      onClick={() => {
+                        setShowProfilePanel(false);
+                        onOpenGhostProfile();
+                      }}
+                    >
+                      <User size={16} className="text-nada-secondary" /> View Ghost profile
+                    </button>
+                  ) : null}
                   <button
                     className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-nada-primary hover:bg-nada-muted transition-colors"
                     onClick={() => {
@@ -2847,6 +2874,8 @@ export function GlobalSearchResults({
                   <MessageCircle size={15} />
                 ) : result.targetType === "group" ? (
                   <Users size={15} />
+                ) : result.targetType === "ghost" ? (
+                  <User size={15} />
                 ) : (
                   <Search size={15} />
                 )}

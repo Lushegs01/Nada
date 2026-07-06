@@ -272,6 +272,10 @@ create index if not exists whisper_reflection_reactions_idx
 
 -- Public profile card for the Whispers feed. Everything here is already-public
 -- feed data (anonymous handle, bio) — never real-world identity or contact data.
+-- pubkey is the author's Ed25519 public key, captured from a relay-verified
+-- identity proof at write time; it lets other ghosts open an encrypted DM lane
+-- without an invite link. avatar is a small self-chosen data URL image.
+-- dm_privacy: 'everyone' | 'ghosts' (followers only) | 'none'.
 create table if not exists whisper_profiles (
   pubkey_hash text primary key,
   display_name text not null,
@@ -281,6 +285,10 @@ create table if not exists whisper_profiles (
   created_at_ms bigint not null,
   updated_at timestamptz not null
 );
+alter table whisper_profiles add column if not exists pubkey text not null default '';
+alter table whisper_profiles add column if not exists avatar text not null default '';
+alter table whisper_profiles add column if not exists show_likes boolean not null default true;
+alter table whisper_profiles add column if not exists dm_privacy text not null default 'everyone';
 
 -- Ghosts: follower → followee edges between anonymous identities.
 create table if not exists whisper_follows (
@@ -330,6 +338,9 @@ create table if not exists whisper_reactions (
   primary key (echo_id, reactor_pubkey_hash)
 );
 create index if not exists whisper_reactions_echo_idx on whisper_reactions(echo_id);
+-- Powers the profile "Likes" tab: everything one user has liked, newest first.
+create index if not exists whisper_reactions_reactor_idx
+  on whisper_reactions(reactor_pubkey_hash, created_at_ms desc);
 
 -- One row per user per source echo — powers accurate global "Ripple" counts.
 create table if not exists whisper_ripples (
