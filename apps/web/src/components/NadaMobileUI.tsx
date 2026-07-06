@@ -15,6 +15,7 @@ import {
   Pin,
   ChevronRight,
   CircleDashed,
+  CircleUserRound,
   Loader2,
   Waves,
   Bell,
@@ -53,6 +54,7 @@ const NAV_TABS = [
   { id: "groups", label: "Groups", icon: Users },
   { id: "whispers", label: "Whispers", icon: Waves },
   { id: "alerts", label: "Alerts", icon: Bell },
+  { id: "profile", label: "Profile", icon: CircleUserRound },
   { id: "settings", label: "Settings", icon: Settings }
 ] as const;
 
@@ -613,6 +615,7 @@ const TAB_TITLES: Record<string, string> = {
   groups: "Groups",
   whispers: "Whispers",
   alerts: "Alerts",
+  profile: "Profile",
   settings: "Settings"
 };
 

@@ -509,6 +509,14 @@ export const WhisperQueryRequestSchema = z.object({
 // ── Whisper profiles, follows ("Ghosts") and notifications ─────────────────
 export const WhisperBioSchema = z.string().max(280);
 export const WhisperInstitutionSchema = z.string().max(80);
+// Small self-chosen avatar as a data URL (client downscales before upload).
+export const WhisperAvatarSchema = z
+  .string()
+  .max(120_000)
+  .refine((value) => value === "" || value.startsWith("data:image/"), {
+    message: "Avatar must be a data:image URL."
+  });
+export const WhisperDmPrivacySchema = z.enum(["everyone", "ghosts", "none"]);
 
 export const WhisperProfileGetRequestSchema = z.object({
   pubkeyHash: PubkeyHashSchema,
@@ -520,9 +528,37 @@ export const WhisperProfileUpdateRequestSchema = z.object({
   displayName: WhisperAuthorNameSchema,
   bio: WhisperBioSchema,
   institution: WhisperInstitutionSchema,
+  avatar: WhisperAvatarSchema.optional(),
   showActivity: z.boolean(),
+  showLikes: z.boolean().optional(),
+  dmPrivacy: WhisperDmPrivacySchema.optional(),
   timestamp: z.number().int().positive(),
   proof: IdentityProofSchema
+});
+
+// A user's authored Reflections (profile "Reflects" tab), newest first.
+export const WhisperAuthorReflectionsRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  viewerPubkeyHash: PubkeyHashSchema,
+  limit: z.number().int().min(1).max(100).optional(),
+  before: z.number().int().positive().optional()
+});
+
+// Echoes a user has liked (profile "Likes" tab). When the target keeps their
+// likes private, the request must carry an identity proof from that same user.
+export const WhisperLikedEchoesRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  viewerPubkeyHash: PubkeyHashSchema,
+  limit: z.number().int().min(1).max(100).optional(),
+  before: z.number().int().positive().optional(),
+  proof: IdentityProofSchema.optional()
+});
+
+// Followers ("Ghosts") or following list for a profile.
+export const WhisperFollowListRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  direction: z.enum(["followers", "following"]),
+  limit: z.number().int().min(1).max(200).optional()
 });
 
 export const WhisperFollowRequestSchema = z.object({
@@ -659,6 +695,12 @@ export type WhisperProfileGetRequest = z.infer<typeof WhisperProfileGetRequestSc
 export type WhisperProfileUpdateRequest = z.infer<
   typeof WhisperProfileUpdateRequestSchema
 >;
+export type WhisperDmPrivacy = z.infer<typeof WhisperDmPrivacySchema>;
+export type WhisperAuthorReflectionsRequest = z.infer<
+  typeof WhisperAuthorReflectionsRequestSchema
+>;
+export type WhisperLikedEchoesRequest = z.infer<typeof WhisperLikedEchoesRequestSchema>;
+export type WhisperFollowListRequest = z.infer<typeof WhisperFollowListRequestSchema>;
 export type WhisperFollowRequest = z.infer<typeof WhisperFollowRequestSchema>;
 export type WhisperNotificationKind = z.infer<typeof WhisperNotificationKindSchema>;
 export type NotificationQueryRequest = z.infer<typeof NotificationQueryRequestSchema>;

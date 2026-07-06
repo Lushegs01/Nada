@@ -126,6 +126,7 @@ export function NotificationsPanel({
   notifications,
   onMarkAllRead,
   onOpenNotification,
+  onOpenProfile,
   relayConfigured,
   unreadCount
 }: {
@@ -133,6 +134,7 @@ export function NotificationsPanel({
   notifications: WhisperNotification[];
   onMarkAllRead: () => void;
   onOpenNotification: (notification: WhisperNotification) => void;
+  onOpenProfile: (hash: string, name: string) => void;
   relayConfigured: boolean;
   unreadCount: number;
 }): JSX.Element {
@@ -185,11 +187,13 @@ export function NotificationsPanel({
             {groups.map((group) => {
               const Icon = KIND_META[group.kind].icon;
               return (
-                <motion.button
+                // A div with button semantics: the actor avatar inside is its
+                // own <button> (profile link), and buttons must not nest.
+                <motion.div
                   layout
                   animate={{ opacity: 1, y: 0 }}
                   className={cn(
-                    "flex w-full items-start gap-3 rounded-2xl border p-3.5 text-left transition",
+                    "flex w-full cursor-pointer items-start gap-3 rounded-2xl border p-3.5 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-nada-accent",
                     group.unread
                       ? "border-nada-accent/25 bg-nada-accent/[0.06] hover:bg-nada-accent/[0.10]"
                       : "border-nada-border/10 bg-nada-surface-elevated/40 hover:bg-nada-surface-elevated/70"
@@ -198,10 +202,35 @@ export function NotificationsPanel({
                   initial={{ opacity: 0, y: 8 }}
                   key={group.key}
                   onClick={() => onOpenNotification(group.latest)}
-                  type="button"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onOpenNotification(group.latest);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                 >
-                  <div className="relative shrink-0">
-                    <AuthorAvatar name={group.latest.actorName} />
+                  <div
+                    className="relative shrink-0"
+                    onClick={
+                      group.latest.actorHash
+                        ? (event) => event.stopPropagation()
+                        : undefined
+                    }
+                  >
+                    <AuthorAvatar
+                      name={group.latest.actorName}
+                      onClick={
+                        group.latest.actorHash
+                          ? () =>
+                              onOpenProfile(
+                                group.latest.actorHash,
+                                group.latest.actorName
+                              )
+                          : undefined
+                      }
+                    />
                     <span
                       className={cn(
                         "absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full border-2 border-nada-surface",
@@ -239,7 +268,7 @@ export function NotificationsPanel({
                       className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-nada-accent shadow-accent-glow"
                     />
                   ) : null}
-                </motion.button>
+                </motion.div>
               );
             })}
           </AnimatePresence>

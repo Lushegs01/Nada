@@ -3,8 +3,11 @@ import type { FastifyInstance } from "fastify";
 import {
   NotificationQueryRequestSchema,
   NotificationReadRequestSchema,
+  WhisperAuthorReflectionsRequestSchema,
   WhisperDeleteRequestSchema,
+  WhisperFollowListRequestSchema,
   WhisperFollowRequestSchema,
+  WhisperLikedEchoesRequestSchema,
   WhisperProfileGetRequestSchema,
   WhisperProfileUpdateRequestSchema,
   WhisperPublishRequestSchema,
@@ -96,6 +99,14 @@ export async function registerWhisperRoutes(
       createdAt: result.data.timestamp,
       id: result.data.id
     });
+    // The proof's pubkey is relay-verified (it hashes to the author). Capture
+    // it so other ghosts can open an encrypted DM lane from this profile.
+    await repository.recordAuthorPubkey(
+      result.data.author,
+      result.data.authorName,
+      result.data.proof.pubkey,
+      result.data.timestamp
+    );
     return reply.send({ success: true });
   });
 
@@ -159,6 +170,12 @@ export async function registerWhisperRoutes(
         .code(404)
         .send({ code: "echo_not_found", message: "Echo or parent reply not found." });
     }
+    await repository.recordAuthorPubkey(
+      result.data.author,
+      result.data.authorName,
+      result.data.proof.pubkey,
+      result.data.timestamp
+    );
 
     const preview = notificationPreview(result.data.body);
     const base = {
@@ -450,14 +467,93 @@ export async function registerWhisperRoutes(
       });
     }
     await repository.upsertProfile({
+      avatar: result.data.avatar ?? "",
       bio: result.data.bio,
       createdAt: result.data.timestamp,
       displayName: result.data.displayName,
+      dmPrivacy: result.data.dmPrivacy ?? "everyone",
       institution: result.data.institution,
+      pubkey: result.data.proof.pubkey,
       pubkeyHash: result.data.author,
-      showActivity: result.data.showActivity
+      showActivity: result.data.showActivity,
+      showLikes: result.data.showLikes ?? true
     });
     return reply.send({ success: true });
+  });
+
+  // A profile's authored Reflections (public read, "Reflects" tab).
+  app.post("/api/v1/whispers/profile/reflections", async (request, reply) => {
+    const result = WhisperAuthorReflectionsRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({
+        code: "invalid_profile_reflections",
+        message: "Invalid profile reflections query."
+      });
+    }
+    const reflections = await repository.listAuthorReflections(
+      result.data.pubkeyHash,
+      result.data.viewerPubkeyHash,
+      result.data.limit ?? 25,
+      result.data.before
+    );
+    return reply.send({ reflections });
+  });
+
+  // Echoes a profile has liked. Public only while the owner keeps likes
+  // visible; when hidden, only the owner (with a fresh identity proof) may
+  // read their own list.
+  app.post("/api/v1/whispers/profile/likes", async (request, reply) => {
+    const result = WhisperLikedEchoesRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({
+        code: "invalid_profile_likes",
+        message: "Invalid profile likes query."
+      });
+    }
+    const profile = await repository.getProfile(
+      result.data.pubkeyHash,
+      result.data.viewerPubkeyHash
+    );
+    if (!profile.showLikes) {
+      const proof = result.data.proof;
+      const verification = proof
+        ? verifyIdentityProof(proof, {
+            context: "whisper-likes-query",
+            binding: result.data.pubkeyHash
+          })
+        : null;
+      if (!verification?.ok || verification.pubkeyHash !== result.data.pubkeyHash) {
+        return reply.code(403).send({
+          code: "likes_private",
+          message: "This ghost keeps their likes private."
+        });
+      }
+    }
+    const echoes = await repository.listLikedEchoes(
+      result.data.pubkeyHash,
+      result.data.viewerPubkeyHash,
+      result.data.limit ?? 25,
+      result.data.before
+    );
+    return reply.send({ echoes });
+  });
+
+  // Followers ("Ghosts") / following list for a profile (public read — the
+  // same information any user could reconstruct from follow notifications).
+  app.post("/api/v1/whispers/profile/follows", async (request, reply) => {
+    const result = WhisperFollowListRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({
+        code: "invalid_follow_list",
+        message: "Invalid follow list query."
+      });
+    }
+    const entries = await repository.listFollows(
+      result.data.pubkeyHash,
+      result.data.direction,
+      result.data.limit ?? 100
+    );
+    return reply.send({ entries });
   });
 
   // Follow / unfollow ("Ghosts"). Following someone notifies them; unfollowing
