@@ -2,7 +2,7 @@
 import type {
   NotificationSettings, NotificationSoundChoice, NotificationPreviewPrivacy,
   NotificationRingtoneChoice, DeliveryGlyph, CommunityRecord, CommunityPost,
-  WhisperEcho, WhisperReflection,
+  WhisperEcho, WhisperReflection, WhisperNotification,
   SafetyReport, StatusCommentPayload, StatusReactionPayload, StatusDeletePayload,
   GroupDeletePayload
 } from "@/utils/dashboard-types";
@@ -315,7 +315,19 @@ function parseWhisperReflections(raw: unknown): WhisperReflection[] {
           authorName: r.authorName,
           body: r.body,
           createdAt: r.createdAt,
-          id: r.id
+          id: r.id,
+          likeCount:
+            typeof r.likeCount === "number" && r.likeCount >= 0
+              ? Math.floor(r.likeCount)
+              : 0,
+          likedByMe: r.likedByMe === true,
+          replyCount:
+            typeof r.replyCount === "number" && r.replyCount >= 0
+              ? Math.floor(r.replyCount)
+              : 0,
+          ...(typeof r.parentId === "string" ? { parentId: r.parentId } : {}),
+          ...(typeof r.replyToName === "string" ? { replyToName: r.replyToName } : {}),
+          ...(r.deleted === true ? { deleted: true } : {})
         };
       })
       .filter((r): r is WhisperReflection => Boolean(r))
@@ -353,6 +365,7 @@ export function parseWhisperEchoes(raw: string | null): WhisperEcho[] {
                 id: e.rippleOf.id
               }
             : undefined;
+        const reflections = parseWhisperReflections(e.reflections);
         return {
           authorHash: typeof e.authorHash === "string" ? e.authorHash : "",
           authorName: e.authorName,
@@ -362,7 +375,13 @@ export function parseWhisperEchoes(raw: string | null): WhisperEcho[] {
             typeof e.echoCount === "number" && e.echoCount >= 0 ? Math.floor(e.echoCount) : 0,
           echoedByMe: e.echoedByMe === true,
           id: e.id,
-          reflections: parseWhisperReflections(e.reflections),
+          // Older caches predate the reflectionCount counter — fall back to
+          // the loaded list length so counts never regress to zero.
+          reflectionCount:
+            typeof e.reflectionCount === "number" && e.reflectionCount >= 0
+              ? Math.floor(e.reflectionCount)
+              : reflections.length,
+          reflections,
           rippleCount:
             typeof e.rippleCount === "number" && e.rippleCount >= 0
               ? Math.floor(e.rippleCount)
@@ -442,16 +461,67 @@ export function seedWhisperEchoes(): WhisperEcho[] {
       echoCount: s.echoCount,
       echoedByMe: false,
       id: `seed-${s.author}-${s.minutesAgo}`,
+      reflectionCount: (s.reflections ?? []).length,
       reflections: (s.reflections ?? []).map((r, i) => ({
         authorHash: "",
         authorName: r.author,
         body: r.body,
         createdAt: minutes(r.minutesAgo),
-        id: `seed-${s.author}-${s.minutesAgo}-r${i}`
+        id: `seed-${s.author}-${s.minutesAgo}-r${i}`,
+        likeCount: 0,
+        likedByMe: false,
+        replyCount: 0
       })),
       rippleCount: s.rippleCount,
       rippledByMe: false
     }));
+}
+
+const WHISPER_NOTIFICATION_KINDS = new Set([
+  "reflect",
+  "reply",
+  "echo",
+  "reflection_echo",
+  "ripple",
+  "mention",
+  "follow"
+]);
+
+export function parseWhisperNotifications(raw: string | null): WhisperNotification[] {
+    if (!raw) return [];
+    try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item): WhisperNotification | null => {
+        if (!item || typeof item !== "object") return null;
+        const n = item as Partial<WhisperNotification>;
+        if (
+          typeof n.id !== "string" ||
+          typeof n.actorName !== "string" ||
+          typeof n.createdAt !== "number" ||
+          typeof n.kind !== "string" ||
+          !WHISPER_NOTIFICATION_KINDS.has(n.kind)
+        ) {
+          return null;
+        }
+        return {
+          actorHash: typeof n.actorHash === "string" ? n.actorHash : "",
+          actorName: n.actorName,
+          createdAt: n.createdAt,
+          id: n.id,
+          kind: n.kind as WhisperNotification["kind"],
+          preview: typeof n.preview === "string" ? n.preview : "",
+          read: n.read === true,
+          ...(typeof n.echoId === "string" ? { echoId: n.echoId } : {}),
+          ...(typeof n.reflectionId === "string" ? { reflectionId: n.reflectionId } : {})
+        };
+      })
+      .filter((n): n is WhisperNotification => Boolean(n))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    } catch {
+    return [];
+    }
 }
 
 export function parseSafetyReports(raw: string | null): SafetyReport[] {

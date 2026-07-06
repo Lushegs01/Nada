@@ -444,12 +444,43 @@ export const WhisperReflectRequestSchema = z.object({
   authorName: WhisperAuthorNameSchema,
   body: WhisperReflectionBodySchema,
   timestamp: z.number().int().positive(),
+  proof: IdentityProofSchema,
+  /** Immediate parent Reflection when this is a nested (threaded) reply. */
+  parentId: UuidSchema.optional(),
+  /** Anonymous handle of the parent author, preserved as an "@name" mention. */
+  replyToName: WhisperAuthorNameSchema.optional()
+});
+
+export const WhisperReflectionQueryRequestSchema = z.object({
+  echoId: UuidSchema,
+  viewerPubkeyHash: PubkeyHashSchema,
+  /** Max top-level replies per page; their nested replies ride along. */
+  limit: z.number().int().min(1).max(100).optional(),
+  /** Cursor: only top-level replies created strictly before this timestamp. */
+  before: z.number().int().positive().optional()
+});
+
+export const WhisperReflectionDeleteRequestSchema = z.object({
+  id: UuidSchema,
+  author: PubkeyHashSchema,
+  proof: IdentityProofSchema
+});
+
+export const WhisperReflectionReactRequestSchema = z.object({
+  reflectionId: UuidSchema,
+  reactor: PubkeyHashSchema,
+  /** Anonymous handle shown in the "liked your reflection" notification. */
+  reactorName: WhisperAuthorNameSchema.optional(),
+  on: z.boolean(),
+  timestamp: z.number().int().positive(),
   proof: IdentityProofSchema
 });
 
 export const WhisperReactRequestSchema = z.object({
   echoId: UuidSchema,
   reactor: PubkeyHashSchema,
+  /** Anonymous handle shown in the "liked your Echo" notification. */
+  reactorName: WhisperAuthorNameSchema.optional(),
   on: z.boolean(),
   timestamp: z.number().int().positive(),
   proof: IdentityProofSchema
@@ -468,7 +499,64 @@ export const WhisperRippleRequestSchema = z.object({
 export const WhisperQueryRequestSchema = z.object({
   viewerPubkeyHash: PubkeyHashSchema,
   limit: z.number().int().min(1).max(200).optional(),
-  since: z.number().int().nonnegative().optional()
+  since: z.number().int().nonnegative().optional(),
+  /** Cursor: only Echoes created strictly before this timestamp (pagination). */
+  before: z.number().int().positive().optional(),
+  /** Restrict the timeline to a single author (profile pages). */
+  authorPubkeyHash: PubkeyHashSchema.optional()
+});
+
+// ── Whisper profiles, follows ("Ghosts") and notifications ─────────────────
+export const WhisperBioSchema = z.string().max(280);
+export const WhisperInstitutionSchema = z.string().max(80);
+
+export const WhisperProfileGetRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  viewerPubkeyHash: PubkeyHashSchema
+});
+
+export const WhisperProfileUpdateRequestSchema = z.object({
+  author: PubkeyHashSchema,
+  displayName: WhisperAuthorNameSchema,
+  bio: WhisperBioSchema,
+  institution: WhisperInstitutionSchema,
+  showActivity: z.boolean(),
+  timestamp: z.number().int().positive(),
+  proof: IdentityProofSchema
+});
+
+export const WhisperFollowRequestSchema = z.object({
+  follower: PubkeyHashSchema,
+  followerName: WhisperAuthorNameSchema,
+  followee: PubkeyHashSchema,
+  on: z.boolean(),
+  timestamp: z.number().int().positive(),
+  proof: IdentityProofSchema
+});
+
+export const WhisperNotificationKindSchema = z.enum([
+  "reflect",
+  "reply",
+  "echo",
+  "reflection_echo",
+  "ripple",
+  "mention",
+  "follow"
+]);
+
+export const NotificationQueryRequestSchema = z.object({
+  recipient: PubkeyHashSchema,
+  limit: z.number().int().min(1).max(200).optional(),
+  before: z.number().int().positive().optional(),
+  proof: IdentityProofSchema
+});
+
+export const NotificationReadRequestSchema = z.object({
+  recipient: PubkeyHashSchema,
+  /** Specific notification ids; omit to mark every notification read. */
+  ids: z.array(UuidSchema).max(200).optional(),
+  timestamp: z.number().int().positive(),
+  proof: IdentityProofSchema
 });
 
 export const ReferralRedeemResponseSchema = z.object({
@@ -558,6 +646,23 @@ export type WhisperReflectRequest = z.infer<typeof WhisperReflectRequestSchema>;
 export type WhisperReactRequest = z.infer<typeof WhisperReactRequestSchema>;
 export type WhisperRippleRequest = z.infer<typeof WhisperRippleRequestSchema>;
 export type WhisperQueryRequest = z.infer<typeof WhisperQueryRequestSchema>;
+export type WhisperReflectionQueryRequest = z.infer<
+  typeof WhisperReflectionQueryRequestSchema
+>;
+export type WhisperReflectionDeleteRequest = z.infer<
+  typeof WhisperReflectionDeleteRequestSchema
+>;
+export type WhisperReflectionReactRequest = z.infer<
+  typeof WhisperReflectionReactRequestSchema
+>;
+export type WhisperProfileGetRequest = z.infer<typeof WhisperProfileGetRequestSchema>;
+export type WhisperProfileUpdateRequest = z.infer<
+  typeof WhisperProfileUpdateRequestSchema
+>;
+export type WhisperFollowRequest = z.infer<typeof WhisperFollowRequestSchema>;
+export type WhisperNotificationKind = z.infer<typeof WhisperNotificationKindSchema>;
+export type NotificationQueryRequest = z.infer<typeof NotificationQueryRequestSchema>;
+export type NotificationReadRequest = z.infer<typeof NotificationReadRequestSchema>;
 export type CapabilityTokenPayload = z.infer<
   typeof CapabilityTokenPayloadSchema
 >;

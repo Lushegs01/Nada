@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 type Updater<T> = T | ((prev: T) => T);
 import type { ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
-import type { CommunityRecord, WhisperEcho, SafetyReport, NotificationSettings, GlobalSearchResult, ReportTarget, PendingChatAction } from "@/utils/dashboard-types";
+import type { CommunityRecord, WhisperEcho, WhisperNotification, SafetyReport, NotificationSettings, GlobalSearchResult, ReportTarget, PendingChatAction } from "@/utils/dashboard-types";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/utils/dashboard-types";
 
 type Panel = "settings" | "contacts" | "billing" | "share" | "migration" | "group" | "safetyReport" | "community_create" | "status_create" | null;
@@ -33,6 +33,12 @@ interface DashboardState {
   setCommunities: (communities: Updater<CommunityRecord[]>) => void;
   whispers: WhisperEcho[];
   setWhispers: (whispers: Updater<WhisperEcho[]>) => void;
+  whisperNotifications: WhisperNotification[];
+  setWhisperNotifications: (notifications: Updater<WhisperNotification[]>) => void;
+  whisperUnreadCount: number;
+  setWhisperUnreadCount: (count: Updater<number>) => void;
+  focusedEchoId: string | null;
+  setFocusedEchoId: (id: Updater<string | null>) => void;
   safetyReports: SafetyReport[];
   setSafetyReports: (reports: Updater<SafetyReport[]>) => void;
 
@@ -121,6 +127,12 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   setCommunities: (communities) => set((state) => ({ communities: typeof communities === 'function' ? communities(state.communities) : communities })),
   whispers: [],
   setWhispers: (whispers) => set((state) => ({ whispers: typeof whispers === 'function' ? whispers(state.whispers) : whispers })),
+  whisperNotifications: [],
+  setWhisperNotifications: (whisperNotifications) => set((state) => ({ whisperNotifications: typeof whisperNotifications === 'function' ? whisperNotifications(state.whisperNotifications) : whisperNotifications })),
+  whisperUnreadCount: 0,
+  setWhisperUnreadCount: (whisperUnreadCount) => set((state) => ({ whisperUnreadCount: typeof whisperUnreadCount === 'function' ? whisperUnreadCount(state.whisperUnreadCount) : whisperUnreadCount })),
+  focusedEchoId: null,
+  setFocusedEchoId: (focusedEchoId) => set((state) => ({ focusedEchoId: typeof focusedEchoId === 'function' ? focusedEchoId(state.focusedEchoId) : focusedEchoId })),
   safetyReports: [],
   setSafetyReports: (safetyReports) => set((state) => ({ safetyReports: typeof safetyReports === 'function' ? safetyReports(state.safetyReports) : safetyReports })),
 

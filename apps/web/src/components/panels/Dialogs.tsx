@@ -3,7 +3,95 @@ import type { PendingChatAction } from "@/utils/dashboard-types";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trash2, Archive } from "lucide-react";
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { cn } from "@nada/ui";
+
+/** Generic confirmation dialog matching ConfirmChatActionDialog's visual
+ *  language — used for destructive actions outside the chat list (deleting
+ *  Echoes and reflections in the Whispers feed). */
+export function ConfirmActionDialog({
+      confirmLabel,
+      copy,
+      danger = true,
+      onCancel,
+      onConfirm,
+      subtitle,
+      title
+    }: {
+          confirmLabel: string;
+          copy: string;
+          danger?: boolean;
+          onCancel: () => void;
+          onConfirm: () => void;
+          subtitle?: string;
+          title: string;
+        }): JSX.Element {
+    useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+    }, [onCancel]);
+    return (
+    <motion.div
+      animate={{ opacity: 1 }}
+      className="nada-overlay fixed inset-0 z-overlay grid place-items-center p-4"
+      exit={{ opacity: 0 }}
+      initial={{ opacity: 0 }}
+      onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <motion.div
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        className="w-full max-w-sm rounded-3xl border border-nada-border/10 bg-nada-surface p-5 shadow-2xl"
+        exit={{ y: 16, opacity: 0, scale: 0.98 }}
+        initial={{ y: 16, opacity: 0, scale: 0.98 }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center gap-3">
+          <div
+            className={cn(
+              "grid h-11 w-11 place-items-center rounded-2xl",
+              danger ? "bg-red-500/12 text-red-300" : "bg-nada-accent/12 text-nada-accent"
+            )}
+          >
+            <Trash2 size={20} />
+          </div>
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-bold text-nada-primary">{title}</h3>
+            {subtitle ? (
+              <p className="truncate text-xs text-nada-secondary/55">{subtitle}</p>
+            ) : null}
+          </div>
+        </div>
+        <p className="mb-5 text-sm leading-relaxed text-nada-secondary/75">{copy}</p>
+        <div className="flex gap-3">
+          <button
+            className="flex-1 rounded-2xl bg-nada-muted px-4 py-3 text-sm font-semibold text-nada-secondary"
+            onClick={onCancel}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            autoFocus
+            className={cn(
+              "flex-1 rounded-2xl px-4 py-3 text-sm font-bold",
+              danger ? "bg-red-500 text-white" : "bg-nada-accent text-black"
+            )}
+            onClick={onConfirm}
+            type="button"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+    );
+}
 
 export function ConfirmChatActionDialog({
       action,

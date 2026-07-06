@@ -7,14 +7,14 @@ import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/
 import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload } from "@/lib/media-message";
 import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib/media-upload";
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
-import { whispersRelayConfigured, queryWhisperFeed, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote } from "@/lib/whispers";
+import { whispersRelayConfigured, queryWhisperFeed, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperProfile, updateWhisperProfileRemote, setFollowRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote } from "@/lib/whispers";
 import type { CallMode, LocalCallSession } from "@/lib/webrtc";
 import { createLocalCallSession } from "@/lib/webrtc";
 import { useDashboardStore } from "@/stores/useDashboardStore";
 import { useCallStore } from "@/stores/useCallStore";
 import { useIdentityStore } from "@/stores/useIdentityStore";
 import { useSocketStore } from "@/stores/useSocketStore";
-import { parseCommunityRecords, parseWhisperEchoes, seedWhisperEchoes, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, extractMentions, statusCommentChatId, defaultCommunityChannels, defaultCommunityTopics, dataUrlSize, matchesSearch } from "@/utils/helpers";
+import { parseCommunityRecords, parseWhisperEchoes, parseWhisperNotifications, seedWhisperEchoes, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, extractMentions, statusCommentChatId, defaultCommunityChannels, defaultCommunityTopics, dataUrlSize, matchesSearch } from "@/utils/helpers";
 import { encryptGroupMessage, mockEncryptMessage, createGroupSenderKey } from "@nada/crypto";
 import type { IdentityRecord, ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
 import type { MessageEnvelope, ReplyToMessage, GroupMessageEnvelope, PollData, MediaAttachment, GroupInvitePayload } from "@nada/types";
@@ -41,9 +41,12 @@ const SettingsSheet = dynamic(() => import("../panels/SettingsSheet").then(m => 
 import { LaunchOnboardingSheet } from "../panels/Sheet";
 import { parseVoiceNoteBody } from "../VoiceNote";
 import { GroupsHome } from "./CommunitiesHome";
-import { WhispersFeed } from "./WhispersFeed";
+import { WhispersFeed, type WhisperThreadMeta } from "./WhispersFeed";
+import { NotificationsPanel } from "./NotificationsPanel";
+const WhisperProfileSheet = dynamic(() => import("../panels/WhisperProfileSheet").then(m => m.WhisperProfileSheet), { ssr: false });
+import type { WhisperProfileDraft } from "../panels/WhisperProfileSheet";
 import { StatusView, StatusCreateSheet, StatusViewerSheet } from "./StatusView";
-import { type NotificationSettings, DEFAULT_NOTIFICATION_SETTINGS, type Panel, type GlobalSearchResult, type PendingChatAction, type ReportTarget, type CommunityRecord, type WhisperEcho, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type CommunityDraft, type GroupDeletePayload } from "@/utils/dashboard-types";
+import { type NotificationSettings, DEFAULT_NOTIFICATION_SETTINGS, type Panel, type GlobalSearchResult, type PendingChatAction, type ReportTarget, type CommunityRecord, type WhisperEcho, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type CommunityDraft, type GroupDeletePayload } from "@/utils/dashboard-types";
 
 export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const searchParams = useSearchParams();
@@ -162,6 +165,26 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const setCommunities = useDashboardStore((s) => s.setCommunities);
     const whispers = useDashboardStore((s) => s.whispers);
     const setWhispers = useDashboardStore((s) => s.setWhispers);
+    const whisperNotifications = useDashboardStore((s) => s.whisperNotifications);
+    const setWhisperNotifications = useDashboardStore((s) => s.setWhisperNotifications);
+    const whisperUnreadCount = useDashboardStore((s) => s.whisperUnreadCount);
+    const setWhisperUnreadCount = useDashboardStore((s) => s.setWhisperUnreadCount);
+    const focusedEchoId = useDashboardStore((s) => s.focusedEchoId);
+    const setFocusedEchoId = useDashboardStore((s) => s.setFocusedEchoId);
+    // Per-echo thread paging state (lazy loading + "show older reflections").
+    const [whisperThreadMeta, setWhisperThreadMeta] = useState<Record<string, WhisperThreadMeta>>({});
+    const [whisperFeedHasMore, setWhisperFeedHasMore] = useState(false);
+    const [whisperFeedLoadingMore, setWhisperFeedLoadingMore] = useState(false);
+    const [whisperFeedSyncing, setWhisperFeedSyncing] = useState(whispersRelayConfigured());
+    const [notificationsLoading, setNotificationsLoading] = useState(false);
+    // Ghost profile sheet: whose profile is open, its data, and their timeline.
+    const [profileTarget, setProfileTarget] = useState<{ hash: string; name: string } | null>(null);
+    const [profileData, setProfileData] = useState<WhisperProfile | null>(null);
+    const [profileLoading, setProfileLoading] = useState(false);
+    const [profileEchoes, setProfileEchoes] = useState<WhisperEcho[]>([]);
+    const [profileEchoesLoading, setProfileEchoesLoading] = useState(false);
+    const [profileEchoesHasMore, setProfileEchoesHasMore] = useState(false);
+    const lastWhisperAlertAt = useRef(0);
     const safetyReports = useDashboardStore((s) => s.safetyReports);
     const setSafetyReports = useDashboardStore((s) => s.setSafetyReports);
     const showOnboarding = useDashboardStore((s) => s.showOnboarding);
@@ -175,8 +198,9 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       getGlobalSetting(WHISPERS_SETTING_KEY),
       getGlobalSetting(REPORTS_SETTING_KEY),
       getGlobalSetting(ONBOARDING_DISMISSED_SETTING_KEY),
-      getGlobalSetting(NOTIFICATION_SETTINGS_KEY)
-    ]).then(([communitiesValue, whispersValue, reportsValue, onboardingDismissed, notificationSettingsValue]) => {
+      getGlobalSetting(NOTIFICATION_SETTINGS_KEY),
+      getGlobalSetting(WHISPER_NOTIFICATIONS_SETTING_KEY)
+    ]).then(([communitiesValue, whispersValue, reportsValue, onboardingDismissed, notificationSettingsValue, whisperNotificationsValue]) => {
       if (active) {
         setCommunities(parseCommunityRecords(communitiesValue));
         // Paint the cached feed instantly. When a relay is configured, the
@@ -189,6 +213,17 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           const seeded = seedWhisperEchoes();
           setWhispers(seeded);
           void setGlobalSetting(WHISPERS_SETTING_KEY, JSON.stringify(seeded));
+        }
+        // Paint the cached notification inbox instantly too; the relay sync
+        // replaces it with the authoritative state moments later.
+        const cachedNotifications = parseWhisperNotifications(whisperNotificationsValue);
+        if (cachedNotifications.length > 0) {
+          setWhisperNotifications(cachedNotifications);
+          setWhisperUnreadCount(cachedNotifications.filter((n) => !n.read).length);
+          lastWhisperAlertAt.current = Math.max(
+            0,
+            ...cachedNotifications.map((n) => n.createdAt)
+          );
         }
         setSafetyReports(parseSafetyReports(reportsValue));
         setShowOnboarding(onboardingDismissed !== "true");
@@ -270,25 +305,40 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     // Whispers is a public global feed: pull the authoritative timeline from the
     // relay so any user's Echo (and everyone's reactions/reflections/ripples)
     // shows up on every device. Best-effort — falls back to the local cache.
+    // Threads the viewer already opened keep their fully-loaded reflections
+    // (the feed response only carries a small preview per Echo).
     const syncWhispersFromRelay = useCallback(async (): Promise<void> => {
             const echoes = await queryWhisperFeed(identity.pubkeyHash, 100);
-            if (!echoes) return;
-            setWhispers(echoes);
-            await setGlobalSetting(WHISPERS_SETTING_KEY, JSON.stringify(echoes));
+            if (!echoes) {
+              setWhisperFeedSyncing(false);
+              return;
+            }
+            setWhispers((current) => {
+              const loadedThreads = new Map(
+                current.map((echo) => [echo.id, echo.reflections] as const)
+              );
+              const merged = echoes.map((echo) => {
+                const loaded = loadedThreads.get(echo.id);
+                return loaded && loaded.length > echo.reflections.length
+                  ? { ...echo, reflections: loaded }
+                  : echo;
+              });
+              // Keep older Echoes the user paged into that fell outside the
+              // first page of the fresh sync.
+              const fresh = new Set(echoes.map((echo) => echo.id));
+              const oldest = echoes.length > 0
+                ? Math.min(...echoes.map((echo) => echo.createdAt))
+                : 0;
+              const retained = current.filter(
+                (echo) => !fresh.has(echo.id) && echo.createdAt < oldest
+              );
+              const next = [...merged, ...retained];
+              void setGlobalSetting(WHISPERS_SETTING_KEY, JSON.stringify(next.slice(0, 200)));
+              return next;
+            });
+            setWhisperFeedHasMore(echoes.length >= 100);
+            setWhisperFeedSyncing(false);
           }, [identity.pubkeyHash, setWhispers]);
-    useEffect(() => {
-    if (!whispersRelayConfigured()) return;
-    void syncWhispersFromRelay();
-    const intervalId = window.setInterval(() => {
-      void syncWhispersFromRelay();
-    }, 20000);
-    const onFocus = () => void syncWhispersFromRelay();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", onFocus);
-    };
-    }, [syncWhispersFromRelay]);
     useEffect(() => {
     if (!selectedStatusSenderHash) return;
     if (
@@ -446,6 +496,62 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             notificationSettings.vibration,
             playNotificationTone
           ]);
+    // Notification inbox sync: authoritative read/unread state lives on the
+    // relay; new arrivals surface as in-app alerts through the same
+    // notification pipeline chats use (tones, preview privacy, vibration).
+    const syncWhisperNotifications = useCallback(async (): Promise<void> => {
+            setNotificationsLoading(true);
+            try {
+              const page = await queryWhisperNotifications(identity.pubkeyHash, 100);
+              if (!page) return;
+              setWhisperNotifications(page.notifications);
+              setWhisperUnreadCount(page.unreadCount);
+              await setGlobalSetting(
+                WHISPER_NOTIFICATIONS_SETTING_KEY,
+                JSON.stringify(page.notifications.slice(0, 100))
+              );
+              const fresh = page.notifications.filter(
+                (n) => !n.read && n.createdAt > lastWhisperAlertAt.current
+              );
+              // lastWhisperAlertAt === 0 means this is the first sync of the
+              // session — don't replay the whole backlog as toasts.
+              if (fresh.length > 0 && lastWhisperAlertAt.current > 0) {
+                const latest = fresh[0]!;
+                showNotification(
+                  "Whispers",
+                  fresh.length === 1
+                    ? `${latest.actorName} interacted with your whispers.`
+                    : `${fresh.length} new interactions on your whispers.`,
+                  "whispers-alerts"
+                );
+              }
+              if (page.notifications.length > 0) {
+                lastWhisperAlertAt.current = Math.max(
+                  lastWhisperAlertAt.current,
+                  ...page.notifications.map((n) => n.createdAt)
+                );
+              }
+            } finally {
+              setNotificationsLoading(false);
+            }
+          }, [identity.pubkeyHash, setWhisperNotifications, setWhisperUnreadCount, showNotification]);
+    useEffect(() => {
+    if (!whispersRelayConfigured()) {
+      setWhisperFeedSyncing(false);
+      return;
+    }
+    const syncAll = () => {
+      void syncWhispersFromRelay();
+      void syncWhisperNotifications();
+    };
+    syncAll();
+    const intervalId = window.setInterval(syncAll, 20000);
+    window.addEventListener("focus", syncAll);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", syncAll);
+    };
+    }, [syncWhispersFromRelay, syncWhisperNotifications]);
     const [activeFilter] = useState("all");
     const activeTab = useDashboardStore((s) => s.activeTab);
     const setActiveTab = useDashboardStore((s) => s.setActiveTab);
@@ -730,6 +836,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               setSelectedContactHash(null);
               setSelectedGroupId(null);
               setActiveTab("whispers");
+              setFocusedEchoId(result.targetId);
               return;
             }
 
@@ -2308,6 +2415,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               echoCount: 0,
               echoedByMe: false,
               id,
+              reflectionCount: 0,
               reflections: [],
               rippleCount: 0,
               rippledByMe: false
@@ -2331,13 +2439,21 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               echoedByMe: !echo.echoedByMe
             }));
             if (whispersRelayConfigured()) {
-              void reactRemote({ echoId, on: nextOn, reactor: identity.pubkeyHash, timestamp: Date.now() })
+              void reactRemote({ echoId, on: nextOn, reactor: identity.pubkeyHash, reactorName: whisperAuthorName(), timestamp: Date.now() })
                 .then((ok) => {
                   if (ok) void syncWhispersFromRelay();
                 });
             }
           };
-    const addReflection = (echoId: string, body: string): void => {
+    // Add a Reflection — top-level, or a nested threaded reply when `parent`
+    // names the reflection being answered. Optimistic locally, then written
+    // through to the relay which fans out notifications to the Echo author
+    // and the parent reply's author.
+    const addReflection = (
+            echoId: string,
+            body: string,
+            parent?: { parentId: string; replyToName: string }
+          ): void => {
             const text = body.trim();
             if (!text) return;
             const id = crypto.randomUUID();
@@ -2345,19 +2461,167 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             const authorName = whisperAuthorName();
             updateWhisper(echoId, (echo) => ({
               ...echo,
+              reflectionCount: echo.reflectionCount + 1,
               reflections: [
-                ...echo.reflections,
+                ...echo.reflections.map((reflection) =>
+                  parent && reflection.id === parent.parentId
+                    ? { ...reflection, replyCount: reflection.replyCount + 1 }
+                    : reflection
+                ),
                 {
                   authorHash: identity.pubkeyHash,
                   authorName,
                   body: text,
                   createdAt: timestamp,
-                  id
+                  id,
+                  likeCount: 0,
+                  likedByMe: false,
+                  replyCount: 0,
+                  ...(parent
+                    ? { parentId: parent.parentId, replyToName: parent.replyToName }
+                    : {})
                 }
-              ].slice(-200)
+              ].slice(-500)
             }));
             if (whispersRelayConfigured()) {
-              void reflectRemote({ author: identity.pubkeyHash, authorName, body: text, echoId, id, timestamp })
+              void reflectRemote({
+                author: identity.pubkeyHash,
+                authorName,
+                body: text,
+                echoId,
+                id,
+                timestamp,
+                ...(parent
+                  ? { parentId: parent.parentId, replyToName: parent.replyToName }
+                  : {})
+              }).then((ok) => {
+                if (ok) void syncWhispersFromRelay();
+              });
+            }
+          };
+    // Lazily load (and page) one Echo's full reply thread when it's expanded.
+    const loadWhisperThread = useCallback((echoId: string, before?: number): void => {
+            if (!whispersRelayConfigured()) {
+              setWhisperThreadMeta((current) => ({
+                ...current,
+                [echoId]: { hasMore: false, loaded: true, loading: false }
+              }));
+              return;
+            }
+            setWhisperThreadMeta((current) => ({
+              ...current,
+              [echoId]: {
+                hasMore: current[echoId]?.hasMore ?? false,
+                loaded: current[echoId]?.loaded ?? false,
+                loading: true
+              }
+            }));
+            void queryWhisperReflections(echoId, identity.pubkeyHash, 25, before).then((page) => {
+              if (!page) {
+                setWhisperThreadMeta((current) => ({
+                  ...current,
+                  [echoId]: {
+                    hasMore: current[echoId]?.hasMore ?? false,
+                    loaded: current[echoId]?.loaded ?? false,
+                    loading: false
+                  }
+                }));
+                return;
+              }
+              setWhispers((current) =>
+                current.map((echo) => {
+                  if (echo.id !== echoId) return echo;
+                  // First page replaces the preview; older pages merge in.
+                  const merged = before
+                    ? [
+                        ...echo.reflections.filter(
+                          (existing) => !page.reflections.some((r) => r.id === existing.id)
+                        ),
+                        ...page.reflections
+                      ]
+                    : page.reflections;
+                  return { ...echo, reflectionCount: page.total, reflections: merged };
+                })
+              );
+              setWhisperThreadMeta((current) => ({
+                ...current,
+                [echoId]: { hasMore: page.hasMore, loaded: true, loading: false }
+              }));
+            });
+          }, [identity.pubkeyHash, setWhispers]);
+    // Feed pagination: fetch Echoes older than the oldest one on screen.
+    const loadMoreWhisperFeed = useCallback((): void => {
+            if (!whispersRelayConfigured() || whispers.length === 0) return;
+            const oldest = Math.min(...whispers.map((echo) => echo.createdAt));
+            setWhisperFeedLoadingMore(true);
+            void queryWhisperFeed(identity.pubkeyHash, 50, { before: oldest }).then((older) => {
+              setWhisperFeedLoadingMore(false);
+              if (!older) return;
+              setWhisperFeedHasMore(older.length >= 50);
+              if (older.length === 0) return;
+              setWhispers((current) => {
+                const known = new Set(current.map((echo) => echo.id));
+                return [...current, ...older.filter((echo) => !known.has(echo.id))];
+              });
+            });
+          }, [identity.pubkeyHash, setWhispers, whispers]);
+    // Like / unlike a single reflection inside a thread.
+    const toggleReflectionLike = (echoId: string, reflection: WhisperReflection): void => {
+            const nextOn = !reflection.likedByMe;
+            updateWhisper(echoId, (echo) => ({
+              ...echo,
+              reflections: echo.reflections.map((item) =>
+                item.id === reflection.id
+                  ? {
+                      ...item,
+                      likeCount: Math.max(0, item.likeCount + (nextOn ? 1 : -1)),
+                      likedByMe: nextOn
+                    }
+                  : item
+              )
+            }));
+            if (whispersRelayConfigured()) {
+              void reactReflectionRemote({
+                on: nextOn,
+                reactor: identity.pubkeyHash,
+                reactorName: whisperAuthorName(),
+                reflectionId: reflection.id,
+                timestamp: Date.now()
+              });
+            }
+          };
+    // Delete your own reflection. Mirrors the relay's cascade rules locally:
+    // leaves vanish, parents with replies become tombstones so the thread
+    // keeps its shape.
+    const deleteReflection = (echoId: string, reflectionId: string): void => {
+            updateWhisper(echoId, (echo) => {
+              const target = echo.reflections.find((item) => item.id === reflectionId);
+              if (!target) return echo;
+              const hasChildren = echo.reflections.some(
+                (item) => item.parentId === reflectionId
+              );
+              const reflections = hasChildren
+                ? echo.reflections.map((item) =>
+                    item.id === reflectionId
+                      ? { ...item, body: "", deleted: true, likeCount: 0, likedByMe: false }
+                      : item
+                  )
+                : echo.reflections
+                    .filter((item) => item.id !== reflectionId)
+                    .map((item) =>
+                      item.id === target.parentId
+                        ? { ...item, replyCount: Math.max(0, item.replyCount - 1) }
+                        : item
+                    );
+              return {
+                ...echo,
+                reflectionCount: Math.max(0, echo.reflectionCount - 1),
+                reflections
+              };
+            });
+            showToast("Reflection deleted.");
+            if (whispersRelayConfigured()) {
+              void deleteReflectionRemote({ author: identity.pubkeyHash, id: reflectionId })
                 .then((ok) => {
                   if (ok) void syncWhispersFromRelay();
                 });
@@ -2383,6 +2647,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               echoCount: 0,
               echoedByMe: false,
               id,
+              reflectionCount: 0,
               reflections: [],
               rippleCount: 0,
               rippledByMe: false,
@@ -2404,6 +2669,24 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           };
     const deleteEcho = (echoId: string): void => {
             void saveWhispers(whispers.filter((echo) => echo.id !== echoId));
+            // Keep everything referencing the Echo consistent: drop stale
+            // notifications that would deep-link into it and its thread state.
+            setWhisperNotifications((current) => {
+              const next = current.filter((n) => n.echoId !== echoId);
+              if (next.length !== current.length) {
+                setWhisperUnreadCount(next.filter((n) => !n.read).length);
+                void setGlobalSetting(
+                  WHISPER_NOTIFICATIONS_SETTING_KEY,
+                  JSON.stringify(next.slice(0, 100))
+                );
+              }
+              return next;
+            });
+            setWhisperThreadMeta((current) => {
+              if (!(echoId in current)) return current;
+              const { [echoId]: _removed, ...rest } = current;
+              return rest;
+            });
             showToast("Echo deleted.");
             if (whispersRelayConfigured()) {
               void deleteEchoRemote({ author: identity.pubkeyHash, id: echoId })
@@ -2412,6 +2695,202 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 });
             }
           };
+    // ── Whisper notifications (Alerts tab) ─────────────────────────────────
+    const markAllWhisperNotificationsRead = useCallback((): void => {
+            setWhisperNotifications((current) => {
+              const next = current.map((n) => (n.read ? n : { ...n, read: true }));
+              void setGlobalSetting(
+                WHISPER_NOTIFICATIONS_SETTING_KEY,
+                JSON.stringify(next.slice(0, 100))
+              );
+              return next;
+            });
+            setWhisperUnreadCount(0);
+            if (whispersRelayConfigured()) {
+              void markWhisperNotificationsReadRemote(identity.pubkeyHash);
+            }
+          }, [identity.pubkeyHash, setWhisperNotifications, setWhisperUnreadCount]);
+    // Deep-link a notification to its target: follows open the actor's ghost
+    // profile; everything else lands on the Echo with its thread expanded.
+    const openWhisperNotification = useCallback((notification: WhisperNotification): void => {
+            if (!notification.read) {
+              setWhisperNotifications((current) =>
+                current.map((n) => (n.id === notification.id ? { ...n, read: true } : n))
+              );
+              setWhisperUnreadCount((count) => Math.max(0, count - 1));
+              if (whispersRelayConfigured()) {
+                void markWhisperNotificationsReadRemote(identity.pubkeyHash, [notification.id]);
+              }
+            }
+            if (notification.kind === "follow" || !notification.echoId) {
+              setProfileTarget({ hash: notification.actorHash, name: notification.actorName });
+              return;
+            }
+            const echoId = notification.echoId;
+            setActiveTab("whispers");
+            setSelectedContactHash(null);
+            setSelectedGroupId(null);
+            if (whispers.some((echo) => echo.id === echoId)) {
+              setFocusedEchoId(echoId);
+            } else {
+              // The Echo fell outside the loaded window — refresh, then focus.
+              void syncWhispersFromRelay().then(() => setFocusedEchoId(echoId));
+            }
+          }, [identity.pubkeyHash, setActiveTab, setFocusedEchoId, setWhisperNotifications, setWhisperUnreadCount, syncWhispersFromRelay, whispers]);
+    // ── Ghost profiles ──────────────────────────────────────────────────────
+    // With no relay, build a best-effort profile from the locally cached feed
+    // so the sheet still works in local-first mode.
+    const localProfileFor = useCallback((hash: string, name: string): WhisperProfile => {
+            const authored = whispers.filter((echo) => echo.authorHash === hash);
+            const authoredReflections = whispers.flatMap((echo) =>
+              echo.reflections.filter(
+                (reflection) => reflection.authorHash === hash && !reflection.deleted
+              )
+            );
+            return {
+              bio: "",
+              displayName: name,
+              echoCount: authored.length,
+              followedByMe: false,
+              followerCount: 0,
+              followingCount: 0,
+              institution: "",
+              joinedAt: authored.length > 0
+                ? Math.min(...authored.map((echo) => echo.createdAt))
+                : null,
+              likesReceived:
+                authored.reduce((sum, echo) => sum + echo.echoCount, 0) +
+                authoredReflections.reduce((sum, r) => sum + r.likeCount, 0),
+              pubkeyHash: hash,
+              reflectionCount: authoredReflections.length,
+              showActivity: true
+            };
+          }, [whispers]);
+    const loadProfileEchoes = useCallback((hash: string, before?: number): void => {
+            if (!whispersRelayConfigured()) {
+              setProfileEchoes(
+                whispers
+                  .filter((echo) => echo.authorHash === hash)
+                  .sort((a, b) => b.createdAt - a.createdAt)
+              );
+              setProfileEchoesHasMore(false);
+              return;
+            }
+            setProfileEchoesLoading(true);
+            void queryWhisperFeed(identity.pubkeyHash, 20, {
+              authorPubkeyHash: hash,
+              ...(before ? { before } : {})
+            }).then((echoes) => {
+              setProfileEchoesLoading(false);
+              if (!echoes) return;
+              setProfileEchoesHasMore(echoes.length >= 20);
+              setProfileEchoes((current) => {
+                if (!before) return echoes;
+                const known = new Set(current.map((echo) => echo.id));
+                return [...current, ...echoes.filter((echo) => !known.has(echo.id))];
+              });
+            });
+          }, [identity.pubkeyHash, whispers]);
+    const openWhisperProfile = useCallback((hash: string, name: string): void => {
+            if (!hash) return;
+            setProfileTarget({ hash, name });
+          }, []);
+    useEffect(() => {
+    if (!profileTarget) {
+      setProfileData(null);
+      setProfileEchoes([]);
+      setProfileEchoesHasMore(false);
+      return;
+    }
+    let active = true;
+    setProfileLoading(true);
+    if (!whispersRelayConfigured()) {
+      setProfileData(localProfileFor(profileTarget.hash, profileTarget.name));
+      loadProfileEchoes(profileTarget.hash);
+      setProfileLoading(false);
+      return;
+    }
+    void queryWhisperProfile(profileTarget.hash, identity.pubkeyHash).then((profile) => {
+      if (!active) return;
+      setProfileData(profile ?? localProfileFor(profileTarget.hash, profileTarget.name));
+      setProfileLoading(false);
+    });
+    loadProfileEchoes(profileTarget.hash);
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [profileTarget, identity.pubkeyHash]);
+    const toggleFollowProfile = useCallback((): void => {
+            if (!profileTarget || !profileData) return;
+            const nextOn = !profileData.followedByMe;
+            setProfileData({
+              ...profileData,
+              followedByMe: nextOn,
+              followerCount: Math.max(0, profileData.followerCount + (nextOn ? 1 : -1))
+            });
+            showToast(nextOn ? "You're now haunting this ghost." : "Unfollowed.");
+            if (whispersRelayConfigured()) {
+              void setFollowRemote({
+                followee: profileTarget.hash,
+                follower: identity.pubkeyHash,
+                followerName: whisperAuthorName(),
+                on: nextOn,
+                timestamp: Date.now()
+              });
+            }
+          }, [identity.pubkeyHash, profileData, profileTarget, showToast]);
+    const saveWhisperProfile = useCallback((draft: WhisperProfileDraft): void => {
+            if (!profileData) return;
+            setProfileData({
+              ...profileData,
+              bio: draft.bio,
+              displayName: draft.displayName,
+              institution: draft.institution,
+              showActivity: draft.showActivity
+            });
+            showToast("Profile saved.");
+            if (whispersRelayConfigured()) {
+              void updateWhisperProfileRemote({
+                author: identity.pubkeyHash,
+                bio: draft.bio,
+                displayName: draft.displayName,
+                institution: draft.institution,
+                showActivity: draft.showActivity,
+                timestamp: Date.now()
+              });
+            }
+          }, [identity.pubkeyHash, profileData, showToast]);
+    const shareWhisperProfile = useCallback((): void => {
+            if (!profileTarget) return;
+            const url = `${window.location.origin}/?ghost=${profileTarget.hash}`;
+            const title = `${profileData?.displayName || profileTarget.name} on NADA Whispers`;
+            if (navigator.share) {
+              void navigator.share({ title, url }).catch(() => {});
+              return;
+            }
+            void navigator.clipboard
+              .writeText(url)
+              .then(() => showToast("Profile link copied."))
+              .catch(() => showToast("Couldn't copy the profile link."));
+          }, [profileData, profileTarget, showToast]);
+    // Jump from a profile's timeline into the main feed with that Echo focused.
+    const openEchoFromProfile = useCallback((echo: WhisperEcho): void => {
+            setProfileTarget(null);
+            setWhispers((current) =>
+              current.some((item) => item.id === echo.id) ? current : [...current, echo]
+            );
+            setActiveTab("whispers");
+            setSelectedContactHash(null);
+            setSelectedGroupId(null);
+            setFocusedEchoId(echo.id);
+          }, [setActiveTab, setFocusedEchoId, setWhispers]);
+    // Shared profile links (…/?ghost=<hash>) deep-link straight into the sheet.
+    const ghostParam = searchParams.get("ghost") ?? "";
+    useEffect(() => {
+    if (!ghostParam) return;
+    setProfileTarget({ hash: ghostParam, name: "Ghost" });
+    }, [ghostParam]);
     const submitSafetyReport = useCallback(async ({
             category,
             notes,
@@ -3280,6 +3759,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       >
         <DesktopNavRail
           activeTab={activeTab}
+          alertCount={whisperUnreadCount}
           onTabChange={(tab) => {
             setActiveTab(tab);
             setPanel(null);
@@ -3299,6 +3779,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           unreadTotal={unreadCount}
+          alertCount={whisperUnreadCount}
           onComposeClick={() => setPanel("contacts")}
           selfSeed={identity.pubkeyHash}
           ghost={ghostMode}
@@ -3346,9 +3827,18 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             <WhispersFeed
               displayName={displayName}
               echoes={whispers}
+              feedHasMore={whisperFeedHasMore}
+              feedLoadingMore={whisperFeedLoadingMore}
+              feedSyncing={whisperFeedSyncing}
+              focusedEchoId={focusedEchoId}
               identity={identity}
               onAddReflection={addReflection}
+              onClearFocusedEcho={() => setFocusedEchoId(null)}
               onDeleteEcho={deleteEcho}
+              onDeleteReflection={deleteReflection}
+              onLoadMoreFeed={loadMoreWhisperFeed}
+              onLoadThread={loadWhisperThread}
+              onOpenProfile={openWhisperProfile}
               onPostEcho={postEcho}
               onReportEcho={(echo) => {
                 setPendingReportTarget({
@@ -3359,6 +3849,17 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               }}
               onRipple={rippleEcho}
               onToggleEcho={toggleEcho}
+              onToggleReflectionLike={toggleReflectionLike}
+              threadMeta={whisperThreadMeta}
+            />
+          ) : activeTab === "alerts" ? (
+            <NotificationsPanel
+              loading={notificationsLoading}
+              notifications={whisperNotifications}
+              onMarkAllRead={markAllWhisperNotificationsRead}
+              onOpenNotification={openWhisperNotification}
+              relayConfigured={whispersRelayConfigured()}
+              unreadCount={whisperUnreadCount}
             />
           ) : activeTab === "settings" ? (
             <SettingsDashboardPreview
@@ -3645,6 +4146,31 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       />
 
       <AnimatePresence>
+        {profileTarget ? (
+          <WhisperProfileSheet
+            echoes={profileEchoes}
+            echoesHasMore={profileEchoesHasMore}
+            echoesLoading={profileEchoesLoading}
+            fallbackName={profileTarget.name}
+            isSelf={profileTarget.hash === identity.pubkeyHash}
+            loading={profileLoading}
+            onClose={() => setProfileTarget(null)}
+            onLoadMoreEchoes={() =>
+              loadProfileEchoes(
+                profileTarget.hash,
+                profileEchoes.length > 0
+                  ? Math.min(...profileEchoes.map((echo) => echo.createdAt))
+                  : undefined
+              )
+            }
+            onOpenEcho={openEchoFromProfile}
+            onSaveProfile={saveWhisperProfile}
+            onShareProfile={shareWhisperProfile}
+            onToggleFollow={toggleFollowProfile}
+            profile={profileData}
+            relayConfigured={whispersRelayConfigured()}
+          />
+        ) : null}
         {panel === "contacts" ? (
           <ContactSheet
             identity={identity}

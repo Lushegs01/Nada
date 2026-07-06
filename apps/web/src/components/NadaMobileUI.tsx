@@ -17,6 +17,7 @@ import {
   CircleDashed,
   Loader2,
   Waves,
+  Bell,
   X
 } from "lucide-react";
 import { cn, IdentityOrb } from "@nada/ui";
@@ -51,8 +52,16 @@ const NAV_TABS = [
   { id: "status", label: "Status", icon: CircleDashed },
   { id: "groups", label: "Groups", icon: Users },
   { id: "whispers", label: "Whispers", icon: Waves },
+  { id: "alerts", label: "Alerts", icon: Bell },
   { id: "settings", label: "Settings", icon: Settings }
 ] as const;
+
+/* Per-tab badge counts shared by both navigators. */
+function tabBadge(tabId: string, unreadCount: number, alertCount: number): number {
+  if (tabId === "chats") return unreadCount;
+  if (tabId === "alerts") return alertCount;
+  return 0;
+}
 
 /* ─────────────────────────────────────────────────────────────
    SearchBar — floating glass pill
@@ -375,11 +384,13 @@ export const BottomNavigation = ({
   activeTab,
   onTabChange,
   unreadCount = 0,
+  alertCount = 0,
   selfSeed = "nada-you"
 }: {
   activeTab: string;
   onTabChange: (tab: string) => void;
   unreadCount?: number;
+  alertCount?: number;
   selfSeed?: string;
 }) => {
   const [open, setOpen] = React.useState(false);
@@ -423,7 +434,8 @@ export const BottomNavigation = ({
               {NAV_TABS.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
-                const showBadge = tab.id === "chats" && unreadCount > 0;
+                const badge = tabBadge(tab.id, unreadCount, alertCount);
+                const showBadge = badge > 0;
                 return (
                   <motion.li
                     key={tab.id}
@@ -444,7 +456,7 @@ export const BottomNavigation = ({
                       <span>{tab.label}</span>
                       {showBadge && (
                         <span className="nada-unread-badge ml-1 !h-[18px] !min-w-[18px] text-[9px]">
-                          {unreadCount > 99 ? "99+" : unreadCount}
+                          {badge > 99 ? "99+" : badge}
                         </span>
                       )}
                     </button>
@@ -510,11 +522,13 @@ export const DesktopNavRail = ({
   activeTab,
   onTabChange,
   unreadCount = 0,
+  alertCount = 0,
   onNewChat
 }: {
   activeTab: string;
   onTabChange: (tab: string) => void;
   unreadCount?: number;
+  alertCount?: number;
   onNewChat?: () => void;
 }) => {
   return (
@@ -538,7 +552,7 @@ export const DesktopNavRail = ({
       {NAV_TABS.map((tab) => {
         const Icon = tab.icon;
         const isActive = activeTab === tab.id;
-        const badge = tab.id === "chats" ? unreadCount : 0;
+        const badge = tabBadge(tab.id, unreadCount, alertCount);
         return (
           <button
             key={tab.id}
@@ -598,6 +612,7 @@ const TAB_TITLES: Record<string, string> = {
   status: "Status",
   groups: "Groups",
   whispers: "Whispers",
+  alerts: "Alerts",
   settings: "Settings"
 };
 
@@ -663,6 +678,7 @@ export const MobileChatsHome = ({
   searchQuery,
   onSearchChange,
   unreadTotal,
+  alertCount = 0,
   onComposeClick,
   activeTab,
   onTabChange,
@@ -675,6 +691,7 @@ export const MobileChatsHome = ({
   searchQuery: string;
   onSearchChange: (val: string) => void;
   unreadTotal: number;
+  alertCount?: number;
   onComposeClick: () => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
@@ -700,6 +717,7 @@ export const MobileChatsHome = ({
 
     <BottomNavigation
       activeTab={activeTab}
+      alertCount={alertCount}
       onTabChange={onTabChange}
       unreadCount={unreadTotal}
       {...(selfSeed ? { selfSeed } : {})}

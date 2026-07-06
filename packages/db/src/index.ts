@@ -216,7 +216,7 @@ create index if not exists status_updates_expires_idx on status_updates(expires_
 
 -- Whispers: NADA's public global feed. Unlike statuses, whisper content is a
 -- public timeline visible to every user, so the body is stored in the clear.
--- No personal data (phone/email) is ever persisted here.
+-- No real-world identity or contact data is ever persisted here.
 create table if not exists whisper_echoes (
   id uuid primary key,
   author_pubkey_hash text not null,
@@ -241,6 +241,86 @@ create table if not exists whisper_reflections (
 );
 create index if not exists whisper_reflections_echo_idx
   on whisper_reflections(echo_id, created_at_ms);
+
+-- Threaded replies: a Reflection may reply to another Reflection. parent_id is
+-- the immediate parent (null = top-level reply to the Echo itself); root_id is
+-- the top-level ancestor, denormalised so one indexed query loads a whole
+-- thread page without recursive CTEs. reply_to_name preserves the "@name"
+-- mention of the parent author under anonymity rules (names only, never keys).
+-- deleted_at_ms marks a tombstone: a reply with children keeps its slot in the
+-- thread but its body is cleared (soft delete); leaf replies are hard-deleted.
+alter table whisper_reflections add column if not exists parent_id uuid;
+alter table whisper_reflections add column if not exists root_id uuid;
+alter table whisper_reflections add column if not exists reply_to_name text;
+alter table whisper_reflections add column if not exists deleted_at_ms bigint;
+create index if not exists whisper_reflections_root_idx
+  on whisper_reflections(root_id, created_at_ms);
+create index if not exists whisper_reflections_parent_idx
+  on whisper_reflections(parent_id);
+create index if not exists whisper_reflections_author_idx
+  on whisper_reflections(author_pubkey_hash, created_at_ms desc);
+
+-- One row per user per reflection — likes on replies, mirroring whisper_reactions.
+create table if not exists whisper_reflection_reactions (
+  reflection_id uuid not null,
+  reactor_pubkey_hash text not null,
+  created_at_ms bigint not null,
+  primary key (reflection_id, reactor_pubkey_hash)
+);
+create index if not exists whisper_reflection_reactions_idx
+  on whisper_reflection_reactions(reflection_id);
+
+-- Public profile card for the Whispers feed. Everything here is already-public
+-- feed data (anonymous handle, bio) — never real-world identity or contact data.
+create table if not exists whisper_profiles (
+  pubkey_hash text primary key,
+  display_name text not null,
+  bio text not null default '',
+  institution text not null default '',
+  show_activity boolean not null default true,
+  created_at_ms bigint not null,
+  updated_at timestamptz not null
+);
+
+-- Ghosts: follower → followee edges between anonymous identities.
+create table if not exists whisper_follows (
+  follower_pubkey_hash text not null,
+  followee_pubkey_hash text not null,
+  created_at_ms bigint not null,
+  primary key (follower_pubkey_hash, followee_pubkey_hash)
+);
+create index if not exists whisper_follows_followee_idx
+  on whisper_follows(followee_pubkey_hash);
+
+-- Notification inbox. One row per (recipient, actor, kind, target) — the
+-- unique index makes notification writes idempotent so replayed/duplicate
+-- interactions never produce duplicate notifications. Grouping ("12 people
+-- replied") happens at read time in the client, keyed by (echo_id, kind).
+create table if not exists whisper_notifications (
+  id uuid primary key,
+  recipient_pubkey_hash text not null,
+  actor_pubkey_hash text not null,
+  actor_name text not null,
+  kind text not null,
+  echo_id uuid,
+  reflection_id uuid,
+  preview text not null default '',
+  created_at_ms bigint not null,
+  read_at_ms bigint
+);
+create unique index if not exists whisper_notifications_dedupe_idx
+  on whisper_notifications(
+    recipient_pubkey_hash, actor_pubkey_hash, kind,
+    coalesce(echo_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    coalesce(reflection_id, '00000000-0000-0000-0000-000000000000'::uuid)
+  );
+create index if not exists whisper_notifications_recipient_idx
+  on whisper_notifications(recipient_pubkey_hash, created_at_ms desc);
+create index if not exists whisper_notifications_echo_idx
+  on whisper_notifications(echo_id);
+
+create index if not exists whisper_echoes_author_idx
+  on whisper_echoes(author_pubkey_hash, created_at_ms desc);
 
 -- One row per user per echo — powers accurate global "Echo" (like) counts.
 create table if not exists whisper_reactions (
