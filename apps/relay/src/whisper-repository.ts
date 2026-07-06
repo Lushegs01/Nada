@@ -94,18 +94,27 @@ export interface ReactionTargetResult {
   echoId: string;
 }
 
+export type WhisperDmPrivacy = "everyone" | "ghosts" | "none";
+
 export interface WhisperProfileRecord {
+  avatar: string;
   bio: string;
   displayName: string;
+  dmPrivacy: WhisperDmPrivacy;
   institution: string;
+  /** Ed25519 public key (base64) captured from a verified identity proof. */
+  pubkey: string;
   pubkeyHash: string;
   showActivity: boolean;
+  showLikes: boolean;
   createdAt: number;
 }
 
 export interface WhisperProfileView {
+  avatar: string;
   bio: string;
   displayName: string;
+  dmPrivacy: WhisperDmPrivacy;
   echoCount: number;
   followerCount: number;
   followingCount: number;
@@ -113,9 +122,24 @@ export interface WhisperProfileView {
   institution: string;
   joinedAt: number | null;
   likesReceived: number;
+  pubkey: string;
   pubkeyHash: string;
   reflectionCount: number;
   showActivity: boolean;
+  showLikes: boolean;
+}
+
+/** A reflection in a profile's "Reflects" tab, carrying its Echo context. */
+export interface WhisperAuthorReflectionView extends WhisperReflectionView {
+  echoAuthorName: string;
+  echoBody: string;
+  echoId: string;
+}
+
+export interface WhisperFollowEntry {
+  avatar: string;
+  displayName: string;
+  pubkeyHash: string;
 }
 
 export interface WhisperNotificationInput {
@@ -199,6 +223,32 @@ export interface WhisperRepository {
     viewerPubkeyHash: string
   ) => Promise<WhisperProfileView>;
   upsertProfile: (profile: WhisperProfileRecord) => Promise<void>;
+  /** Capture an author's relay-verified pubkey so other ghosts can DM them.
+   *  Creates a minimal profile row when none exists; never overwrites a
+   *  user-chosen display name. */
+  recordAuthorPubkey: (
+    pubkeyHash: string,
+    displayName: string,
+    pubkey: string,
+    at: number
+  ) => Promise<void>;
+  listAuthorReflections: (
+    authorPubkeyHash: string,
+    viewerPubkeyHash: string,
+    limit: number,
+    before?: number
+  ) => Promise<WhisperAuthorReflectionView[]>;
+  listLikedEchoes: (
+    reactorPubkeyHash: string,
+    viewerPubkeyHash: string,
+    limit: number,
+    before?: number
+  ) => Promise<WhisperEchoView[]>;
+  listFollows: (
+    pubkeyHash: string,
+    direction: "followers" | "following",
+    limit: number
+  ) => Promise<WhisperFollowEntry[]>;
   setFollow: (
     followerPubkeyHash: string,
     followeePubkeyHash: string,
@@ -626,7 +676,17 @@ class PostgresWhisperRepository implements WhisperRepository {
        limit $2`,
       [since, limit, options.before ?? null, options.authorPubkeyHash ?? null]
     );
-    const echoIds = echoResult.rows.map((row) => row.id as string);
+    return this.hydrateEchoRows(echoResult.rows, viewerPubkeyHash);
+  }
+
+  // Turn raw whisper_echoes rows into viewer-personalised views. All counts,
+  // viewer flags and reply previews come from six batched queries keyed by the
+  // whole id set — never one query per Echo.
+  private async hydrateEchoRows(
+    echoRows: any[],
+    viewerPubkeyHash: string
+  ): Promise<WhisperEchoView[]> {
+    const echoIds = echoRows.map((row) => row.id as string);
     if (echoIds.length === 0) return [];
 
     const [
@@ -700,7 +760,7 @@ class PostgresWhisperRepository implements WhisperRepository {
       list.sort((a, b) => a.createdAt - b.createdAt);
     }
 
-    return echoResult.rows.map((row) => ({
+    return echoRows.map((row) => ({
       authorName: row.author_name,
       authorPubkeyHash: row.author_pubkey_hash,
       body: row.body,
@@ -731,7 +791,8 @@ class PostgresWhisperRepository implements WhisperRepository {
   ): Promise<WhisperProfileView> {
     const [profile, stats, follows, viewerFollow] = await Promise.all([
       this.client.query(
-        `select display_name, bio, institution, show_activity, created_at_ms
+        `select display_name, bio, institution, show_activity, created_at_ms,
+                pubkey, avatar, show_likes, dm_privacy
          from whisper_profiles where pubkey_hash = $1`,
         [pubkeyHash]
       ),
@@ -772,8 +833,10 @@ class PostgresWhisperRepository implements WhisperRepository {
     const joinedAt =
       Number(profileRow?.created_at_ms ?? 0) || Number(statsRow.first_echo_at) || null;
     return {
+      avatar: profileRow?.avatar ?? "",
       bio: profileRow?.bio ?? "",
       displayName: profileRow?.display_name ?? "",
+      dmPrivacy: (profileRow?.dm_privacy as WhisperDmPrivacy) ?? "everyone",
       echoCount: Number(statsRow.echo_count),
       followedByViewer: (viewerFollow.rowCount ?? 0) > 0,
       followerCount: Number(followRow.followers),
@@ -781,23 +844,32 @@ class PostgresWhisperRepository implements WhisperRepository {
       institution: profileRow?.institution ?? "",
       joinedAt,
       likesReceived: Number(statsRow.echo_likes) + Number(statsRow.reflection_likes),
+      pubkey: profileRow?.pubkey ?? "",
       pubkeyHash,
       reflectionCount: Number(statsRow.reflection_count),
-      showActivity: profileRow?.show_activity ?? true
+      showActivity: profileRow?.show_activity ?? true,
+      showLikes: profileRow?.show_likes ?? true
     };
   }
 
   async upsertProfile(profile: WhisperProfileRecord): Promise<void> {
+    // An empty pubkey/avatar in the update means "keep whatever we had" — the
+    // verified pubkey especially must survive profile edits.
     await this.client.query(
       `insert into whisper_profiles
          (pubkey_hash, display_name, bio, institution, show_activity,
-          created_at_ms, updated_at)
-       values ($1, $2, $3, $4, $5, $6, now())
+          pubkey, avatar, show_likes, dm_privacy, created_at_ms, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
        on conflict (pubkey_hash) do update set
          display_name = excluded.display_name,
          bio = excluded.bio,
          institution = excluded.institution,
          show_activity = excluded.show_activity,
+         pubkey = case when excluded.pubkey = '' then whisper_profiles.pubkey
+                       else excluded.pubkey end,
+         avatar = excluded.avatar,
+         show_likes = excluded.show_likes,
+         dm_privacy = excluded.dm_privacy,
          updated_at = now()`,
       [
         profile.pubkeyHash,
@@ -805,9 +877,107 @@ class PostgresWhisperRepository implements WhisperRepository {
         profile.bio,
         profile.institution,
         profile.showActivity,
+        profile.pubkey,
+        profile.avatar,
+        profile.showLikes,
+        profile.dmPrivacy,
         profile.createdAt
       ]
     );
+  }
+
+  async recordAuthorPubkey(
+    pubkeyHash: string,
+    displayName: string,
+    pubkey: string,
+    at: number
+  ): Promise<void> {
+    if (!pubkey) return;
+    await this.client.query(
+      `insert into whisper_profiles
+         (pubkey_hash, display_name, pubkey, created_at_ms, updated_at)
+       values ($1, $2, $3, $4, now())
+       on conflict (pubkey_hash) do update set
+         pubkey = excluded.pubkey,
+         updated_at = now()`,
+      [pubkeyHash, displayName, pubkey, at]
+    );
+  }
+
+  async listAuthorReflections(
+    authorPubkeyHash: string,
+    viewerPubkeyHash: string,
+    limit: number,
+    before?: number
+  ): Promise<WhisperAuthorReflectionView[]> {
+    const rows = await this.client.query(
+      `select r.id, r.echo_id, r.author_pubkey_hash, r.author_name, r.body,
+              r.created_at_ms, r.parent_id, r.root_id, r.reply_to_name, r.deleted_at_ms,
+              e.body as echo_body, e.author_name as echo_author_name
+       from whisper_reflections r
+       join whisper_echoes e on e.id = r.echo_id
+       where r.author_pubkey_hash = $1 and r.deleted_at_ms is null
+         and ($3::bigint is null or r.created_at_ms < $3)
+       order by r.created_at_ms desc
+       limit $2`,
+      [authorPubkeyHash, limit, before ?? null]
+    );
+    const hydrated = await this.hydrateReflections(rows.rows, viewerPubkeyHash);
+    return hydrated.map((view, index) => ({
+      ...view,
+      echoAuthorName: rows.rows[index].echo_author_name,
+      echoBody: rows.rows[index].echo_body,
+      echoId: rows.rows[index].echo_id
+    }));
+  }
+
+  async listLikedEchoes(
+    reactorPubkeyHash: string,
+    viewerPubkeyHash: string,
+    limit: number,
+    before?: number
+  ): Promise<WhisperEchoView[]> {
+    // Ordered by when the like happened, not when the Echo was posted.
+    const rows = await this.client.query(
+      `select e.id, e.author_pubkey_hash, e.author_name, e.body,
+              e.ripple_of_id, e.ripple_of_author_name, e.ripple_of_body,
+              e.ripple_of_created_at_ms, e.created_at_ms
+       from whisper_reactions x
+       join whisper_echoes e on e.id = x.echo_id
+       where x.reactor_pubkey_hash = $1
+         and ($3::bigint is null or x.created_at_ms < $3)
+       order by x.created_at_ms desc
+       limit $2`,
+      [reactorPubkeyHash, limit, before ?? null]
+    );
+    return this.hydrateEchoRows(rows.rows, viewerPubkeyHash);
+  }
+
+  async listFollows(
+    pubkeyHash: string,
+    direction: "followers" | "following",
+    limit: number
+  ): Promise<WhisperFollowEntry[]> {
+    const [edgeColumn, selectColumn] =
+      direction === "followers"
+        ? ["followee_pubkey_hash", "follower_pubkey_hash"]
+        : ["follower_pubkey_hash", "followee_pubkey_hash"];
+    const rows = await this.client.query(
+      `select f.${selectColumn} as hash,
+              coalesce(p.display_name, '') as display_name,
+              coalesce(p.avatar, '') as avatar
+       from whisper_follows f
+       left join whisper_profiles p on p.pubkey_hash = f.${selectColumn}
+       where f.${edgeColumn} = $1
+       order by f.created_at_ms desc
+       limit $2`,
+      [pubkeyHash, limit]
+    );
+    return rows.rows.map((row) => ({
+      avatar: row.avatar,
+      displayName: row.display_name,
+      pubkeyHash: row.hash
+    }));
   }
 
   async setFollow(
@@ -957,7 +1127,8 @@ interface MemoryNotification extends WhisperNotificationInput {
 class MemoryWhisperRepository implements WhisperRepository {
   private readonly echoes = new Map<string, WhisperEchoInput>();
   private readonly reflections = new Map<string, MemoryReflection>();
-  private readonly reactions = new Map<string, Set<string>>();
+  /** echoId → reactor → liked-at timestamp */
+  private readonly reactions = new Map<string, Map<string, number>>();
   private readonly reflectionReactions = new Map<string, Set<string>>();
   private readonly ripples = new Map<string, Set<string>>();
   private readonly profiles = new Map<string, WhisperProfileRecord>();
@@ -1058,14 +1229,18 @@ class MemoryWhisperRepository implements WhisperRepository {
   async setReaction(
     echoId: string,
     reactorPubkeyHash: string,
-    on: boolean
+    on: boolean,
+    at: number
   ): Promise<ReactionTargetResult | null> {
     const echo = this.echoes.get(echoId);
     if (!echo) return null;
-    const set = this.reactions.get(echoId) ?? new Set<string>();
-    if (on) set.add(reactorPubkeyHash);
-    else set.delete(reactorPubkeyHash);
-    this.reactions.set(echoId, set);
+    const likes = this.reactions.get(echoId) ?? new Map<string, number>();
+    if (on) {
+      if (!likes.has(reactorPubkeyHash)) likes.set(reactorPubkeyHash, at);
+    } else {
+      likes.delete(reactorPubkeyHash);
+    }
+    this.reactions.set(echoId, likes);
     return { authorPubkeyHash: echo.authorPubkeyHash, body: echo.body, echoId };
   }
 
@@ -1151,6 +1326,34 @@ class MemoryWhisperRepository implements WhisperRepository {
     };
   }
 
+  private echoView(echo: WhisperEchoInput, viewerPubkeyHash: string): WhisperEchoView {
+    const likes = this.reactions.get(echo.id) ?? new Map<string, number>();
+    const rippleSet = this.ripples.get(echo.id) ?? new Set<string>();
+    const live = Array.from(this.reflections.values()).filter(
+      (reflection) => reflection.echoId === echo.id && !reflection.deletedAt
+    );
+    const preview = [...live]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 2)
+      .sort((a, b) => a.createdAt - b.createdAt);
+    return {
+      authorName: echo.authorName,
+      authorPubkeyHash: echo.authorPubkeyHash,
+      body: echo.body,
+      createdAt: echo.createdAt,
+      echoCount: likes.size,
+      echoedByViewer: likes.has(viewerPubkeyHash),
+      id: echo.id,
+      reflectionCount: live.length,
+      reflections: preview.map((reflection) =>
+        this.reflectionView(reflection, viewerPubkeyHash)
+      ),
+      rippleCount: rippleSet.size,
+      rippledByViewer: rippleSet.has(viewerPubkeyHash),
+      ...(echo.rippleOf ? { rippleOf: echo.rippleOf } : {})
+    };
+  }
+
   async listFeed(
     viewerPubkeyHash: string,
     since: number,
@@ -1167,33 +1370,74 @@ class MemoryWhisperRepository implements WhisperRepository {
       )
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit)
-      .map((echo) => {
-        const reactionSet = this.reactions.get(echo.id) ?? new Set<string>();
-        const rippleSet = this.ripples.get(echo.id) ?? new Set<string>();
-        const live = Array.from(this.reflections.values()).filter(
-          (reflection) => reflection.echoId === echo.id && !reflection.deletedAt
-        );
-        const preview = [...live]
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .slice(0, 2)
-          .sort((a, b) => a.createdAt - b.createdAt);
+      .map((echo) => this.echoView(echo, viewerPubkeyHash));
+  }
+
+  async listAuthorReflections(
+    authorPubkeyHash: string,
+    viewerPubkeyHash: string,
+    limit: number,
+    before?: number
+  ): Promise<WhisperAuthorReflectionView[]> {
+    return Array.from(this.reflections.values())
+      .filter(
+        (reflection) =>
+          reflection.authorPubkeyHash === authorPubkeyHash &&
+          !reflection.deletedAt &&
+          this.echoes.has(reflection.echoId) &&
+          (before === undefined || reflection.createdAt < before)
+      )
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit)
+      .map((reflection) => {
+        const echo = this.echoes.get(reflection.echoId)!;
         return {
-          authorName: echo.authorName,
-          authorPubkeyHash: echo.authorPubkeyHash,
-          body: echo.body,
-          createdAt: echo.createdAt,
-          echoCount: reactionSet.size,
-          echoedByViewer: reactionSet.has(viewerPubkeyHash),
-          id: echo.id,
-          reflectionCount: live.length,
-          reflections: preview.map((reflection) =>
-            this.reflectionView(reflection, viewerPubkeyHash)
-          ),
-          rippleCount: rippleSet.size,
-          rippledByViewer: rippleSet.has(viewerPubkeyHash),
-          ...(echo.rippleOf ? { rippleOf: echo.rippleOf } : {})
+          ...this.reflectionView(reflection, viewerPubkeyHash),
+          echoAuthorName: echo.authorName,
+          echoBody: echo.body,
+          echoId: echo.id
         };
       });
+  }
+
+  async listLikedEchoes(
+    reactorPubkeyHash: string,
+    viewerPubkeyHash: string,
+    limit: number,
+    before?: number
+  ): Promise<WhisperEchoView[]> {
+    const liked: Array<{ at: number; echo: WhisperEchoInput }> = [];
+    for (const [echoId, likes] of this.reactions) {
+      const at = likes.get(reactorPubkeyHash);
+      const echo = this.echoes.get(echoId);
+      if (at !== undefined && echo && (before === undefined || at < before)) {
+        liked.push({ at, echo });
+      }
+    }
+    return liked
+      .sort((a, b) => b.at - a.at)
+      .slice(0, limit)
+      .map(({ echo }) => this.echoView(echo, viewerPubkeyHash));
+  }
+
+  async listFollows(
+    pubkeyHash: string,
+    direction: "followers" | "following",
+    limit: number
+  ): Promise<WhisperFollowEntry[]> {
+    const hashes: string[] = [];
+    if (direction === "following") {
+      hashes.push(...(this.follows.get(pubkeyHash) ?? new Set<string>()));
+    } else {
+      for (const [follower, followees] of this.follows) {
+        if (followees.has(pubkeyHash)) hashes.push(follower);
+      }
+    }
+    return hashes.slice(0, limit).map((hash) => ({
+      avatar: this.profiles.get(hash)?.avatar ?? "",
+      displayName: this.profiles.get(hash)?.displayName ?? "",
+      pubkeyHash: hash
+    }));
   }
 
   async getProfile(
@@ -1209,7 +1453,7 @@ class MemoryWhisperRepository implements WhisperRepository {
     );
     let likesReceived = 0;
     for (const echo of authoredEchoes) {
-      likesReceived += (this.reactions.get(echo.id) ?? new Set()).size;
+      likesReceived += (this.reactions.get(echo.id) ?? new Map()).size;
     }
     for (const reflection of authoredReflections) {
       likesReceived += (this.reflectionReactions.get(reflection.id) ?? new Set()).size;
@@ -1223,8 +1467,10 @@ class MemoryWhisperRepository implements WhisperRepository {
       Number.POSITIVE_INFINITY
     );
     return {
+      avatar: profile?.avatar ?? "",
       bio: profile?.bio ?? "",
       displayName: profile?.displayName ?? "",
+      dmPrivacy: profile?.dmPrivacy ?? "everyone",
       echoCount: authoredEchoes.length,
       followedByViewer: this.follows.get(viewerPubkeyHash)?.has(pubkeyHash) ?? false,
       followerCount,
@@ -1234,9 +1480,11 @@ class MemoryWhisperRepository implements WhisperRepository {
         profile?.createdAt ??
         (Number.isFinite(firstEchoAt) ? firstEchoAt : null),
       likesReceived,
+      pubkey: profile?.pubkey ?? "",
       pubkeyHash,
       reflectionCount: authoredReflections.length,
-      showActivity: profile?.showActivity ?? true
+      showActivity: profile?.showActivity ?? true,
+      showLikes: profile?.showLikes ?? true
     };
   }
 
@@ -1244,7 +1492,35 @@ class MemoryWhisperRepository implements WhisperRepository {
     const existing = this.profiles.get(profile.pubkeyHash);
     this.profiles.set(profile.pubkeyHash, {
       ...profile,
-      createdAt: existing?.createdAt ?? profile.createdAt
+      createdAt: existing?.createdAt ?? profile.createdAt,
+      // The relay-verified pubkey must survive profile edits that omit it.
+      pubkey: profile.pubkey || existing?.pubkey || ""
+    });
+  }
+
+  async recordAuthorPubkey(
+    pubkeyHash: string,
+    displayName: string,
+    pubkey: string,
+    at: number
+  ): Promise<void> {
+    if (!pubkey) return;
+    const existing = this.profiles.get(pubkeyHash);
+    if (existing) {
+      this.profiles.set(pubkeyHash, { ...existing, pubkey });
+      return;
+    }
+    this.profiles.set(pubkeyHash, {
+      avatar: "",
+      bio: "",
+      createdAt: at,
+      displayName,
+      dmPrivacy: "everyone",
+      institution: "",
+      pubkey,
+      pubkeyHash,
+      showActivity: true,
+      showLikes: true
     });
   }
 
