@@ -2,6 +2,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
 import fastify, { type FastifyInstance } from "fastify";
+import { Client } from "pg";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 
@@ -66,6 +67,13 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     pendingHandshakes: new Map()
   };
 
+  // Shared DB client for lightweight stats queries
+  let statsDb: Client | null = null;
+  if (env.databaseUrl) {
+    statsDb = new Client({ connectionString: env.databaseUrl });
+    await statsDb.connect();
+  }
+
   await (app as any).register(cors, {
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       callback(null, isOriginAllowed(origin, env.allowedOrigin));
@@ -85,6 +93,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
 
   app.addHook("onClose", async () => {
     await queue.close();
+    await statsDb?.end();
   });
 
   app.get("/health", async () => ({
@@ -92,12 +101,27 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     service: "nada-relay"
   }));
 
-  app.get("/stats", async () => ({
-    uniqueUsersOnline: sessions.socketsByPubkeyHash.size,
-    totalConnections: sessions.pubkeyHashBySocket.size,
-    pendingHandshakes: sessions.pendingHandshakes.size,
-    timestamp: new Date().toISOString()
-  }));
+  app.get("/stats", async () => {
+    let totalRegisteredUsers: number | null = null;
+    if (statsDb) {
+      try {
+        const result = await statsDb.query<{ count: string }>(
+          "select count(*) as count from users"
+        );
+        totalRegisteredUsers = Number(result.rows[0]?.count ?? 0);
+      } catch {
+        // DB unavailable — return null rather than crashing
+      }
+    }
+
+    return {
+      uniqueUsersOnline: sessions.socketsByPubkeyHash.size,
+      totalConnections: sessions.pubkeyHashBySocket.size,
+      pendingHandshakes: sessions.pendingHandshakes.size,
+      totalRegisteredUsers,
+      timestamp: new Date().toISOString()
+    };
+  });
 
   app.get("/ws", { websocket: true }, (connection, request) => {
     if (!isOriginAllowed(request.headers.origin, env.allowedOrigin)) {
