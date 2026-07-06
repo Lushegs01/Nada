@@ -92,6 +92,13 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     service: "nada-relay"
   }));
 
+  app.get("/stats", async () => ({
+    uniqueUsersOnline: sessions.socketsByPubkeyHash.size,
+    totalConnections: sessions.pubkeyHashBySocket.size,
+    pendingHandshakes: sessions.pendingHandshakes.size,
+    timestamp: new Date().toISOString()
+  }));
+
   app.get("/ws", { websocket: true }, (connection, request) => {
     if (!isOriginAllowed(request.headers.origin, env.allowedOrigin)) {
       app.log.warn({ origin: request.headers.origin, allowed: env.allowedOrigin }, "WebSocket origin not allowed");
