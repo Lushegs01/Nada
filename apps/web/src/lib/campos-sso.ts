@@ -13,6 +13,7 @@ import { z } from "zod";
 const EXPECTED_ISSUER = "campos-core";
 const EXPECTED_AUDIENCE = "nada";
 const CLOCK_TOLERANCE_SECONDS = 30;
+const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 
 export interface CamposClaims {
   /** CampOS user id (JWT `sub`). */
@@ -43,6 +44,39 @@ export type CamposVerifyFailure =
 export type CamposVerifyResult =
   | { readonly ok: true; readonly claims: CamposClaims }
   | { readonly ok: false; readonly reason: CamposVerifyFailure };
+
+/**
+ * Resolve the post-SSO destination without allowing a cross-origin redirect.
+ *
+ * WHATWG URL parsing treats backslashes as path separators for HTTP(S) URLs,
+ * so a value such as `/\\evil.example` can otherwise become protocol-relative.
+ * We reject those values first and still enforce the resolved origin as a
+ * second line of defence.
+ */
+export function resolveCamposRedirectUrl(
+  requestUrl: string,
+  next: string | null
+): URL {
+  const request = new URL(requestUrl);
+  const fallback = new URL("/", request);
+
+  if (
+    !next ||
+    !next.startsWith("/") ||
+    next.startsWith("//") ||
+    next.includes("\\") ||
+    CONTROL_CHARACTER_PATTERN.test(next)
+  ) {
+    return fallback;
+  }
+
+  try {
+    const target = new URL(next, request);
+    return target.origin === request.origin ? target : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 const HeaderSchema = z.object({
   alg: z.string(),
