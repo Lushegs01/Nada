@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
-  resolveCamposRedirectUrl,
+  resolveCamposRedirectPath,
   verifyCamposToken
 } from "../src/lib/campos-sso";
 
@@ -130,12 +130,10 @@ describe("verifyCamposToken", () => {
   });
 });
 
-describe("resolveCamposRedirectUrl", () => {
-  const requestUrl = "https://nada.example/sso/callback?token=secret";
-
-  it("keeps a relative destination on the NADA origin", () => {
-    expect(resolveCamposRedirectUrl(requestUrl, "/whispers?tab=following").href).toBe(
-      "https://nada.example/whispers?tab=following"
+describe("resolveCamposRedirectPath", () => {
+  it("keeps a safe relative destination", () => {
+    expect(resolveCamposRedirectPath("/whispers?tab=following")).toBe(
+      "/whispers?tab=following"
     );
   });
 
@@ -148,8 +146,6 @@ describe("resolveCamposRedirectUrl", () => {
     "/folder\\evil.example/",
     "/\u0000evil.example/"
   ])("falls back to the app root for unsafe next=%s", (next) => {
-    expect(resolveCamposRedirectUrl(requestUrl, next).href).toBe(
-      "https://nada.example/"
-    );
+    expect(resolveCamposRedirectPath(next)).toBe("/");
   });
 });
