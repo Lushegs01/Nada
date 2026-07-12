@@ -17,6 +17,25 @@ describe("whisper repository (memory)", () => {
     expect(feed.every((echo) => echo.echoCount === 0)).toBe(true);
   });
 
+  it("counts the complete filtered feed independently of page size", async () => {
+    const repo = await createWhisperRepository(env);
+    const seededTotal = await repo.countFeed(0);
+    const createdAt = Date.now();
+    await repo.createEcho({
+      authorName: "alice.ghost",
+      authorPubkeyHash: alice,
+      body: "count me",
+      createdAt,
+      id: "10000000-0000-4000-8000-0000000000c1"
+    });
+
+    expect(await repo.countFeed(0)).toBe(seededTotal + 1);
+    expect(await repo.countFeed(createdAt, { authorPubkeyHash: alice })).toBe(1);
+    expect(await repo.countFeed(createdAt, { authorPubkeyHash: bob })).toBe(0);
+    expect(await repo.listFeed(bob, 0, 1)).toHaveLength(1);
+    expect(await repo.countFeed(0)).toBeGreaterThan(1);
+  });
+
   it("makes one user's Echo visible and interactable to another user", async () => {
     const repo = await createWhisperRepository(env);
     await repo.createEcho({

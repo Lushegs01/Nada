@@ -187,6 +187,10 @@ export interface WhisperRepository {
     at: number
   ) => Promise<ReactionTargetResult | null>;
   close: () => Promise<void>;
+  countFeed: (
+    since: number,
+    options?: { authorPubkeyHash?: string }
+  ) => Promise<number>;
   createEcho: (echo: WhisperEchoInput) => Promise<void>;
   deleteEcho: (id: string, authorPubkeyHash: string) => Promise<boolean>;
   deleteReflection: (
@@ -677,6 +681,20 @@ class PostgresWhisperRepository implements WhisperRepository {
       [since, limit, options.before ?? null, options.authorPubkeyHash ?? null]
     );
     return this.hydrateEchoRows(echoResult.rows, viewerPubkeyHash);
+  }
+
+  async countFeed(
+    since: number,
+    options: { authorPubkeyHash?: string } = {}
+  ): Promise<number> {
+    const result = await this.client.query<{ n: string }>(
+      `select count(*) as n
+       from whisper_echoes
+       where created_at_ms >= $1
+         and ($2::text is null or author_pubkey_hash = $2)`,
+      [since, options.authorPubkeyHash ?? null]
+    );
+    return Number(result.rows[0]?.n ?? 0);
   }
 
   // Turn raw whisper_echoes rows into viewer-personalised views. All counts,
@@ -1371,6 +1389,18 @@ class MemoryWhisperRepository implements WhisperRepository {
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit)
       .map((echo) => this.echoView(echo, viewerPubkeyHash));
+  }
+
+  async countFeed(
+    since: number,
+    options: { authorPubkeyHash?: string } = {}
+  ): Promise<number> {
+    return Array.from(this.echoes.values()).filter(
+      (echo) =>
+        echo.createdAt >= since &&
+        (options.authorPubkeyHash === undefined ||
+          echo.authorPubkeyHash === options.authorPubkeyHash)
+    ).length;
   }
 
   async listAuthorReflections(
