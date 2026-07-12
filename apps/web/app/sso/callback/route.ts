@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { verifyCamposToken } from "@/lib/campos-sso";
+import { resolveCamposRedirectUrl, verifyCamposToken } from "@/lib/campos-sso";
 
 // node:crypto (used by the token verifier) requires the Node.js runtime.
 export const runtime = "nodejs";
@@ -21,9 +21,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const url = new URL(req.url);
   const token = url.searchParams.get("token");
-  const next = sanitizeNext(url.searchParams.get("next"));
 
-  if (!token) {
+  if (!token || token.length > 8_192) {
     return redirectWithError(req, "missing_token");
   }
 
@@ -32,24 +31,23 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return redirectWithError(req, result.reason);
   }
 
-  // Valid hand-off — open the app (honouring a safe relative `next`).
-  return NextResponse.redirect(new URL(next ?? "/", req.url));
+  // Valid hand-off — open the app (honouring a same-origin `next`).
+  return noStore(
+    NextResponse.redirect(
+      resolveCamposRedirectUrl(req.url, url.searchParams.get("next"))
+    )
+  );
 }
 
 /** Bounce failures to the marketing/launch page with a machine-readable reason. */
 function redirectWithError(req: NextRequest, reason: string): NextResponse {
   const target = new URL("/launch", req.url);
   target.searchParams.set("sso_error", reason);
-  return NextResponse.redirect(target);
+  return noStore(NextResponse.redirect(target));
 }
 
-/**
- * Only allow relative, single-leading-slash paths so the `next` parameter can't
- * be used as an open redirect to another origin.
- */
-function sanitizeNext(next: string | null): string | null {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return null;
-  }
-  return next;
+function noStore(response: NextResponse): NextResponse {
+  response.headers.set("Cache-Control", "no-store");
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
 }
