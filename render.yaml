@@ -10,6 +10,10 @@ services:
           name: app-relay
           type: web
           property: host
+      # Must match CampOS Core's SSO_JWT_SECRET (or its NADA-specific secret)
+      # and must remain server-side. Render prompts for it during Blueprint setup.
+      - key: CAMPOS_SSO_SECRET
+        sync: false
 
   - type: web
     name: app-relay

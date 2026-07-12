@@ -2,7 +2,10 @@ import { createHmac } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { verifyCamposToken } from "../src/lib/campos-sso";
+import {
+  resolveCamposRedirectUrl,
+  verifyCamposToken
+} from "../src/lib/campos-sso";
 
 const SECRET = "test-shared-campos-secret-value";
 
@@ -124,5 +127,29 @@ describe("verifyCamposToken", () => {
       ok: false,
       reason: "invalid_claims"
     });
+  });
+});
+
+describe("resolveCamposRedirectUrl", () => {
+  const requestUrl = "https://nada.example/sso/callback?token=secret";
+
+  it("keeps a relative destination on the NADA origin", () => {
+    expect(resolveCamposRedirectUrl(requestUrl, "/whispers?tab=following").href).toBe(
+      "https://nada.example/whispers?tab=following"
+    );
+  });
+
+  it.each([
+    null,
+    "",
+    "https://evil.example/",
+    "//evil.example/",
+    "/\\evil.example/",
+    "/folder\\evil.example/",
+    "/\u0000evil.example/"
+  ])("falls back to the app root for unsafe next=%s", (next) => {
+    expect(resolveCamposRedirectUrl(requestUrl, next).href).toBe(
+      "https://nada.example/"
+    );
   });
 });
