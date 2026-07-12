@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { resolveCamposRedirectUrl, verifyCamposToken } from "@/lib/campos-sso";
+import { resolveCamposRedirectPath, verifyCamposToken } from "@/lib/campos-sso";
 
 // node:crypto (used by the token verifier) requires the Node.js runtime.
 export const runtime = "nodejs";
@@ -23,31 +23,32 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const token = url.searchParams.get("token");
 
   if (!token || token.length > 8_192) {
-    return redirectWithError(req, "missing_token");
+    return redirectWithError("missing_token");
   }
 
   const result = verifyCamposToken(token);
   if (!result.ok) {
-    return redirectWithError(req, result.reason);
+    return redirectWithError(result.reason);
   }
 
-  // Valid hand-off — open the app (honouring a same-origin `next`).
-  return noStore(
-    NextResponse.redirect(
-      resolveCamposRedirectUrl(req.url, url.searchParams.get("next"))
-    )
-  );
+  // Keep Location relative. Render terminates TLS in front of the app and the
+  // request origin can be its internal localhost:10000 address; rebuilding an
+  // absolute URL from req.url would send the browser to that private address.
+  return relativeRedirect(resolveCamposRedirectPath(url.searchParams.get("next")));
 }
 
 /** Bounce failures to the marketing/launch page with a machine-readable reason. */
-function redirectWithError(req: NextRequest, reason: string): NextResponse {
-  const target = new URL("/launch", req.url);
-  target.searchParams.set("sso_error", reason);
-  return noStore(NextResponse.redirect(target));
+function redirectWithError(reason: string): NextResponse {
+  return relativeRedirect(`/launch?sso_error=${encodeURIComponent(reason)}`);
 }
 
-function noStore(response: NextResponse): NextResponse {
-  response.headers.set("Cache-Control", "no-store");
-  response.headers.set("Referrer-Policy", "no-referrer");
-  return response;
+function relativeRedirect(location: string): NextResponse {
+  return new NextResponse(null, {
+    status: 302,
+    headers: {
+      Location: location,
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer"
+    }
+  });
 }
