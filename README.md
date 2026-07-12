@@ -49,6 +49,21 @@ Render must deploy two separate services from `render.yaml`:
 The web service receives `NEXT_PUBLIC_RELAY_URL` from the relay service host.
 The relay receives `ALLOWED_ORIGIN` from the web service host.
 
+### CampOS integration
+
+NADA accepts CampOS launches at `GET /sso/callback`. To enable the hand-off:
+
+1. Set `CAMPOS_SSO_SECRET` on the NADA web service to the same dedicated value
+   used by CampOS Core for module SSO.
+2. Set `SSO_URL_NADA` on CampOS Core to NADA's public web origin.
+3. Re-run the CampOS seed (or update the existing `nada` module registration)
+   so its stored `baseUrl` is the absolute NADA origin.
+
+The callback verifies a short-lived CampOS token and then removes it from the
+browser URL. It currently verifies the launch only; it does not create a
+campus-gated NADA session or link a student's CampOS identity to their local
+anonymous keypair.
+
 ## Phase 2 Status
 
 Phase 2 adds production envelope schemas, a libsodium sealed-box scaffold,
