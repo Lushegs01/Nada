@@ -417,18 +417,19 @@ export async function registerWhisperRoutes(
         .code(400)
         .send({ code: "invalid_whisper_query", message: "Invalid whisper query." });
     }
-    const echoes = await repository.listFeed(
-      result.data.viewerPubkeyHash,
-      result.data.since ?? (result.data.authorPubkeyHash ? 0 : Date.now() - FEED_WINDOW_MS),
-      result.data.limit ?? 100,
-      {
+    const since =
+      result.data.since ?? (result.data.authorPubkeyHash ? 0 : Date.now() - FEED_WINDOW_MS);
+    const filter = result.data.authorPubkeyHash
+      ? { authorPubkeyHash: result.data.authorPubkeyHash }
+      : {};
+    const [echoes, total] = await Promise.all([
+      repository.listFeed(result.data.viewerPubkeyHash, since, result.data.limit ?? 100, {
         ...(result.data.before ? { before: result.data.before } : {}),
-        ...(result.data.authorPubkeyHash
-          ? { authorPubkeyHash: result.data.authorPubkeyHash }
-          : {})
-      }
-    );
-    return reply.send({ echoes });
+        ...filter
+      }),
+      repository.countFeed(since, filter)
+    ]);
+    return reply.send({ echoes, total });
   });
 
   // Public profile card: anonymous handle, bio, stats and the viewer's follow
