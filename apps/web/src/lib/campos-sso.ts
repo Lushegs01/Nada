@@ -53,12 +53,8 @@ export type CamposVerifyResult =
  * We reject those values first and still enforce the resolved origin as a
  * second line of defence.
  */
-export function resolveCamposRedirectUrl(
-  requestUrl: string,
-  next: string | null
-): URL {
-  const request = new URL(requestUrl);
-  const fallback = new URL("/", request);
+export function resolveCamposRedirectPath(next: string | null): string {
+  const fallback = "/";
 
   if (
     !next ||
@@ -71,8 +67,10 @@ export function resolveCamposRedirectUrl(
   }
 
   try {
-    const target = new URL(next, request);
-    return target.origin === request.origin ? target : fallback;
+    const base = new URL("https://nada.invalid");
+    const target = new URL(next, base);
+    if (target.origin !== base.origin) return fallback;
+    return `${target.pathname}${target.search}${target.hash}`;
   } catch {
     return fallback;
   }
