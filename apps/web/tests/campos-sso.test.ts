@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   resolveCamposRedirectPath,
@@ -18,6 +18,7 @@ interface MintOptions {
   readonly iss?: string;
   readonly aud?: string | readonly string[];
   readonly expiresInSeconds?: number;
+  readonly issuedAtOffsetSeconds?: number;
   readonly secret?: string;
   readonly overrides?: Record<string, unknown>;
 }
@@ -29,6 +30,7 @@ function mint(options: MintOptions = {}): string {
     iss = "campos-core",
     aud = "nada",
     expiresInSeconds = 60,
+    issuedAtOffsetSeconds = 0,
     secret = SECRET,
     overrides = {}
   } = options;
@@ -41,8 +43,8 @@ function mint(options: MintOptions = {}): string {
       iss,
       aud,
       jti: "jti-1",
-      iat: nowSeconds,
-      exp: nowSeconds + expiresInSeconds,
+      iat: nowSeconds + issuedAtOffsetSeconds,
+      exp: nowSeconds + issuedAtOffsetSeconds + expiresInSeconds,
       email: "student@campos.io",
       firstName: "John",
       lastName: "Doe",
@@ -61,6 +63,10 @@ function mint(options: MintOptions = {}): string {
   return `${header}.${payload}.${signature}`;
 }
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("verifyCamposToken", () => {
   it("accepts a valid token and returns the claims", () => {
     const result = verifyCamposToken(mint(), SECRET);
@@ -76,6 +82,22 @@ describe("verifyCamposToken", () => {
   it("reports 'unconfigured' when no secret is set", () => {
     const result = verifyCamposToken(mint(), undefined);
     expect(result).toEqual({ ok: false, reason: "unconfigured" });
+  });
+
+  it("rejects a production secret shorter than 32 bytes", () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    expect(verifyCamposToken(mint(), SECRET)).toEqual({
+      ok: false,
+      reason: "unconfigured"
+    });
+  });
+
+  it("accepts a 32-byte production secret", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const strongSecret = "s".repeat(32);
+
+    expect(verifyCamposToken(mint({ secret: strongSecret }), strongSecret).ok).toBe(true);
   });
 
   it("rejects a token signed with the wrong secret", () => {
@@ -107,11 +129,29 @@ describe("verifyCamposToken", () => {
   });
 
   it("rejects an expired token", () => {
-    const token = mint({ expiresInSeconds: -120 });
+    const token = mint({ issuedAtOffsetSeconds: -120, expiresInSeconds: 60 });
     expect(verifyCamposToken(token, SECRET)).toEqual({
       ok: false,
       reason: "expired"
     });
+  });
+
+  it("rejects a token with no issued-at claim", () => {
+    expect(
+      verifyCamposToken(mint({ overrides: { iat: undefined } }), SECRET)
+    ).toEqual({ ok: false, reason: "invalid_claims" });
+  });
+
+  it("rejects a token issued too far in the future", () => {
+    expect(
+      verifyCamposToken(mint({ issuedAtOffsetSeconds: 60 }), SECRET)
+    ).toEqual({ ok: false, reason: "invalid_claims" });
+  });
+
+  it("rejects a token whose signed lifetime exceeds 120 seconds", () => {
+    expect(
+      verifyCamposToken(mint({ expiresInSeconds: 121 }), SECRET)
+    ).toEqual({ ok: false, reason: "invalid_claims" });
   });
 
   it("rejects a malformed token", () => {
@@ -124,6 +164,20 @@ describe("verifyCamposToken", () => {
   it("rejects a token missing required claims", () => {
     const token = mint({ overrides: { email: undefined } });
     expect(verifyCamposToken(token, SECRET)).toEqual({
+      ok: false,
+      reason: "invalid_claims"
+    });
+  });
+
+  it.each([
+    ["null institution id", { institutionId: null }],
+    ["missing institution id", { institutionId: undefined }],
+    ["blank institution id", { institutionId: "   " }],
+    ["null institution slug", { institutionSlug: null }],
+    ["missing institution slug", { institutionSlug: undefined }],
+    ["blank institution slug", { institutionSlug: "   " }]
+  ])("rejects %s", (_case, overrides) => {
+    expect(verifyCamposToken(mint({ overrides }), SECRET)).toEqual({
       ok: false,
       reason: "invalid_claims"
     });
@@ -144,6 +198,13 @@ describe("resolveCamposRedirectPath", () => {
     "//evil.example/",
     "/\\evil.example/",
     "/folder\\evil.example/",
+    "/%2f%2fevil.example/",
+    "/%5cevil.example/",
+    "/%252f%252fevil.example/",
+    "/%255cevil.example/",
+    "/%25252f%25252fevil.example/",
+    "/%2500evil.example/",
+    "/broken%encoding",
     "/\u0000evil.example/"
   ])("falls back to the app root for unsafe next=%s", (next) => {
     expect(resolveCamposRedirectPath(next)).toBe("/");

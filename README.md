@@ -53,16 +53,24 @@ The relay receives `ALLOWED_ORIGIN` from the web service host.
 
 NADA accepts CampOS launches at `GET /sso/callback`. To enable the hand-off:
 
-1. Set `CAMPOS_SSO_SECRET` on the NADA web service to the same dedicated value
-   used by CampOS Core for module SSO.
-2. Set `SSO_URL_NADA` on CampOS Core to NADA's public web origin.
-3. Re-run the CampOS seed (or update the existing `nada` module registration)
-   so its stored `baseUrl` is the absolute NADA origin.
+1. Set `CAMPOS_SSO_SECRET` on the NADA web service to the same value as CampOS
+   Core's `SSO_JWT_SECRET_NADA` (or its shared `SSO_JWT_SECRET` fallback).
+2. Set `CAMPOS_CORE_URL` to the public HTTPS origin of CampOS Core. NADA uses it
+   server-side to exchange the browser's single-use authorization code.
+3. Set `SSO_URL_NADA` on CampOS Core to NADA's public web origin. This
+   environment override takes precedence over the stored module URL, so a
+   production database re-seed is neither required nor recommended.
+4. Ensure the existing `nada` module registration is active and grants the
+   `student` role. Update it through CampOS module administration if needed.
 
-The callback verifies a short-lived CampOS token and then removes it from the
-browser URL. It currently verifies the launch only; it does not create a
-campus-gated NADA session or link a student's CampOS identity to their local
-anonymous keypair.
+The callback consumes a short-lived authorization code server-side and verifies
+the returned CampOS token. A CampOS launch must be a student hand-off with both
+a non-empty institution ID and institution slug. NADA remains intentionally
+global and cross-institution: it validates that CampOS attributed the student
+to an institution, but does not compare that institution with a NADA tenant or
+restrict the standalone access model. Identity claims never enter the browser
+URL and are not bound to NADA's anonymous local keypair/session; after the
+handoff, the normal on-device anonymous identity remains authoritative.
 
 ## Phase 2 Status
 

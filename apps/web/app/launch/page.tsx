@@ -55,7 +55,34 @@ const FEATURES = [
   }
 ] as const;
 
-export default function LaunchPage(): JSX.Element {
+type LaunchPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+const SSO_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  missing_code: "The CampOS launch link is incomplete or has expired.",
+  exchange_failed: "NADA could not securely confirm this launch with CampOS.",
+  unconfigured: "NADA's CampOS connection is not configured yet.",
+  malformed: "CampOS returned an invalid launch response.",
+  bad_algorithm: "CampOS returned an invalid launch response.",
+  bad_signature: "NADA could not verify the CampOS launch signature.",
+  bad_issuer: "NADA could not verify the CampOS launch issuer.",
+  bad_audience: "This CampOS launch was intended for another module.",
+  expired: "The CampOS launch link expired before it could be verified.",
+  invalid_claims: "CampOS returned incomplete launch information.",
+  forbidden_role: "This CampOS account does not have student access to NADA."
+};
+
+export default async function LaunchPage({
+  searchParams
+}: LaunchPageProps): Promise<JSX.Element> {
+  const params = searchParams ? await searchParams : {};
+  const rawSsoError = params["sso_error"];
+  const ssoError = Array.isArray(rawSsoError) ? rawSsoError[0] : rawSsoError;
+  const ssoErrorMessage = ssoError
+    ? (SSO_ERROR_MESSAGES[ssoError] ?? "NADA could not verify this CampOS launch.")
+    : null;
+
   return (
     <main className="relative min-h-dvh overflow-hidden text-nada-primary">
       {/* Aurora backdrop */}
@@ -84,6 +111,18 @@ export default function LaunchPage(): JSX.Element {
           Open app
         </Link>
       </header>
+
+      {ssoErrorMessage ? (
+        <div
+          role="alert"
+          className="relative z-10 mx-auto mt-2 w-[calc(100%-3rem)] max-w-6xl rounded-2xl border border-red-400/30 bg-red-950/45 px-5 py-4 text-sm text-red-100 backdrop-blur md:w-[calc(100%-5rem)]"
+        >
+          <p className="font-semibold">CampOS launch unsuccessful</p>
+          <p className="mt-1 text-red-100/80">
+            {ssoErrorMessage} Return to CampOS and choose Open NADA again.
+          </p>
+        </div>
+      ) : null}
 
       {/* Hero */}
       <section className="relative z-10 mx-auto grid w-full max-w-6xl items-center gap-10 px-6 py-12 md:grid-cols-[1fr_1.05fr] md:px-10 md:py-20">
