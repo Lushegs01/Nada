@@ -3,8 +3,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 
 // Verifies the short-lived SSO hand-off token minted by CampOS Core when a
-// student opens NADA from the CampOS dashboard. CampOS signs an HS256 JWT with a
-// secret shared with NADA; we re-derive the HMAC and check the standard claims.
+// student opens NADA from the CampOS dashboard. NADA receives the token only
+// after exchanging the browser's one-time code server-to-server. CampOS signs
+// the HS256 JWT with a secret shared with NADA; we re-derive the HMAC and check
+// the standard claims.
 //
 // We verify by hand (node:crypto) rather than pulling in a JWT library — it is a
 // single HS256 signature check, matching how the relay hand-rolls its own
@@ -13,6 +15,8 @@ import { z } from "zod";
 const EXPECTED_ISSUER = "campos-core";
 const EXPECTED_AUDIENCE = "nada";
 const CLOCK_TOLERANCE_SECONDS = 30;
+const MAX_TOKEN_LIFETIME_SECONDS = 120;
+const MIN_PRODUCTION_SECRET_BYTES = 32;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 
 export interface CamposClaims {
@@ -25,8 +29,9 @@ export interface CamposClaims {
   readonly firstName: string;
   readonly lastName: string;
   readonly roles: readonly string[];
-  readonly institutionId: string | null;
-  readonly institutionSlug: string | null;
+  /** Institution asserted by CampOS for this launch; NADA does not tenant-match it. */
+  readonly institutionId: string;
+  readonly institutionSlug: string;
   /** Unique token id (JWT `jti`) — usable for one-time-consumption tracking. */
   readonly jti: string;
 }
@@ -56,12 +61,41 @@ export type CamposVerifyResult =
 export function resolveCamposRedirectPath(next: string | null): string {
   const fallback = "/";
 
+  if (!next) return fallback;
+
+  // Inspect repeated percent-decoding as well as the original value. A path
+  // such as `/%252f%252fevil.example` looks local until another layer decodes
+  // it twice, at which point it becomes protocol-relative. Reject on any pass.
+  let decoded = next;
+  for (let pass = 0; pass < 5; pass += 1) {
+    if (
+      !decoded.startsWith("/") ||
+      decoded.startsWith("//") ||
+      decoded.includes("\\") ||
+      CONTROL_CHARACTER_PATTERN.test(decoded)
+    ) {
+      return fallback;
+    }
+
+    let nextDecoded: string;
+    try {
+      nextDecoded = decodeURIComponent(decoded);
+    } catch {
+      return fallback;
+    }
+    if (nextDecoded === decoded) break;
+    decoded = nextDecoded;
+
+    // Five nested encodings are not useful for a local application path. Fail
+    // closed if the final pass still contains an encoded slash or backslash.
+    if (pass === 4 && /%(?:2f|5c|25)/i.test(decoded)) return fallback;
+  }
+
   if (
-    !next ||
-    !next.startsWith("/") ||
-    next.startsWith("//") ||
-    next.includes("\\") ||
-    CONTROL_CHARACTER_PATTERN.test(next)
+    !decoded.startsWith("/") ||
+    decoded.startsWith("//") ||
+    decoded.includes("\\") ||
+    CONTROL_CHARACTER_PATTERN.test(decoded)
   ) {
     return fallback;
   }
@@ -85,7 +119,8 @@ const PayloadSchema = z.object({
   sub: z.string().min(1),
   iss: z.string(),
   aud: z.union([z.string(), z.array(z.string())]),
-  exp: z.number(),
+  iat: z.number().int(),
+  exp: z.number().int(),
   jti: z.string().min(1),
   email: z.string().min(1),
   firstName: z.string(),
@@ -94,8 +129,11 @@ const PayloadSchema = z.object({
   camposId: z.string().nullable().default(null),
   matricNumber: z.string().nullable().default(null),
   level: z.string().nullable().default(null),
-  institutionId: z.string().nullable().default(null),
-  institutionSlug: z.string().nullable().default(null)
+  // NADA is intentionally global across institutions, but every CampOS launch
+  // must still be attributable to a real institution. We validate presence
+  // without matching either value to a NADA-side tenant configuration.
+  institutionId: z.string().trim().min(1),
+  institutionSlug: z.string().trim().min(1)
 });
 
 function decodeJson(segment: string): unknown {
@@ -109,13 +147,20 @@ function audienceMatches(aud: string | readonly string[]): boolean {
 /**
  * Verify a CampOS SSO token. Returns the claims on success, or a typed failure
  * reason. The secret defaults to `CAMPOS_SSO_SECRET` and must match the value
- * CampOS Core signs with (`SSO_JWT_SECRET`, falling back to its `JWT_SECRET`).
+ * CampOS Core signs with `SSO_JWT_SECRET_NADA` (or its shared
+ * `SSO_JWT_SECRET` fallback). Production deliberately rejects a missing or
+ * shorter-than-32-byte secret.
  */
 export function verifyCamposToken(
   token: string,
   secret: string | undefined = process.env["CAMPOS_SSO_SECRET"]
 ): CamposVerifyResult {
-  if (!secret || secret.length === 0) {
+  const configuredSecret = secret?.trim();
+  if (
+    !configuredSecret ||
+    (process.env.NODE_ENV === "production" &&
+      new TextEncoder().encode(configuredSecret).byteLength < MIN_PRODUCTION_SECRET_BYTES)
+  ) {
     return { ok: false, reason: "unconfigured" };
   }
 
@@ -135,7 +180,7 @@ export function verifyCamposToken(
       return { ok: false, reason: "bad_algorithm" };
     }
 
-    const expected = createHmac("sha256", secret)
+    const expected = createHmac("sha256", configuredSecret)
       .update(`${headerB64}.${payloadB64}`)
       .digest();
     const actual = Buffer.from(signatureB64, "base64url");
@@ -157,6 +202,13 @@ export function verifyCamposToken(
     }
 
     const nowSeconds = Math.floor(Date.now() / 1000);
+    if (
+      payload.iat > nowSeconds + CLOCK_TOLERANCE_SECONDS ||
+      payload.exp <= payload.iat ||
+      payload.exp - payload.iat > MAX_TOKEN_LIFETIME_SECONDS
+    ) {
+      return { ok: false, reason: "invalid_claims" };
+    }
     if (payload.exp + CLOCK_TOLERANCE_SECONDS < nowSeconds) {
       return { ok: false, reason: "expired" };
     }

@@ -7,7 +7,7 @@ import { GET } from "../app/sso/callback/route";
 
 const SECRET = "test-shared-campos-secret-value";
 
-function mintToken(): string {
+function mintToken(roles: readonly string[] = ["student"]): string {
   const now = Math.floor(Date.now() / 1000);
   const encode = (value: unknown): string =>
     Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
@@ -22,7 +22,7 @@ function mintToken(): string {
     email: "student@campos.io",
     firstName: "Ada",
     lastName: "Student",
-    roles: ["student"],
+    roles,
     camposId: "CP-1",
     matricNumber: "UNI/1",
     level: "400",
@@ -35,13 +35,26 @@ function mintToken(): string {
   return `${header}.${payload}.${signature}`;
 }
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 describe("CampOS SSO callback redirects", () => {
   it("returns a relative Location behind an internal Render origin", async () => {
     vi.stubEnv("CAMPOS_SSO_SECRET", SECRET);
+    vi.stubEnv("CAMPOS_CORE_URL", "https://campos.example");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ token: mintToken() }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+    );
     const request = new NextRequest(
-      `https://localhost:10000/sso/callback?token=${mintToken()}&next=%2Fwhispers`
+      `https://localhost:10000/sso/callback?code=${"a".repeat(43)}&next=%2Fwhispers`
     );
 
     const response = await GET(request);
@@ -49,6 +62,14 @@ describe("CampOS SSO callback redirects", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/whispers");
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("https://campos.example/api/modules/sso/exchange"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ code: "a".repeat(43), module: "nada" }),
+        redirect: "error"
+      })
+    );
   });
 
   it("keeps error redirects relative too", async () => {
@@ -58,7 +79,58 @@ describe("CampOS SSO callback redirects", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(
-      "/launch?sso_error=missing_token"
+      "/launch?sso_error=missing_code"
     );
+  });
+
+  it("fails closed when the one-time code cannot be exchanged", async () => {
+    vi.stubEnv("CAMPOS_CORE_URL", "https://campos.example");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 400 })));
+
+    const response = await GET(
+      new NextRequest(`https://localhost:10000/sso/callback?code=${"b".repeat(43)}`)
+    );
+
+    expect(response.headers.get("location")).toBe("/launch?sso_error=exchange_failed");
+  });
+
+  it("rejects a valid CampOS token that does not carry the student role", async () => {
+    vi.stubEnv("CAMPOS_SSO_SECRET", SECRET);
+    vi.stubEnv("CAMPOS_CORE_URL", "https://campos.example");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ token: mintToken(["institution_admin"]) }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+    );
+
+    const response = await GET(
+      new NextRequest(`https://localhost:10000/sso/callback?code=${"c".repeat(43)}`)
+    );
+
+    expect(response.headers.get("location")).toBe("/launch?sso_error=forbidden_role");
+  });
+
+  it.each([
+    "http://campos.example",
+    "https://user:password@campos.example",
+    "https://campos.example/a/path",
+    "https://campos.example?tenant=demo",
+    "https://campos.example/#fragment"
+  ])("rejects an unsafe production CAMPOS_CORE_URL: %s", async (coreUrl) => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("CAMPOS_CORE_URL", coreUrl);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(
+      new NextRequest(`https://localhost:10000/sso/callback?code=${"d".repeat(43)}`)
+    );
+
+    expect(response.headers.get("location")).toBe("/launch?sso_error=exchange_failed");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -10,10 +10,15 @@ services:
           name: app-relay
           type: web
           property: host
-      # Must match CampOS Core's SSO_JWT_SECRET (or its NADA-specific secret)
-      # and must remain server-side. Render prompts for it during Blueprint setup.
+      # Must match CampOS Core's SSO_JWT_SECRET_NADA (or shared fallback) and
+      # remain server-side.
+      # Render prompts for it during Blueprint setup.
       - key: CAMPOS_SSO_SECRET
         sync: false
+      # Public CampOS origin used by the NADA server for the one-time SSO code
+      # exchange. The signed identity token never travels in the browser URL.
+      - key: CAMPOS_CORE_URL
+        value: https://campos-core.vercel.app
 
   - type: web
     name: app-relay
