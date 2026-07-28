@@ -61,12 +61,19 @@ NADA accepts CampOS launches at `GET /sso/callback`. To enable the hand-off:
    environment override takes precedence over the stored module URL, so a
    production database re-seed is neither required nor recommended.
 4. Ensure the existing `nada` module registration is active and grants the
-   `student` role. Update it through CampOS module administration if needed.
+   canonical student and institution-administrator roles. Apply Core's
+   `20260728200000_module_admin_sso` migration for existing registrations.
 
 The callback consumes a short-lived authorization code server-side and verifies
-the returned CampOS token. A CampOS launch must be a student hand-off with both
-a non-empty institution ID and institution slug. NADA remains intentionally
-global and cross-institution: it validates that CampOS attributed the student
+the returned CampOS token, including its signed `launchContext`. Student
+launches continue into the anonymous app. Institution-owner/admin launches
+receive a short-lived, HttpOnly NADA admin session and land at `/admin`.
+The admin surface deliberately exposes connection and privacy-boundary state,
+not anonymous Echoes, conversations, device keys, or student identity mappings.
+
+Every hand-off requires both a non-empty institution ID and institution slug.
+NADA remains intentionally
+global and cross-institution: it validates that CampOS attributed the user
 to an institution, but does not compare that institution with a NADA tenant or
 restrict the standalone access model. Identity claims never enter the browser
 URL and are not bound to NADA's anonymous local keypair/session; after the

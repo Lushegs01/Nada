@@ -75,6 +75,7 @@ describe("verifyCamposToken", () => {
       expect(result.claims.userId).toBe("user-1");
       expect(result.claims.email).toBe("student@campos.io");
       expect(result.claims.roles).toEqual(["student"]);
+      expect(result.claims.launchContext).toBeNull();
       expect(result.claims.institutionSlug).toBe("demo-university");
     }
   });
@@ -82,6 +83,15 @@ describe("verifyCamposToken", () => {
   it("reports 'unconfigured' when no secret is set", () => {
     const result = verifyCamposToken(mint(), undefined);
     expect(result).toEqual({ ok: false, reason: "unconfigured" });
+  });
+
+  it("returns the signed workspace launch context", () => {
+    const result = verifyCamposToken(
+      mint({ overrides: { launchContext: "admin" } }),
+      SECRET
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.claims.launchContext).toBe("admin");
   });
 
   it("rejects a production secret shorter than 32 bytes", () => {

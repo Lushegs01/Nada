@@ -14,7 +14,8 @@ declare global {
 declare const self: ServiceWorkerGlobalScope;
 
 // Runtime routes are considered in order. This must precede `defaultCache`,
-// whose HTML strategy would otherwise persist `/sso/callback?code=...`.
+// whose HTML strategy would otherwise persist `/sso/callback?code=...` or a
+// tenant-bound administrator response.
 const sensitiveSsoNavigationNetworkOnly = {
   matcher: ({ sameOrigin, url }) => isSensitiveSsoNavigation(url, sameOrigin),
   handler: async ({ request }) => fetch(request)

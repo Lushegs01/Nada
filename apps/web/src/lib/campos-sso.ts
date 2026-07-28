@@ -29,6 +29,7 @@ export interface CamposClaims {
   readonly firstName: string;
   readonly lastName: string;
   readonly roles: readonly string[];
+  readonly launchContext: "student" | "lecturer" | "admin" | null;
   /** Institution asserted by CampOS for this launch; NADA does not tenant-match it. */
   readonly institutionId: string;
   readonly institutionSlug: string;
@@ -126,6 +127,7 @@ const PayloadSchema = z.object({
   firstName: z.string(),
   lastName: z.string(),
   roles: z.array(z.string()).default([]),
+  launchContext: z.enum(["student", "lecturer", "admin"]).nullable().default(null),
   camposId: z.string().nullable().default(null),
   matricNumber: z.string().nullable().default(null),
   level: z.string().nullable().default(null),
@@ -224,6 +226,7 @@ export function verifyCamposToken(
         firstName: payload.firstName,
         lastName: payload.lastName,
         roles: payload.roles,
+        launchContext: payload.launchContext,
         institutionId: payload.institutionId,
         institutionSlug: payload.institutionSlug,
         jti: payload.jti
