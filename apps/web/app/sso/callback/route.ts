@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { resolveCamposRedirectPath, verifyCamposToken } from "@/lib/campos-sso";
+import {
+  CAMPOS_ADMIN_SESSION_COOKIE,
+  CAMPOS_ADMIN_SESSION_TTL_SECONDS,
+  hasNadaAdminRole,
+  issueCamposAdminSession,
+} from "@/lib/campos-admin-session";
 
 // node:crypto (used by the token verifier) requires the Node.js runtime.
 export const runtime = "nodejs";
@@ -36,6 +42,30 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const result = verifyCamposToken(token);
   if (!result.ok) {
     return redirectWithError(result.reason);
+  }
+  if (
+    result.claims.launchContext === "admin" &&
+    hasNadaAdminRole(result.claims.roles)
+  ) {
+    const response = relativeRedirect("/admin");
+    response.cookies.set(
+      CAMPOS_ADMIN_SESSION_COOKIE,
+      issueCamposAdminSession(result.claims),
+      {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/admin",
+        maxAge: CAMPOS_ADMIN_SESSION_TTL_SECONDS,
+      }
+    );
+    return response;
+  }
+  if (
+    result.claims.launchContext &&
+    result.claims.launchContext !== "student"
+  ) {
+    return redirectWithError("forbidden_role");
   }
   if (!result.claims.roles.includes("student")) {
     return redirectWithError("forbidden_role");

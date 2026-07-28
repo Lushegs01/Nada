@@ -21,6 +21,21 @@ describe("isSensitiveSsoNavigation", () => {
     ).toBe(true);
   });
 
+  it("bypasses runtime caching for the tenant-bound administrator workspace", () => {
+    expect(
+      isSensitiveSsoNavigation(
+        new URL("https://nada.example/admin"),
+        true
+      )
+    ).toBe(true);
+    expect(
+      isSensitiveSsoNavigation(
+        new URL("https://nada.example/admin/settings"),
+        true
+      )
+    ).toBe(true);
+  });
+
   it.each([
     ["normal launch", "https://nada.example/launch", true],
     ["normal page", "https://nada.example/whispers", true],
