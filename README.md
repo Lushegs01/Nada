@@ -79,6 +79,10 @@ restrict the standalone access model. Identity claims never enter the browser
 URL and are not bound to NADA's anonymous local keypair/session; after the
 handoff, the normal on-device anonymous identity remains authoritative.
 
+`HEAD /api/health` is a credential-free process probe used by CampOS to overlap
+a possible NADA web-service cold start with Core's authorization work. It does
+not contact the relay, anonymous local storage, or NADA's database.
+
 ## Phase 2 Status
 
 Phase 2 adds production envelope schemas, a libsodium sealed-box scaffold,
