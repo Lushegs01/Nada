@@ -71,13 +71,55 @@ Risk: Browser PWAs do not control network routing.
 What breaks if wrong: Privacy claims become misleading.
 Manual verification: Confirm UI warning remains visible in Settings.
 
-## Redis Relay Queue
+## Redis (Queue, Rate Limits, Cross-Instance Routing)
 
-Risk: `REDIS_URL` may be absent or misconfigured.
-What breaks if wrong: Offline production envelopes are not durable across relay
-restarts.
-Manual verification: Confirm production relay has a managed Redis URL and
-`RELAY_QUEUE_TTL_SECONDS` matches the retention policy.
+Risk: `REDIS_URL` may be absent or misconfigured. Redis now backs three things:
+the offline envelope queue, shared rate-limit counters, and the pub/sub
+channels that let one relay instance deliver to a socket held by another.
+What breaks if wrong: The relay silently degrades to single-instance, in-memory
+behaviour — queued envelopes are lost on restart, rate limits are enforced
+per-process (so N instances allow N times the limit), and running more than one
+instance misroutes messages as "recipient offline".
+Manual verification: `GET /health` must report `queue: "redis"` and
+`scaling: "multi-instance"`. Confirm `RELAY_QUEUE_TTL_SECONDS` matches the
+retention policy and that the Redis plan uses `noeviction`, since queued
+envelopes are durable data rather than a disposable cache.
+
+## Relay Instance Count
+
+Risk: `numInstances` may be raised without Redis configured.
+What breaks if wrong: Socket presence is per-process. Without the Redis
+presence bus, a sender on instance A cannot see a recipient on instance B and
+queues the message as offline instead of delivering it.
+Manual verification: Confirm `/health` reports `scaling: "multi-instance"`
+before scaling past one instance.
+
+## Postgres Connection Pool
+
+Risk: `DATABASE_POOL_MAX` multiplied by `numInstances` may exceed the database
+plan's connection limit.
+What breaks if wrong: New connections are refused under load and requests fail.
+Manual verification: Confirm `numInstances * DATABASE_POOL_MAX` leaves headroom
+under the plan's limit, and that the database plan is not the free tier.
+
+## Media Object Storage
+
+Risk: The relay falls back to local disk when the `MEDIA_S3_*` variables are
+incomplete.
+What breaks if wrong: Attachments are written to the container filesystem,
+which is wiped on every deploy and is not shared between instances, so uploads
+disappear and 404 unpredictably.
+Manual verification: `GET /health` must report `media: "s3"` in production.
+
+## Feed Cache Staleness
+
+Risk: Feed aggregates (Echo/Ripple/Reflection counts) are cached per instance
+for a few seconds.
+What breaks if wrong: A count can lag reality by up to the cache TTL. Viewer
+state (`echoedByViewer`, `rippledByViewer`) is deliberately excluded from the
+cache, so a user's own interaction is always reflected immediately.
+Manual verification: Confirm `FEED_CACHE_TTL_MS` stays well below the client
+poll interval, and that write paths call `invalidateFeedCaches`.
 
 ## Signal Adapter
 
@@ -90,11 +132,14 @@ loading, and app bundle impact before enabling Signal-backed sessions.
 
 ## Blind Upload Storage
 
-Risk: Phase 2 creates upload request scaffolding but does not configure S3/R2.
-What breaks if wrong: Encrypted files remain local-only and cannot be retrieved
-by recipients.
-Manual verification: Confirm blob storage, expiry, content-hash addressing, and
-absence of user-to-file mapping before enabling attachment delivery.
+Risk: Encrypted media now has an S3-compatible backend, but the blind-upload
+request flow (`/api/v1/upload/request`) still returns scaffolding rather than
+presigned URLs, and stored objects have no expiry policy.
+What breaks if wrong: Objects accumulate without retention, and the blind-upload
+path cannot deliver files independently of `/api/media/:id`.
+Manual verification: Confirm a bucket lifecycle rule enforces retention, and
+review content-hash addressing and the absence of user-to-file mapping before
+enabling the blind-upload delivery path.
 
 ## Stripe Webhook Raw Body
 

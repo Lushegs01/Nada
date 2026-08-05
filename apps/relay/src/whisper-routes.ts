@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { createHash } from "node:crypto";
 
 import {
   NotificationQueryRequestSchema,
@@ -21,6 +22,7 @@ import {
 } from "@nada/types";
 import type { WhisperNotificationKind } from "@nada/types";
 
+import type { RelayDb } from "./db";
 import type { RelayEnv } from "./env";
 import { verifyIdentityProof } from "./identity-proof";
 import {
@@ -32,6 +34,41 @@ import {
 const FEED_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 const DEFAULT_REFLECTION_PAGE = 25;
 const DEFAULT_NOTIFICATION_PAGE = 50;
+/**
+ * Granularity of the default feed window's lower bound. Without this the bound
+ * is `Date.now() - FEED_WINDOW_MS`, a value that changes every millisecond, so
+ * no two polls ever share a query — and nothing keyed on it can be cached.
+ * Rounding to 10s makes concurrent pollers agree on one bound; against a
+ * 90-day window the shift is immaterial.
+ */
+const FEED_SINCE_BUCKET_MS = 10_000;
+
+export function defaultFeedSince(now: number): number {
+  return Math.floor((now - FEED_WINDOW_MS) / FEED_SINCE_BUCKET_MS) *
+    FEED_SINCE_BUCKET_MS;
+}
+
+/**
+ * Weak validator over the response body. Weak (rather than strong) because it
+ * asserts semantic equivalence of the JSON payload, not byte-identical
+ * transfer encoding.
+ */
+export function weakEtag(payload: string): string {
+  return `W/"${createHash("sha256").update(payload).digest("base64url").slice(0, 27)}"`;
+}
+
+/** Handles the comma-separated If-None-Match list, including `*`. */
+export function requestMatchesEtag(
+  header: string | string[] | undefined,
+  etag: string
+): boolean {
+  if (!header) return false;
+  const raw = Array.isArray(header) ? header.join(",") : header;
+  return raw
+    .split(",")
+    .map((candidate) => candidate.trim())
+    .some((candidate) => candidate === "*" || candidate === etag);
+}
 
 // Human copy for push notifications, keyed by notification kind. Whisper
 // content is public by design, so naming the actor in a push is safe — but we
@@ -48,9 +85,10 @@ const PUSH_COPY: Record<WhisperNotificationKind, string> = {
 
 export async function registerWhisperRoutes(
   app: FastifyInstance,
-  env: RelayEnv
+  env: RelayEnv,
+  db: RelayDb | null
 ): Promise<void> {
-  const repository = await createWhisperRepository(env);
+  const repository = await createWhisperRepository(db);
 
   app.addHook("onClose", async () => {
     await repository.close();
@@ -418,7 +456,8 @@ export async function registerWhisperRoutes(
         .send({ code: "invalid_whisper_query", message: "Invalid whisper query." });
     }
     const since =
-      result.data.since ?? (result.data.authorPubkeyHash ? 0 : Date.now() - FEED_WINDOW_MS);
+      result.data.since ??
+      (result.data.authorPubkeyHash ? 0 : defaultFeedSince(Date.now()));
     const filter = result.data.authorPubkeyHash
       ? { authorPubkeyHash: result.data.authorPubkeyHash }
       : {};
@@ -429,7 +468,18 @@ export async function registerWhisperRoutes(
       }),
       repository.countFeed(since, filter)
     ]);
-    return reply.send({ echoes, total });
+
+    // Clients re-poll this endpoint on a fixed interval and the payload is
+    // large (up to 100 hydrated Echoes) but usually unchanged between polls.
+    // An ETag lets an unchanged poll answer with an empty 304 instead of
+    // resending the whole feed.
+    const body = { echoes, total };
+    const etag = weakEtag(JSON.stringify(body));
+    reply.header("etag", etag);
+    if (requestMatchesEtag(request.headers["if-none-match"], etag)) {
+      return reply.code(304).send();
+    }
+    return reply.send(body);
   });
 
   // Public profile card: anonymous handle, bio, stats and the viewer's follow

@@ -1,24 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import type { RelayEnv } from "../src/env";
 import { createWhisperRepository } from "../src/whisper-repository";
 
-// In-memory backend (no DATABASE_URL) is enough to exercise all feed logic.
-const env = { databaseUrl: undefined } as unknown as RelayEnv;
+// Passing a null db selects the in-memory backend, which is enough to
+// exercise all feed logic without a live Postgres.
+const db = null;
 
 const alice = "a".repeat(64);
 const bob = "b".repeat(64);
 
 describe("whisper repository (memory)", () => {
   it("seeds a starter feed everyone can read", async () => {
-    const repo = await createWhisperRepository(env);
+    const repo = await createWhisperRepository(db);
     const feed = await repo.listFeed(alice, 0, 50);
     expect(feed.length).toBeGreaterThanOrEqual(2);
     expect(feed.every((echo) => echo.echoCount === 0)).toBe(true);
   });
 
   it("counts the complete filtered feed independently of page size", async () => {
-    const repo = await createWhisperRepository(env);
+    const repo = await createWhisperRepository(db);
     const seededTotal = await repo.countFeed(0);
     const createdAt = Date.now();
     await repo.createEcho({
@@ -37,7 +37,7 @@ describe("whisper repository (memory)", () => {
   });
 
   it("makes one user's Echo visible and interactable to another user", async () => {
-    const repo = await createWhisperRepository(env);
+    const repo = await createWhisperRepository(db);
     await repo.createEcho({
       authorName: "alice.ghost",
       authorPubkeyHash: alice,
@@ -81,7 +81,7 @@ describe("whisper repository (memory)", () => {
   });
 
   it("toggles a reaction off and de-duplicates repeat likes", async () => {
-    const repo = await createWhisperRepository(env);
+    const repo = await createWhisperRepository(db);
     const id = "10000000-0000-4000-8000-000000000002";
     await repo.createEcho({
       authorName: "a",
@@ -100,7 +100,7 @@ describe("whisper repository (memory)", () => {
   });
 
   it("ripples create a quoting echo and bump the source count", async () => {
-    const repo = await createWhisperRepository(env);
+    const repo = await createWhisperRepository(db);
     const sourceId = "10000000-0000-4000-8000-000000000003";
     const rippleId = "10000000-0000-4000-8000-000000000004";
     await repo.createEcho({
@@ -132,7 +132,7 @@ describe("whisper repository (memory)", () => {
   });
 
   it("only the author can delete their Echo", async () => {
-    const repo = await createWhisperRepository(env);
+    const repo = await createWhisperRepository(db);
     const id = "10000000-0000-4000-8000-000000000005";
     await repo.createEcho({
       authorName: "a",
@@ -152,7 +152,7 @@ const carol = "c".repeat(64);
 const echoId = "10000000-0000-4000-8000-0000000000e1";
 
 async function repoWithEcho() {
-  const repo = await createWhisperRepository(env);
+  const repo = await createWhisperRepository(db);
   await repo.createEcho({
     authorName: "alice.ghost",
     authorPubkeyHash: alice,

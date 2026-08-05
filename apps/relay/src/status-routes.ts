@@ -7,6 +7,7 @@ import {
   StatusPublishRequestSchema
 } from "@nada/types";
 
+import type { RelayDb } from "./db";
 import type { RelayEnv } from "./env";
 import { verifyIdentityProof } from "./identity-proof";
 import { createStatusRepository } from "./status-repository";
@@ -23,9 +24,10 @@ const StatusQuerySchema = z.object({
 
 export async function registerStatusRoutes(
   app: FastifyInstance,
-  env: RelayEnv
+  env: RelayEnv,
+  db: RelayDb | null
 ): Promise<void> {
-  const repository = await createStatusRepository(env);
+  const repository = await createStatusRepository(db);
   const allowDevPlaintext = env.allowDevPlaintext;
 
   app.addHook("onClose", async () => {

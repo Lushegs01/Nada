@@ -11,12 +11,44 @@ flowchart TD
   PWA --> Crypto["@nada/crypto"]
   PWA --> UI["@nada/ui"]
   PWA --> WS["WebSocket client"]
-  WS --> Relay["Fastify relay"]
-  Relay --> Zod["Zod validation"]
-  Relay --> Sessions["Transient sessions"]
-  Relay -. Phase 2 .-> Redis["Redis queue"]
-  Relay -. Future .-> Postgres["Metadata PostgreSQL"]
+  WS --> RelayA["Fastify relay (instance A)"]
+  WS --> RelayB["Fastify relay (instance B)"]
+  RelayA --> Zod["Zod validation"]
+  RelayA --> Sessions["Per-process socket registry"]
+  RelayA <--> Redis["Redis: queue, rate limits, presence pub/sub"]
+  RelayB <--> Redis
+  RelayA --> Postgres["PostgreSQL (pooled)"]
+  RelayB --> Postgres
+  RelayA --> S3["S3/R2 encrypted media"]
+  RelayB --> S3
 ```
+
+## Horizontal Scaling
+
+The socket registry is per-process, so a sender on one instance cannot see a
+recipient connected to another. Redis pub/sub closes that gap: each instance
+subscribes to a channel per locally-connected identity, and a send that finds no
+local socket publishes to the recipient's channel. `PUBLISH` returns the number
+of receiving instances, which is what makes "offline everywhere, queue it" a
+safe conclusion rather than a guess.
+
+Redis carries three responsibilities, all of which must be shared:
+
+| Concern | Why it cannot be per-process |
+| --- | --- |
+| Offline envelope queue | An in-memory queue loses envelopes on restart and is invisible to other instances |
+| Rate-limit counters | Per-process counters let N instances allow N times the limit |
+| Presence pub/sub | Without it, cross-instance messages are misfiled as "recipient offline" |
+
+Postgres access goes through one pooled handle per process, shared by every
+repository. Multi-statement writes (cascading deletes, tombstoning a reflection)
+run inside explicit transactions, since under a pool consecutive statements are
+not otherwise ordered against concurrent writers.
+
+Rate limiting is keyed on the acting identity, falling back to client IP only
+for requests that name no identity. An institution presents thousands of
+students behind a handful of NAT addresses, so IP-keyed limits count a whole
+campus as one client.
 
 The PWA constructs relay URLs only from `NEXT_PUBLIC_RELAY_URL`. The relay reads
 `PORT` and `ALLOWED_ORIGIN` from environment variables. PWA manifest paths are

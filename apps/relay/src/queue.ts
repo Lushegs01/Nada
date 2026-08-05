@@ -1,8 +1,7 @@
-import { createClient } from "redis";
-
 import type { PubkeyHash } from "@nada/types";
 
 import type { RelayEnv } from "./env";
+import type { RelayRedis } from "./redis";
 
 export interface RelayQueue {
   close: () => Promise<void>;
@@ -10,13 +9,18 @@ export interface RelayQueue {
   enqueue: (recipient: PubkeyHash, serializedEnvelope: string) => Promise<void>;
 }
 
-type RedisClient = ReturnType<typeof createClient>;
-
-export async function createRelayQueue(env: RelayEnv): Promise<RelayQueue> {
-  if (env.redisUrl) {
-    const client = createClient({ url: env.redisUrl });
-    await client.connect();
-    return new RedisRelayQueue(client, env.relayQueueTtlSeconds);
+/**
+ * Builds the offline-envelope queue on the relay's shared Redis connection.
+ * Falls back to an in-process queue only when Redis is not configured, which
+ * is a development-only mode: an in-memory queue loses every queued envelope
+ * on restart and is invisible to other instances.
+ */
+export async function createRelayQueue(
+  env: RelayEnv,
+  redis: RelayRedis | null
+): Promise<RelayQueue> {
+  if (redis) {
+    return new RedisRelayQueue(redis, env.relayQueueTtlSeconds);
   }
 
   return new MemoryRelayQueue();
@@ -24,26 +28,25 @@ export async function createRelayQueue(env: RelayEnv): Promise<RelayQueue> {
 
 class RedisRelayQueue implements RelayQueue {
   constructor(
-    private readonly client: RedisClient,
+    private readonly redis: RelayRedis,
     private readonly ttlSeconds: number
   ) {}
 
-  async close(): Promise<void> {
-    await this.client.quit();
-  }
+  // The shared Redis connections are owned and closed by the relay server.
+  async close(): Promise<void> {}
 
   async drain(recipient: PubkeyHash): Promise<string[]> {
     const key = this.keyFor(recipient);
-    const items: string[] = [];
+    // Atomically take the whole queue: reading then deleting in two steps can
+    // drop envelopes that arrive between the read and the delete, and popping
+    // one at a time costs a round trip per envelope.
+    const [items] = await this.redis.command
+      .multi()
+      .lRange(key, 0, -1)
+      .del(key)
+      .exec();
 
-    for (;;) {
-      const item = await this.client.lPop(key);
-      if (!item) {
-        return items;
-      }
-
-      items.push(item);
-    }
+    return Array.isArray(items) ? (items as string[]) : [];
   }
 
   async enqueue(
@@ -51,8 +54,11 @@ class RedisRelayQueue implements RelayQueue {
     serializedEnvelope: string
   ): Promise<void> {
     const key = this.keyFor(recipient);
-    await this.client.rPush(key, serializedEnvelope);
-    await this.client.expire(key, this.ttlSeconds);
+    await this.redis.command
+      .multi()
+      .rPush(key, serializedEnvelope)
+      .expire(key, this.ttlSeconds)
+      .exec();
   }
 
   private keyFor(recipient: PubkeyHash): string {

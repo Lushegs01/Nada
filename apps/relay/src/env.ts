@@ -5,11 +5,19 @@ const EnvSchema = z.object({
   ALLOW_DEV_PLAINTEXT: z.string().optional(),
   CAPABILITY_ISSUER_SECRET: z.string().min(32).optional(),
   CAPABILITY_TOKEN_SECRET: z.string().min(32).optional(),
+  DATABASE_POOL_MAX: z.coerce.number().int().positive().optional(),
   DATABASE_URL: z.string().url().optional(),
   MEDIA_MAX_BYTES: z.coerce.number().int().positive().optional(),
+  MEDIA_S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+  MEDIA_S3_BUCKET: z.string().min(1).optional(),
+  MEDIA_S3_ENDPOINT: z.string().url().optional(),
+  MEDIA_S3_REGION: z.string().min(1).optional(),
+  MEDIA_S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   MEDIA_STORAGE_DIR: z.string().min(1).optional(),
   NODE_ENV: z.string().optional(),
   PORT: z.coerce.number().int().positive(),
+  RATE_LIMIT_IDENTITY_MAX: z.coerce.number().int().positive().optional(),
+  RATE_LIMIT_IP_MAX: z.coerce.number().int().positive().optional(),
   REDIS_URL: z.string().url().optional(),
   RELAY_QUEUE_TTL_SECONDS: z.coerce.number().int().positive().optional(),
   STRIPE_PRICE_BUSINESS: z.string().min(1).optional(),
@@ -32,11 +40,19 @@ export interface RelayEnv {
   allowDevPlaintext: boolean;
   capabilityIssuerSecret: string | undefined;
   capabilityTokenSecret: string | undefined;
+  databasePoolMax: number | undefined;
   databaseUrl: string | undefined;
   mediaMaxBytes: number;
+  mediaS3AccessKeyId: string | undefined;
+  mediaS3Bucket: string | undefined;
+  mediaS3Endpoint: string | undefined;
+  mediaS3Region: string;
+  mediaS3SecretAccessKey: string | undefined;
   mediaStorageDir: string;
   nodeEnv: string;
   port: number;
+  rateLimitIdentityMax: number;
+  rateLimitIpMax: number;
   redisUrl: string | undefined;
   relayQueueTtlSeconds: number;
   stripePriceBusiness: string | undefined;
@@ -66,11 +82,26 @@ export function readEnv(): RelayEnv {
     allowDevPlaintext: result.data.ALLOW_DEV_PLAINTEXT === "true",
     capabilityIssuerSecret: result.data.CAPABILITY_ISSUER_SECRET,
     capabilityTokenSecret: result.data.CAPABILITY_TOKEN_SECRET,
+    databasePoolMax: result.data.DATABASE_POOL_MAX,
     databaseUrl: result.data.DATABASE_URL,
     mediaMaxBytes: result.data.MEDIA_MAX_BYTES ?? 25 * 1024 * 1024,
+    mediaS3AccessKeyId: result.data.MEDIA_S3_ACCESS_KEY_ID,
+    mediaS3Bucket: result.data.MEDIA_S3_BUCKET,
+    mediaS3Endpoint: result.data.MEDIA_S3_ENDPOINT,
+    mediaS3Region: result.data.MEDIA_S3_REGION ?? "auto",
+    mediaS3SecretAccessKey: result.data.MEDIA_S3_SECRET_ACCESS_KEY,
     mediaStorageDir: result.data.MEDIA_STORAGE_DIR ?? ".nada-media",
     nodeEnv,
     port: result.data.PORT,
+    // Per-identity ceiling. A normal client spends ~9 requests/minute on
+    // background polling, so this leaves wide headroom for interactive bursts
+    // while still stopping one runaway client.
+    rateLimitIdentityMax: result.data.RATE_LIMIT_IDENTITY_MAX ?? 240,
+    // Per-IP ceiling, applied ONLY to requests that carry no identity at all.
+    // It must never gate identity-bearing traffic: a campus NAT presents
+    // thousands of students as one IP, and counting them together is what made
+    // the previous 120/minute IP limit unusable at institution scale.
+    rateLimitIpMax: result.data.RATE_LIMIT_IP_MAX ?? 600,
     redisUrl: result.data.REDIS_URL,
     relayQueueTtlSeconds: result.data.RELAY_QUEUE_TTL_SECONDS ?? 604800, // default: 7 days
     stripePriceBusiness: result.data.STRIPE_PRICE_BUSINESS,

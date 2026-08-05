@@ -1,7 +1,6 @@
 import fastifyMultipart from "@fastify/multipart";
 import type { FastifyInstance } from "fastify";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -12,6 +11,11 @@ import {
 } from "@nada/types";
 
 import type { RelayEnv } from "./env";
+import {
+  createMediaStore,
+  type MediaStore,
+  type StoredMediaMetadata
+} from "./media-store";
 
 const SAFE_MIME_PREFIXES = ["image/", "video/", "audio/", "text/"];
 const SAFE_MIME_EXACT = new Set([
@@ -39,23 +43,10 @@ const BLOCKED_EXTENSIONS = new Set([
   ".vbs"
 ]);
 
-interface StoredMediaMetadata {
-  chatId: string;
-  contentHash: string;
-  createdAt: number;
-  encryptedSize: number;
-  fileName: string;
-  id: string;
-  mimeType: string;
-  originalName: string;
-  recipientPubkeyHash: string;
-  senderPubkeyHash: string;
-  size: number;
-}
-
 export async function registerUploadRoutes(
   app: FastifyInstance,
-  env: RelayEnv
+  env: RelayEnv,
+  mediaStore: MediaStore = createMediaStore(env)
 ): Promise<void> {
   await (app as any).register(fastifyMultipart, {
     limits: {
@@ -162,14 +153,7 @@ export async function registerUploadRoutes(
     }
 
     const id = randomUUID();
-    const storageDir = path.resolve(env.mediaStorageDir);
-    await mkdir(storageDir, { recursive: true });
-    
     const fileName = `${id}.bin`;
-    const filePath = path.join(storageDir, fileName);
-    const metaPath = path.join(storageDir, `${id}.json`);
-    
-    await writeFile(filePath, fileBuffer, { flag: "wx" });
 
     const metadata: StoredMediaMetadata = {
       chatId,
@@ -184,8 +168,8 @@ export async function registerUploadRoutes(
       senderPubkeyHash: senderResult.data,
       size
     };
-    
-    await writeFile(metaPath, JSON.stringify(metadata), { flag: "wx" });
+
+    await mediaStore.put(id, fileBuffer, metadata);
 
     const response: MediaUploadResponse = {
       id,
@@ -212,28 +196,23 @@ export async function registerUploadRoutes(
       });
     }
 
-    const storageDir = path.resolve(env.mediaStorageDir);
-    const filePath = path.join(storageDir, `${id}.bin`);
-    const metaPath = path.join(storageDir, `${id}.json`);
-    try {
-      const [fileBuffer, metaBuffer, fileStat] = await Promise.all([
-        readFile(filePath),
-        readFile(metaPath),
-        stat(filePath)
-      ]);
-      const metadata = JSON.parse(metaBuffer.toString("utf8")) as StoredMediaMetadata;
-      return reply
-        .header("cache-control", "private, max-age=31536000, immutable")
-        .header("content-disposition", `attachment; filename="${metadata.fileName}"`)
-        .header("content-length", String(fileStat.size))
-        .type("application/octet-stream")
-        .send(fileBuffer);
-    } catch {
+    const stored = await mediaStore.get(id);
+    if (!stored) {
       return reply.code(404).send({
         code: "media_not_found",
         message: "Media was not found."
       });
     }
+
+    return reply
+      .header("cache-control", "private, max-age=31536000, immutable")
+      .header(
+        "content-disposition",
+        `attachment; filename="${stored.metadata.fileName}"`
+      )
+      .header("content-length", String(stored.body.length))
+      .type("application/octet-stream")
+      .send(stored.body);
   });
 
   app.get("/api/v1/download/:contentHash", async (_request, reply) =>

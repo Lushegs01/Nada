@@ -3,15 +3,17 @@ import webpush from "web-push";
 
 import { PushSubscriptionRequestSchema } from "@nada/types";
 
+import type { RelayDb } from "./db";
 import type { RelayEnv } from "./env";
 import { verifyIdentityProof } from "./identity-proof";
 import { createPushRepository } from "./push-repository";
 
 export async function registerPushRoutes(
   app: FastifyInstance,
-  env: RelayEnv
+  env: RelayEnv,
+  db: RelayDb | null
 ): Promise<void> {
-  const repository = await createPushRepository(env);
+  const repository = await createPushRepository(db);
 
   if (env.vapidPublicKey && env.vapidPrivateKey && env.vapidSubject) {
     webpush.setVapidDetails(

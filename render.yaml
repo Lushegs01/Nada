@@ -2,6 +2,9 @@ services:
   - type: web
     name: app-web
     env: node
+    # Free instances sleep after inactivity and cold-start on the next request,
+    # which is not acceptable for a campus-scale deployment.
+    plan: starter
     buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter web build
     startCommand: pnpm --filter web start
     envVars:
@@ -19,10 +22,21 @@ services:
       # exchange. The signed identity token never travels in the browser URL.
       - key: CAMPOS_CORE_URL
         value: https://campos-core.vercel.app
+      # Public half of the VAPID pair. Must correspond to VAPID_PRIVATE_KEY on
+      # the relay, or the browser cannot subscribe to push.
+      - key: NEXT_PUBLIC_VAPID_PUBLIC_KEY
+        sync: false
 
   - type: web
     name: app-relay
     env: node
+    plan: standard
+    # The relay is horizontally scalable: socket presence is shared through
+    # Redis pub/sub, so a sender on one instance still reaches a recipient
+    # connected to another. Raising this without REDIS_URL set would silently
+    # break cross-instance delivery.
+    numInstances: 2
+    healthCheckPath: /health
     buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter relay build
     startCommand: pnpm --filter relay start
     envVars:
@@ -33,19 +47,42 @@ services:
           property: host
       # Auto-provisioned Postgres (see databases: below). The relay creates its
       # tables on boot, so the Whispers feed persists across restarts with no
-      # manual setup. Bump the database plan below for production traffic.
+      # manual setup.
       - key: DATABASE_URL
         fromDatabase:
           name: nada-db
           property: connectionString
+      # Pooled connections per instance. Keep numInstances * DATABASE_POOL_MAX
+      # comfortably under the database plan's connection limit.
+      - key: DATABASE_POOL_MAX
+        value: "10"
+      # Required in production: backs the offline envelope queue, the shared
+      # rate-limit counters, and cross-instance socket routing. Without it the
+      # relay silently degrades to single-instance, in-memory behaviour.
       - key: REDIS_URL
-        sync: false
+        fromService:
+          name: nada-redis
+          type: redis
+          property: connectionString
       - key: RELAY_QUEUE_TTL_SECONDS
         value: "604800"
-      - key: MEDIA_STORAGE_DIR
-        value: ".nada-media"
       - key: MEDIA_MAX_BYTES
         value: "26214400"
+      # ── Media object storage (S3 or any S3-compatible provider, e.g. R2) ────
+      # Required in production. Without a bucket the relay falls back to the
+      # container filesystem, which is wiped on every deploy and is not shared
+      # between instances, so attachments would vanish and 404 at random.
+      - key: MEDIA_S3_BUCKET
+        sync: false
+      - key: MEDIA_S3_REGION
+        sync: false
+      # Set for S3-compatible providers (R2/MinIO/B2); omit for AWS S3 itself.
+      - key: MEDIA_S3_ENDPOINT
+        sync: false
+      - key: MEDIA_S3_ACCESS_KEY_ID
+        sync: false
+      - key: MEDIA_S3_SECRET_ACCESS_KEY
+        sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
@@ -60,6 +97,16 @@ services:
         sync: false
       - key: CAPABILITY_ISSUER_SECRET
         sync: false
+      # ── Web Push (VAPID) ───────────────────────────────────────────────────
+      # Generate with: npx web-push generate-vapid-keys
+      # Without these the relay accepts push subscriptions but never sends a
+      # notification, so clients fall back to polling for everything.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
       # ── WebRTC TURN (Metered) — set USERNAME + CREDENTIAL in Render dashboard.
       # Credentials are issued via /api/v1/turn/credentials only after the
       # client proves it owns the requesting pubkey, so they are no longer
@@ -73,8 +120,20 @@ services:
       - key: ZERO_LOG_MODE
         value: "true"
 
+  # Shared Redis. Three jobs, all of which must be shared across instances:
+  # the durable offline-envelope queue, rate-limit counters, and the pub/sub
+  # channels that let any instance deliver to a socket held by another.
+  - type: redis
+    name: nada-redis
+    plan: starter
+    # Queued envelopes are durable data with their own TTL — evicting them
+    # under memory pressure would silently drop undelivered messages.
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
 databases:
   # Managed Postgres backing the relay (Whispers feed, statuses, monetization).
-  # Starts on the free plan; upgrade to a paid plan for production durability.
+  # The free plan expires and caps connections; production needs a paid plan
+  # with headroom for numInstances * DATABASE_POOL_MAX connections.
   - name: nada-db
-    plan: free
+    plan: basic-256mb

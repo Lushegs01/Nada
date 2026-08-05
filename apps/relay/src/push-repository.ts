@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { Client } from "pg";
 
-import { POSTGRES_SCHEMA_SQL } from "@nada/db";
 import type { PubkeyHash } from "@nada/types";
 
-import type { RelayEnv } from "./env";
+import type { Queryable, RelayDb } from "./db";
 
 export interface PushSubscriptionData {
   endpoint: string;
@@ -27,25 +25,20 @@ export interface PushRepository {
 }
 
 export async function createPushRepository(
-  env: RelayEnv
+  db: RelayDb | null
 ): Promise<PushRepository> {
-  if (env.databaseUrl) {
-    const client = new Client({ connectionString: env.databaseUrl });
-    await client.connect();
-    // Assuming schema is already applied by MonetizationRepository or here
-    await client.query(POSTGRES_SCHEMA_SQL);
-    return new PostgresPushRepository(client);
+  if (db) {
+    return new PostgresPushRepository(db);
   }
 
   return new MemoryPushRepository();
 }
 
 class PostgresPushRepository implements PushRepository {
-  constructor(private readonly client: Client) {}
+  constructor(private readonly client: Queryable) {}
 
-  async close(): Promise<void> {
-    await this.client.end();
-  }
+  // The shared pool is owned and closed by the relay server.
+  async close(): Promise<void> {}
 
   async upsertSubscription(
     pubkeyHash: PubkeyHash,

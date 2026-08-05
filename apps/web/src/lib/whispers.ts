@@ -148,21 +148,60 @@ async function postJson<T>(path: string, body: unknown): Promise<T | null> {
   }
 }
 
+/**
+ * ETag of the last feed response, per request shape. The feed is re-polled on
+ * a fixed interval and usually has not changed, so replaying the validator
+ * lets the relay answer with an empty 304 instead of the whole payload.
+ */
+const feedEtags = new Map<string, string>();
+
+/** Returned when the relay confirms the cached feed is still current. */
+export const FEED_UNCHANGED = "unchanged" as const;
+export type FeedQueryResult = WhisperEcho[] | typeof FEED_UNCHANGED | null;
+
 /** Fetch the global feed as this viewer, or null if the relay is unreachable.
+ *  Returns FEED_UNCHANGED when the relay reports the last result still holds.
  *  Pass `before` to page older Echoes, `authorPubkeyHash` for a profile timeline. */
 export async function queryWhisperFeed(
   viewerPubkeyHash: string,
   limit = 100,
   options: { authorPubkeyHash?: string; before?: number } = {}
-): Promise<WhisperEcho[] | null> {
-  const data = await postJson<{ echoes?: RelayEcho[] }>("/api/v1/whispers/query", {
+): Promise<FeedQueryResult> {
+  const relayBaseUrl = getRelayHttpBaseUrl();
+  if (!relayBaseUrl) return null;
+
+  const body = {
     viewerPubkeyHash,
     limit,
     ...(options.before ? { before: options.before } : {}),
     ...(options.authorPubkeyHash ? { authorPubkeyHash: options.authorPubkeyHash } : {})
-  });
-  if (!data) return null;
-  return (data.echoes ?? []).map(mapEcho);
+  };
+  // Paged and profile-filtered reads are distinct resources, so each keeps its
+  // own validator.
+  const etagKey = JSON.stringify(body);
+  const knownEtag = feedEtags.get(etagKey);
+
+  try {
+    const response = await fetch(new URL("/api/v1/whispers/query", relayBaseUrl), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(knownEtag ? { "If-None-Match": knownEtag } : {})
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (response.status === 304) return FEED_UNCHANGED;
+    if (!response.ok) return null;
+
+    const etag = response.headers.get("etag");
+    if (etag) feedEtags.set(etagKey, etag);
+
+    const data = (await response.json()) as { echoes?: RelayEcho[] };
+    return (data.echoes ?? []).map(mapEcho);
+  } catch {
+    return null;
+  }
 }
 
 /** Page one Echo's threaded replies: newest top-level replies first, each page

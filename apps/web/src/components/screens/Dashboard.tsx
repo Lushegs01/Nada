@@ -7,7 +7,7 @@ import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/
 import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload } from "@/lib/media-message";
 import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib/media-upload";
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
-import { whispersRelayConfigured, queryWhisperFeed, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote } from "@/lib/whispers";
+import { whispersRelayConfigured, queryWhisperFeed, FEED_UNCHANGED, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote } from "@/lib/whispers";
 import type { CallMode, LocalCallSession } from "@/lib/webrtc";
 import { createLocalCallSession } from "@/lib/webrtc";
 import { useDashboardStore } from "@/stores/useDashboardStore";
@@ -303,7 +303,9 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     // (the feed response only carries a small preview per Echo).
     const syncWhispersFromRelay = useCallback(async (): Promise<void> => {
             const echoes = await queryWhisperFeed(identity.pubkeyHash, 100);
-            if (!echoes) {
+            // FEED_UNCHANGED: the relay confirmed our copy is current and sent
+            // no payload, so there is nothing to merge.
+            if (!echoes || echoes === FEED_UNCHANGED) {
               setWhisperFeedSyncing(false);
               return;
             }
@@ -2578,7 +2580,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             setWhisperFeedLoadingMore(true);
             void queryWhisperFeed(identity.pubkeyHash, 50, { before: oldest }).then((older) => {
               setWhisperFeedLoadingMore(false);
-              if (!older) return;
+              if (!older || older === FEED_UNCHANGED) return;
               setWhisperFeedHasMore(older.length >= 50);
               if (older.length === 0) return;
               setWhispers((current) => {

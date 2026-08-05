@@ -18,6 +18,7 @@ import {
   createCapabilityPayload,
   issueCapabilityToken
 } from "./capability";
+import type { RelayDb } from "./db";
 import type { RelayEnv } from "./env";
 import { verifyIdentityProof } from "./identity-proof";
 import {
@@ -33,9 +34,10 @@ const STRIPE_METADATA_KEYS = {
 
 export async function registerMonetizationRoutes(
   app: FastifyInstance,
-  env: RelayEnv
+  env: RelayEnv,
+  db: RelayDb | null
 ): Promise<void> {
-  const repository = await createMonetizationRepository(env);
+  const repository = await createMonetizationRepository(db);
   app.addHook("onClose", async () => {
     await repository.close();
   });
