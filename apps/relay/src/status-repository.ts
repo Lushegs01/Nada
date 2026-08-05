@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { Client } from "pg";
 
-import { POSTGRES_SCHEMA_SQL } from "@nada/db";
-
-import type { RelayEnv } from "./env";
+import type { Queryable, RelayDb } from "./db";
 
 export interface RelayStatusUpdate {
   ciphertext: string;
@@ -25,25 +22,42 @@ export interface StatusRepository {
 }
 
 const STATUS_TTL_MS = 24 * 60 * 60 * 1000;
+const STATUS_SWEEP_INTERVAL_MS = 60 * 1000;
 
 export async function createStatusRepository(
-  env: RelayEnv
+  db: RelayDb | null
 ): Promise<StatusRepository> {
-  if (env.databaseUrl) {
-    const client = new Client({ connectionString: env.databaseUrl });
-    await client.connect();
-    await client.query(POSTGRES_SCHEMA_SQL);
-    return new PostgresStatusRepository(client);
+  if (db) {
+    return new PostgresStatusRepository(db);
   }
 
   return new MemoryStatusRepository();
 }
 
 class PostgresStatusRepository implements StatusRepository {
-  constructor(private readonly client: Client) {}
+  private lastSweepAt = 0;
 
-  async close(): Promise<void> {
-    await this.client.end();
+  constructor(private readonly client: Queryable) {}
+
+  // The pool is owned by the relay server, not by any one repository, so
+  // closing a repository must not tear down connections its siblings share.
+  async close(): Promise<void> {}
+
+  /**
+   * Deletes expired statuses at most once per sweep interval. This used to run
+   * on every single list call, which turned a read-only status poll into a
+   * table-wide DELETE — at institution scale that is continuous write
+   * amplification and index bloat for rows the query already filters out by
+   * `expires_at_ms`. Correctness does not depend on the sweep: every read is
+   * still bounded by `expires_at_ms > now`, so an unswept row is never served.
+   */
+  private async sweepExpired(now: number): Promise<void> {
+    if (now - this.lastSweepAt < STATUS_SWEEP_INTERVAL_MS) return;
+    this.lastSweepAt = now;
+    await this.client.query(
+      "delete from status_updates where expires_at_ms <= $1",
+      [now]
+    );
   }
 
   async deleteStatus(id: string, senderPubkeyHash: string): Promise<void> {
@@ -59,10 +73,7 @@ class PostgresStatusRepository implements StatusRepository {
     since: number,
     limit: number
   ): Promise<RelayStatusUpdate[]> {
-    await this.client.query(
-      "delete from status_updates where expires_at_ms <= $1",
-      [Date.now()]
-    );
+    await this.sweepExpired(Date.now());
     const result = await this.client.query(
       `select id, sender_pubkey_hash, ciphertext, created_at_ms
        from status_updates

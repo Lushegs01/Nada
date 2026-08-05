@@ -1,14 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { Client } from "pg";
 
-import { POSTGRES_SCHEMA_SQL } from "@nada/db";
 import {
   type BillingPlan,
   type PubkeyHash,
   type SubscriptionState
 } from "@nada/types";
 
-import type { RelayEnv } from "./env";
+import type { Queryable, RelayDb } from "./db";
 
 export interface SubscriptionSnapshot {
   currentPeriodEnd: number | null;
@@ -43,13 +41,10 @@ export interface MonetizationRepository {
 }
 
 export async function createMonetizationRepository(
-  env: RelayEnv
+  db: RelayDb | null
 ): Promise<MonetizationRepository> {
-  if (env.databaseUrl) {
-    const client = new Client({ connectionString: env.databaseUrl });
-    await client.connect();
-    await client.query(POSTGRES_SCHEMA_SQL);
-    return new PostgresMonetizationRepository(client);
+  if (db) {
+    return new PostgresMonetizationRepository(db);
   }
 
   return new MemoryMonetizationRepository();
@@ -69,11 +64,10 @@ function freeSnapshot(pubkeyHash: PubkeyHash): SubscriptionSnapshot {
 }
 
 class PostgresMonetizationRepository implements MonetizationRepository {
-  constructor(private readonly client: Client) {}
+  constructor(private readonly client: Queryable) {}
 
-  async close(): Promise<void> {
-    await this.client.end();
-  }
+  // The shared pool is owned and closed by the relay server.
+  async close(): Promise<void> {}
 
   async getSubscription(pubkeyHash: PubkeyHash): Promise<SubscriptionSnapshot> {
     const result = await this.client.query<{

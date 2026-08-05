@@ -8,6 +8,7 @@ import {
   whispersRelayConfigured,
   queryWhisperProfile,
   queryWhisperFeed,
+  FEED_UNCHANGED,
   queryAuthorReflections,
   queryLikedEchoes,
   queryFollowList,
@@ -415,7 +416,7 @@ export function ProfilePage({
         ...(before ? { before } : {})
       }).then((page) => {
         setEchoesLoading(false);
-        if (!page) return;
+        if (!page || page === FEED_UNCHANGED) return;
         setEchoesHasMore(page.length >= PROFILE_PAGE_SIZE);
         setEchoes((current) => {
           if (!before) return page;

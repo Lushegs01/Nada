@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { Client } from "pg";
-
-import { POSTGRES_SCHEMA_SQL } from "@nada/db";
 import type { WhisperNotificationKind } from "@nada/types";
 
-import type { RelayEnv } from "./env";
+import type { Queryable, RelayDb } from "./db";
+import { TtlCache } from "./ttl-cache";
 
 // A lightweight snapshot of the Echo a Ripple was created from, stored inline so
 // the quoted content survives even if the source Echo is later deleted.
@@ -307,13 +305,10 @@ function seedCreatedAt(index: number): number {
 }
 
 export async function createWhisperRepository(
-  env: RelayEnv
+  db: RelayDb | null
 ): Promise<WhisperRepository> {
-  if (env.databaseUrl) {
-    const client = new Client({ connectionString: env.databaseUrl });
-    await client.connect();
-    await client.query(POSTGRES_SCHEMA_SQL);
-    const repo = new PostgresWhisperRepository(client);
+  if (db) {
+    const repo = new PostgresWhisperRepository(db);
     await repo.seed();
     return repo;
   }
@@ -323,8 +318,46 @@ export async function createWhisperRepository(
   return repo;
 }
 
+interface SharedHydration {
+  previewRows: any[];
+  reactionRows: any[];
+  reflectionRows: any[];
+  rippleRows: any[];
+}
+
+// Short enough that a stale count is never visible for longer than a fraction
+// of the client's poll interval. This TTL — not local invalidation — is the
+// real staleness bound, because each relay instance holds its own cache and a
+// write on one instance cannot invalidate another's.
+const FEED_CACHE_TTL_MS = 3_000;
+const FEED_CACHE_MAX_ENTRIES = 128;
+
 class PostgresWhisperRepository implements WhisperRepository {
-  constructor(private readonly client: Client) {}
+  private readonly sharedHydrationCache = new TtlCache<SharedHydration>(
+    FEED_CACHE_TTL_MS,
+    FEED_CACHE_MAX_ENTRIES
+  );
+  private readonly feedCountCache = new TtlCache<number>(
+    FEED_CACHE_TTL_MS,
+    FEED_CACHE_MAX_ENTRIES
+  );
+
+  constructor(private readonly db: RelayDb) {}
+
+  /** Statements outside an explicit transaction run straight on the pool. */
+  private get client(): Queryable {
+    return this.db;
+  }
+
+  /**
+   * Drops cached feed aggregates after a write, so a user's own interaction is
+   * reflected immediately on the instance that handled it rather than after
+   * the TTL elapses.
+   */
+  private invalidateFeedCaches(): void {
+    this.sharedHydrationCache.clear();
+    this.feedCountCache.clear();
+  }
 
   async seed(): Promise<void> {
     for (const [index, echo] of WHISPER_SEED_ECHOES.entries()) {
@@ -338,11 +371,13 @@ class PostgresWhisperRepository implements WhisperRepository {
     }
   }
 
-  async close(): Promise<void> {
-    await this.client.end();
-  }
+  // The shared pool is owned and closed by the relay server.
+  async close(): Promise<void> {}
 
   async createEcho(echo: WhisperEchoInput): Promise<void> {
+    // This write changes feed aggregates; drop the cached copies. Freshness
+    // is ultimately bounded by the cache TTL, not by this call.
+    this.invalidateFeedCaches();
     await this.client.query(
       `insert into whisper_echoes
          (id, author_pubkey_hash, author_name, body,
@@ -364,29 +399,42 @@ class PostgresWhisperRepository implements WhisperRepository {
     );
   }
 
+  // Deleting an Echo cascades across five child tables. On a pool each bare
+  // statement can land on a different connection, so this has to run in one
+  // transaction: otherwise a crash or a concurrent reader between statements
+  // can observe (or leave behind) reflections and reactions whose parent Echo
+  // is already gone.
   async deleteEcho(id: string, authorPubkeyHash: string): Promise<boolean> {
-    const result = await this.client.query(
-      "delete from whisper_echoes where id = $1 and author_pubkey_hash = $2",
-      [id, authorPubkeyHash]
-    );
-    // Only cascade child rows once we've confirmed the author owned the echo.
-    if (!result.rowCount || result.rowCount === 0) return false;
-    await this.client.query(
-      `delete from whisper_reflection_reactions
-       where reflection_id in (select id from whisper_reflections where echo_id = $1)`,
-      [id]
-    );
-    await this.client.query("delete from whisper_reflections where echo_id = $1", [id]);
-    await this.client.query("delete from whisper_reactions where echo_id = $1", [id]);
-    await this.client.query("delete from whisper_ripples where echo_id = $1", [id]);
-    // Stale notifications must not deep-link into a deleted Echo.
-    await this.client.query("delete from whisper_notifications where echo_id = $1", [id]);
-    return true;
+    // This write changes feed aggregates; drop the cached copies. Freshness
+    // is ultimately bounded by the cache TTL, not by this call.
+    this.invalidateFeedCaches();
+    return this.db.withTransaction(async (tx) => {
+      const result = await tx.query(
+        "delete from whisper_echoes where id = $1 and author_pubkey_hash = $2",
+        [id, authorPubkeyHash]
+      );
+      // Only cascade child rows once we've confirmed the author owned the echo.
+      if (!result.rowCount || result.rowCount === 0) return false;
+      await tx.query(
+        `delete from whisper_reflection_reactions
+         where reflection_id in (select id from whisper_reflections where echo_id = $1)`,
+        [id]
+      );
+      await tx.query("delete from whisper_reflections where echo_id = $1", [id]);
+      await tx.query("delete from whisper_reactions where echo_id = $1", [id]);
+      await tx.query("delete from whisper_ripples where echo_id = $1", [id]);
+      // Stale notifications must not deep-link into a deleted Echo.
+      await tx.query("delete from whisper_notifications where echo_id = $1", [id]);
+      return true;
+    });
   }
 
   async addReflection(
     reflection: WhisperReflectionInput
   ): Promise<ReflectionCreateResult> {
+    // This write changes feed aggregates; drop the cached copies. Freshness
+    // is ultimately bounded by the cache TTL, not by this call.
+    this.invalidateFeedCaches();
     const echoResult = await this.client.query(
       "select author_pubkey_hash, author_name, body from whisper_echoes where id = $1",
       [reflection.echoId]
@@ -441,40 +489,49 @@ class PostgresWhisperRepository implements WhisperRepository {
     id: string,
     authorPubkeyHash: string
   ): Promise<"hard" | "soft" | null> {
-    const existing = await this.client.query(
-      `select author_pubkey_hash, deleted_at_ms from whisper_reflections where id = $1`,
-      [id]
-    );
-    if (existing.rowCount === 0) return null;
-    if (existing.rows[0].author_pubkey_hash !== authorPubkeyHash) return null;
-    if (existing.rows[0].deleted_at_ms) return null;
-
-    const children = await this.client.query(
-      "select count(*)::int as n from whisper_reflections where parent_id = $1",
-      [id]
-    );
-    const hasChildren = Number(children.rows[0].n) > 0;
-
-    await this.client.query(
-      "delete from whisper_reflection_reactions where reflection_id = $1",
-      [id]
-    );
-    await this.client.query(
-      "delete from whisper_notifications where reflection_id = $1",
-      [id]
-    );
-    if (hasChildren) {
-      // Tombstone: keep the row so child replies keep their place in the thread.
-      await this.client.query(
-        `update whisper_reflections
-         set body = '', reply_to_name = null, deleted_at_ms = $2
-         where id = $1`,
-        [id, Date.now()]
+    // This write changes feed aggregates; drop the cached copies. Freshness
+    // is ultimately bounded by the cache TTL, not by this call.
+    this.invalidateFeedCaches();
+    // `for update` holds the row for the life of the transaction, so two
+    // concurrent deletes of the same reflection cannot both pass the ownership
+    // and tombstone checks and then race on the delete.
+    return this.db.withTransaction(async (tx) => {
+      const existing = await tx.query(
+        `select author_pubkey_hash, deleted_at_ms from whisper_reflections
+         where id = $1 for update`,
+        [id]
       );
-      return "soft";
-    }
-    await this.client.query("delete from whisper_reflections where id = $1", [id]);
-    return "hard";
+      if (existing.rowCount === 0) return null;
+      if (existing.rows[0].author_pubkey_hash !== authorPubkeyHash) return null;
+      if (existing.rows[0].deleted_at_ms) return null;
+
+      const children = await tx.query(
+        "select count(*)::int as n from whisper_reflections where parent_id = $1",
+        [id]
+      );
+      const hasChildren = Number(children.rows[0].n) > 0;
+
+      await tx.query(
+        "delete from whisper_reflection_reactions where reflection_id = $1",
+        [id]
+      );
+      await tx.query(
+        "delete from whisper_notifications where reflection_id = $1",
+        [id]
+      );
+      if (hasChildren) {
+        // Tombstone: keep the row so child replies keep their place in the thread.
+        await tx.query(
+          `update whisper_reflections
+           set body = '', reply_to_name = null, deleted_at_ms = $2
+           where id = $1`,
+          [id, Date.now()]
+        );
+        return "soft" as const;
+      }
+      await tx.query("delete from whisper_reflections where id = $1", [id]);
+      return "hard" as const;
+    });
   }
 
   async setReaction(
@@ -483,6 +540,9 @@ class PostgresWhisperRepository implements WhisperRepository {
     on: boolean,
     at: number
   ): Promise<ReactionTargetResult | null> {
+    // This write changes feed aggregates; drop the cached copies. Freshness
+    // is ultimately bounded by the cache TTL, not by this call.
+    this.invalidateFeedCaches();
     const target = await this.client.query(
       "select author_pubkey_hash, body from whisper_echoes where id = $1",
       [echoId]
@@ -514,6 +574,9 @@ class PostgresWhisperRepository implements WhisperRepository {
     on: boolean,
     at: number
   ): Promise<ReactionTargetResult | null> {
+    // This write changes feed aggregates; drop the cached copies. Freshness
+    // is ultimately bounded by the cache TTL, not by this call.
+    this.invalidateFeedCaches();
     const target = await this.client.query(
       `select author_pubkey_hash, body, echo_id from whisper_reflections
        where id = $1 and deleted_at_ms is null`,
@@ -687,14 +750,19 @@ class PostgresWhisperRepository implements WhisperRepository {
     since: number,
     options: { authorPubkeyHash?: string } = {}
   ): Promise<number> {
-    const result = await this.client.query<{ n: string }>(
-      `select count(*) as n
-       from whisper_echoes
-       where created_at_ms >= $1
-         and ($2::text is null or author_pubkey_hash = $2)`,
-      [since, options.authorPubkeyHash ?? null]
-    );
-    return Number(result.rows[0]?.n ?? 0);
+    // count(*) over the feed window grows with the table and is identical for
+    // every viewer, so it is cached alongside the other shared aggregates.
+    const key = `${since}:${options.authorPubkeyHash ?? ""}`;
+    return this.feedCountCache.resolve(key, async () => {
+      const result = await this.client.query<{ n: string }>(
+        `select count(*) as n
+         from whisper_echoes
+         where created_at_ms >= $1
+           and ($2::text is null or author_pubkey_hash = $2)`,
+        [since, options.authorPubkeyHash ?? null]
+      );
+      return Number(result.rows[0]?.n ?? 0);
+    });
   }
 
   // Turn raw whisper_echoes rows into viewer-personalised views. All counts,
@@ -707,24 +775,53 @@ class PostgresWhisperRepository implements WhisperRepository {
     const echoIds = echoRows.map((row) => row.id as string);
     if (echoIds.length === 0) return [];
 
-    const [
-      reactionCounts,
-      rippleCounts,
-      viewerReactions,
-      viewerRipples,
-      reflectionCounts,
-      previewRows
-    ] = await Promise.all([
-      this.client.query(
-        `select echo_id, count(*)::int as n from whisper_reactions
-         where echo_id = any($1::uuid[]) group by echo_id`,
-        [echoIds]
-      ),
-      this.client.query(
-        `select echo_id, count(*)::int as n from whisper_ripples
-         where echo_id = any($1::uuid[]) group by echo_id`,
-        [echoIds]
-      ),
+    // Four of these six queries produce identical results for every viewer, so
+    // they are cached for a few seconds keyed on the Echo id set. Every open
+    // client re-polls the same window on a fixed interval, so without this the
+    // relay re-runs the same aggregates once per client per poll.
+    const [shared, viewerReactions, viewerRipples] = await Promise.all([
+      this.sharedHydrationCache.resolve(echoIds.join(","), async () => {
+        const [reactionCounts, rippleCounts, reflectionCounts, previewRows] =
+          await Promise.all([
+            this.client.query(
+              `select echo_id, count(*)::int as n from whisper_reactions
+               where echo_id = any($1::uuid[]) group by echo_id`,
+              [echoIds]
+            ),
+            this.client.query(
+              `select echo_id, count(*)::int as n from whisper_ripples
+               where echo_id = any($1::uuid[]) group by echo_id`,
+              [echoIds]
+            ),
+            this.client.query(
+              `select echo_id, count(*)::int as n from whisper_reflections
+               where echo_id = any($1::uuid[]) and deleted_at_ms is null
+               group by echo_id`,
+              [echoIds]
+            ),
+            // Newest few replies per Echo as a collapsed-card preview; the full
+            // thread is paged lazily through listReflections when expanded.
+            this.client.query(
+              `select id, echo_id, author_pubkey_hash, author_name, body, created_at_ms,
+                      parent_id, root_id, reply_to_name, deleted_at_ms
+               from (
+                 select r.*, row_number() over (
+                   partition by echo_id order by created_at_ms desc
+                 ) as rn
+                 from whisper_reflections r
+                 where echo_id = any($1::uuid[]) and deleted_at_ms is null
+               ) ranked
+               where rn <= 2`,
+              [echoIds]
+            )
+          ]);
+        return {
+          reactionRows: reactionCounts.rows,
+          rippleRows: rippleCounts.rows,
+          reflectionRows: reflectionCounts.rows,
+          previewRows: previewRows.rows
+        };
+      }),
       this.client.query(
         `select echo_id from whisper_reactions
          where echo_id = any($1::uuid[]) and reactor_pubkey_hash = $2`,
@@ -734,35 +831,15 @@ class PostgresWhisperRepository implements WhisperRepository {
         `select echo_id from whisper_ripples
          where echo_id = any($1::uuid[]) and rippler_pubkey_hash = $2`,
         [echoIds, viewerPubkeyHash]
-      ),
-      this.client.query(
-        `select echo_id, count(*)::int as n from whisper_reflections
-         where echo_id = any($1::uuid[]) and deleted_at_ms is null
-         group by echo_id`,
-        [echoIds]
-      ),
-      // Newest few replies per Echo as a collapsed-card preview; the full
-      // thread is paged lazily through listReflections when expanded.
-      this.client.query(
-        `select id, echo_id, author_pubkey_hash, author_name, body, created_at_ms,
-                parent_id, root_id, reply_to_name, deleted_at_ms
-         from (
-           select r.*, row_number() over (
-             partition by echo_id order by created_at_ms desc
-           ) as rn
-           from whisper_reflections r
-           where echo_id = any($1::uuid[]) and deleted_at_ms is null
-         ) ranked
-         where rn <= 2`,
-        [echoIds]
       )
     ]);
 
+    const previewRows = { rows: shared.previewRows };
     const countMap = (rows: Array<{ echo_id: string; n: number }>): Map<string, number> =>
       new Map(rows.map((row) => [row.echo_id, Number(row.n)]));
-    const echoCounts = countMap(reactionCounts.rows);
-    const rippleCountMap = countMap(rippleCounts.rows);
-    const reflectionCountMap = countMap(reflectionCounts.rows);
+    const echoCounts = countMap(shared.reactionRows);
+    const rippleCountMap = countMap(shared.rippleRows);
+    const reflectionCountMap = countMap(shared.reflectionRows);
     const viewerEchoed = new Set(viewerReactions.rows.map((row) => row.echo_id as string));
     const viewerRippled = new Set(viewerRipples.rows.map((row) => row.echo_id as string));
 

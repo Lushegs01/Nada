@@ -22,11 +22,19 @@ NEXT_PUBLIC_RELAY_URL=<relay host or websocket URL>
 ALLOWED_ORIGIN=<web host or origin>
 PORT=<relay port supplied by the platform>
 PLAYWRIGHT_BASE_URL=<running web app origin for E2E tests>
-REDIS_URL=<optional Redis URL for relay queue>
+REDIS_URL=<Redis URL; required in production>
 RELAY_QUEUE_TTL_SECONDS=<optional encrypted relay queue TTL>
 WEB_PORT=<local web container port>
 RELAY_PORT=<local relay container port>
 ```
+
+See `.env.example` for the full set, including object storage
+(`MEDIA_S3_*`), web push (`VAPID_*`), and rate-limit tuning.
+
+`REDIS_URL` is optional locally but required in production: it backs the
+offline envelope queue, shared rate-limit counters, and the pub/sub channels
+that let one relay instance deliver to a socket held by another. `GET /health`
+reports which backends are actually wired up.
 
 ## Commands
 
@@ -41,13 +49,19 @@ pnpm --filter web test:e2e
 
 ## Deployment
 
-Render must deploy two separate services from `render.yaml`:
+Render deploys from `render.yaml`:
 
 - `app-web`: Next.js PWA
-- `app-relay`: Fastify WebSocket relay
+- `app-relay`: Fastify WebSocket relay (multiple instances)
+- `nada-redis`: shared Redis
+- `nada-db`: managed PostgreSQL
 
 The web service receives `NEXT_PUBLIC_RELAY_URL` from the relay service host.
 The relay receives `ALLOWED_ORIGIN` from the web service host.
+
+The relay scales horizontally, but only with Redis configured — socket presence
+is shared through Redis pub/sub. Raising `numInstances` without `REDIS_URL`
+silently breaks cross-instance delivery. See `docs/production-deployment.md`.
 
 ### CampOS integration
 
