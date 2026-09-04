@@ -19,27 +19,55 @@
 - Pino redaction is configured when logs are enabled.
 - Browser UI includes an honest IP-level anonymity warning.
 
-## Not Solved In Phase 1
+## What the encryption does and does not cover
 
-- Real E2E encryption.
-- Metadata privacy against the relay.
-- IP anonymity.
-- Secure anonymous push notifications.
-- Group sender-key encryption.
+Direct messages, group messages and status updates are encrypted on the client
+and the relay cannot read any of them. The relay can still see, because it
+routes on them: who is talking to whom, when, and roughly how much.
 
-## Phase 2 Reality Check
+Solved:
 
-The Phase 2 sealed envelope scaffold uses libsodium sealed boxes for payload
-confidentiality experiments. It is not the Signal protocol, does not implement
-Double Ratchet state, and does not provide Signal-style forward secrecy until
-the isolated Signal adapter is wired and verified.
+- Message confidentiality against the relay operator and the network.
+- Cryptographic sender authentication — the recipient verifies a signature made
+  by the sender's identity key, not the relay's routing header.
+- Misdirection and cross-conversation replay — the recipient's hash and a
+  timestamp are inside the signature.
+- Group and status key distribution — keys are sealed per member instead of
+  travelling in the clear beside the ciphertext.
+- Status read authorization — a read requires an identity proof, and the relay
+  only ever returns the key copy addressed to that verified identity.
 
-## Phase 3 Reality Check
+Not solved:
 
-Group sender keys in this repository are not production Signal Sender Keys.
-They do not yet solve membership-change secrecy, sender authentication,
-server-side group metadata exposure, or key compromise recovery.
+- **Forward secrecy.** No ratchet. An identity private key obtained later
+  decrypts every ciphertext ever sent to it. This is the single largest gap
+  against Signal, and closing it means wiring the Signal adapter or MLS.
+- **Metadata privacy against the relay.** Sender, recipient, timing and volume
+  are visible by construction.
+- **IP anonymity.** A browser PWA does not control network routing.
+- **Group membership-change secrecy.** Removing a member does not rotate the
+  group key, and an invite link still carries it.
+- **Push notification content privacy.** Push bodies are generic, but the push
+  provider sees that a notification was sent and to which endpoint.
+- **A compromised device.** Local storage holds the identity key and decrypted
+  history; anyone with the unlocked device has everything.
+- **XSS / supply chain.** Script injection into the PWA reaches the identity key
+  and IndexedDB. CSP narrows this but `'unsafe-inline'` is still required for
+  Next.js hydration until nonces are wired through middleware.
 
-WebRTC calls can expose IP-level and timing metadata. Insertable Streams can
-protect media payloads in supporting browsers, but they do not hide network
-metadata. Production calls require a TURN/SFU plan and clear privacy copy.
+## Legacy compatibility
+
+Messages written before the sealed format, and peers still on older clients,
+produce base64-encoded bodies. Those are readable by the relay. They are
+accepted on receive so history does not blank out, but a send that cannot be
+encrypted is reported to the user rather than presented as private. A payload
+that claims to be sealed and fails signature verification is never shown as
+authentic — it is dropped.
+
+## Calls
+
+WebRTC exposes IP-level and timing metadata. Insertable Streams can protect
+media payloads in supporting browsers but hide no network metadata. TURN
+credentials are per-user and time-limited when `TURN_SHARED_SECRET` is set;
+otherwise every caller shares one static credential. Production calling still
+requires an SFU plan and explicit privacy copy.

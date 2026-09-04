@@ -1,11 +1,27 @@
 # NADA
 
-NADA is an anonymous messaging PWA foundation. Phase 1 proves local identity,
-local contacts, invite links, QR sharing, IndexedDB storage, PWA installability,
-and an opaque WebSocket relay.
+NADA is an anonymous messaging PWA. Identity is an Ed25519 keypair generated
+on-device from a 12-word BIP39 seed phrase; there is no account, phone number,
+or email. Contacts, conversations and groups live in IndexedDB. A Fastify relay
+routes opaque envelopes by public-key hash.
 
-Phase 1 is not production anonymity. Mock message encryption is labeled in code
-and UI as `// ⚠️ MVP_ONLY — replace before production`.
+Messages are encrypted on the client. Direct messages are sealed to the
+recipient's key and signed inside the sealed box; group messages and status
+updates use a per-epoch symmetric key distributed as one sealed copy per member.
+The relay cannot read any of it.
+
+What that does **not** cover, stated plainly because the difference matters:
+
+- **No forward secrecy.** There is no ratchet, so an identity private key
+  obtained later decrypts everything ever sent to it.
+- **No metadata privacy.** The relay sees who talks to whom and when, because
+  it routes on exactly that.
+- **No IP anonymity.** A browser PWA does not control network routing.
+- **Groups do not rotate keys on membership change,** and an invite link carries
+  the group key — the link is the group credential.
+
+`docs/threat-model.md` is the full version. Do not describe NADA as
+Signal-equivalent: it is confidential against the relay, not forward-secret.
 
 ## Setup
 
@@ -97,17 +113,25 @@ handoff, the normal on-device anonymous identity remains authoritative.
 a possible NADA web-service cold start with Core's authorization work. It does
 not contact the relay, anonymous local storage, or NADA's database.
 
-## Phase 2 Status
+## Status
 
-Phase 2 adds production envelope schemas, a libsodium sealed-box scaffold,
-Redis-backed relay queue support, client-side AES-GCM file encryption, and blind
-upload request routes. Signal protocol integration remains isolated behind the
-adapter boundary until the dependency can be installed, licensed, and verified.
+Working end to end: anonymous identity and seed-phrase recovery, invite links
+and QR sharing, encrypted direct and group messaging with offline queueing and
+reconnect replay, replies, reactions, edits, unsend, disappearing timers,
+search, encrypted media, vanishing statuses shared with a chosen audience, the
+public Whispers feed with threads and profiles, notifications, web push, PWA
+installability, WebRTC calling, Stripe subscriptions, and CampOS SSO.
 
-## Phase 3 Status
+Known gaps, in priority order:
 
-Phase 3 adds local groups, group sender-key scaffolding, relay group fan-out,
-message replies, mentions, search, edit/unsend, disappearing timers, and a
-WebRTC call surface with Insertable Streams detection. Production groups still
-need audited Signal Sender Keys or MLS, and production calls still need TURN/SFU
-privacy hardening.
+1. **No forward secrecy.** The Signal adapter in `@nada/crypto` is loadable but
+   not wired into sessions; until it is, compromise of an identity key is
+   retroactive.
+2. **Group key rotation.** Removing a member does not rotate the group key.
+3. **Media authorization.** Uploads require an identity proof, but a download
+   only requires the object id. Objects are client-encrypted, so this is an
+   unauthenticated read of ciphertext rather than a disclosure.
+4. **CSP `unsafe-inline`.** Required by Next.js hydration until nonces are
+   wired through middleware.
+5. **Load testing.** The relay has correctness tests for its scaling paths but
+   has not been driven at institution scale.

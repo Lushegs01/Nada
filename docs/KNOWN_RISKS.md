@@ -39,12 +39,29 @@ Risk: Web and relay services may be merged by mistake.
 What breaks if wrong: WebSocket scaling, CORS, and deployment boundaries collapse.
 Manual verification: Confirm `render.yaml` creates `app-web` and `app-relay`.
 
-## Phase 1 Mock Encryption
+## No Forward Secrecy
 
-Risk: Phase 1 message secrecy is not production-grade.
-What breaks if wrong: Users may trust a demo as secure messaging.
-Manual verification: Confirm every mock path is labeled
-`// ⚠️ MVP_ONLY — replace before production`.
+Risk: Messages are sealed to a long-term identity key with no ratchet.
+What breaks if wrong: Anyone who later obtains an identity private key — a
+seized device, a restored seed phrase, a compromised backup — can decrypt every
+message ever sent to that identity, including ciphertext captured months
+earlier. This is the largest remaining gap against Signal.
+Manual verification: Confirm product copy never claims forward secrecy or
+Signal equivalence. Closing it means wiring the Signal adapter or MLS through
+`@nada/crypto`; the sealed-envelope format is versioned (`v: 2`) so a
+successor can be introduced without breaking existing history.
+
+## Unencryptable Recipients
+
+Risk: NADA may hold no verified identity key for a contact — an old record, a
+peer met before key exchange, or a contact whose stored key fails its hash
+check.
+What breaks if wrong: The body can only be base64-encoded, and the relay can
+read it. The send path reports this to the user once per conversation rather
+than presenting it as private.
+Manual verification: Confirm the "sent without encryption" notice still fires,
+and that `encryptDirectBody` never returns `encrypted: true` without both a
+verified recipient key and an unlocked identity.
 
 ## WebSocket Reconnection
 
@@ -70,6 +87,18 @@ and store only token hashes server-side.
 Risk: Browser PWAs do not control network routing.
 What breaks if wrong: Privacy claims become misleading.
 Manual verification: Confirm UI warning remains visible in Settings.
+
+## Offline Queue Redelivery
+
+Risk: The offline queue is at-least-once. Envelopes are parked in an in-flight
+list during replay and only settled once written to the socket, so a crash
+between the write and the settle redelivers them.
+What breaks if wrong: A duplicate arrives. Clients deduplicate by envelope id
+on write, so a duplicate is invisible — but any future consumer that does not
+deduplicate would double-apply it.
+Manual verification: Confirm every inbound path keys on envelope id before
+persisting, and that `relay_queue_inflight:*` keys carry the queue TTL so an
+abandoned batch cannot outlive its retention window.
 
 ## Redis (Queue, Rate Limits, Cross-Instance Routing)
 
@@ -121,6 +150,17 @@ cache, so a user's own interaction is always reflected immediately.
 Manual verification: Confirm `FEED_CACHE_TTL_MS` stays well below the client
 poll interval, and that write paths call `invalidateFeedCaches`.
 
+## Unauthenticated Whisper Feed Reads
+
+Risk: The public Whispers feed exposes every author's pubkey hash and requires
+no proof to read.
+What breaks if wrong: Pubkey hashes are enumerable. That is by design for a
+public feed, but it means any hash-keyed endpoint must authenticate its reader
+— which is why status reads now require an identity proof.
+Manual verification: Before adding any endpoint that takes a pubkey hash and
+returns private data, confirm it verifies an identity proof bound to the
+caller.
+
 ## Signal Adapter
 
 Risk: `@signalapp/libsignal-client` licensing, native loading, and browser
@@ -130,40 +170,62 @@ obligations that are incompatible with the product plan.
 Manual verification: Confirm legal review, install behavior, browser/WASM
 loading, and app bundle impact before enabling Signal-backed sessions.
 
-## Blind Upload Storage
+## Media Download Authorization
 
-Risk: Encrypted media now has an S3-compatible backend, but the blind-upload
-request flow (`/api/v1/upload/request`) still returns scaffolding rather than
-presigned URLs, and stored objects have no expiry policy.
-What breaks if wrong: Objects accumulate without retention, and the blind-upload
-path cannot deliver files independently of `/api/media/:id`.
-Manual verification: Confirm a bucket lifecycle rule enforces retention, and
-review content-hash addressing and the absence of user-to-file mapping before
-enabling the blind-upload delivery path.
+Risk: `/api/media/:id` serves any object to anyone who knows its id. Uploads
+require an identity proof; downloads do not.
+What breaks if wrong: An id leak exposes ciphertext. Objects are encrypted
+client-side with a key that travels in the message envelope, so this is an
+unauthenticated read of ciphertext rather than a disclosure — but it is still
+an unauthenticated read, and it permits enumeration attempts.
+Manual verification: Confirm `MEDIA_TTL_SECONDS` matches the bucket lifecycle
+rule, since the relay refusing to serve an expired object does not reclaim the
+bytes. Add proof-gated downloads before treating object ids as sensitive.
 
 ## Stripe Webhook Raw Body
 
-Risk: Stripe signature verification requires raw webhook bytes.
-What breaks if wrong: Legitimate subscription events fail verification or an
-unverified webhook path becomes tempting to enable.
+Risk: Stripe signature verification requires raw webhook bytes, and Stripe
+retries every non-2xx delivery.
+What breaks if wrong: Legitimate subscription events fail verification, or a
+retried event is applied twice.
 Manual verification: Confirm `/api/v1/subscription/webhook` receives a Buffer
-body and rejects requests without a valid `stripe-signature`.
+body, rejects requests without a valid `stripe-signature`, and claims the event
+id in `stripe_events` before doing any work. Note that Stripe can deliver
+events out of order: the handler is idempotent per event but does not currently
+reject a stale `customer.subscription.updated` arriving after a `deleted`.
 
-## Group Sender Keys
+## Group Key Rotation
 
-Risk: Phase 3 group sender keys are local symmetric-key scaffolding.
-What breaks if wrong: Users may believe groups have production Signal Sender Key
-security, including membership-change secrecy and compromise recovery.
-Manual verification: Replace the scaffold with audited Signal Sender Keys or MLS
-before production group messaging is advertised as secure.
+Risk: The group sender key is sealed to each member, so the relay cannot read
+it — but nothing rotates it when membership changes.
+What breaks if wrong: A removed member keeps the key they already hold and can
+decrypt subsequent messages if they still receive the envelopes. The relay
+fans out to the recipient list the sender supplies, so removal is enforced by
+the sender's client, not by the server.
+Manual verification: Confirm group removal copy does not promise that a removed
+member loses access. Rotation on membership change is the fix.
 
 ## Group Invite Links
 
-Risk: Phase 3 group invites carry a mock sender-key package in the URL.
-What breaks if wrong: Anyone with the invite URL may gain group decrypt
-capability in the MVP scaffold.
-Manual verification: Replace URL-carried sender keys with authenticated group
-membership admission and encrypted key distribution before production.
+Risk: Group invites carry the sender key in the URL, so the link is the group
+credential.
+What breaks if wrong: Anyone who obtains a forwarded invite link can decrypt
+messages sent after they join.
+Manual verification: Confirm invite-sharing copy says the link admits its
+holder. Replace with authenticated admission and per-member key delivery before
+treating group membership as access control.
+
+## Relay-Trusted Group Fan-Out
+
+Risk: The relay fans a group message out to the recipient list the sender
+supplies; it holds no group membership state.
+What breaks if wrong: A malicious client can address a "group message" to
+arbitrary identities. The payload is encrypted under a key those identities do
+not hold, so this is a spam and metadata vector rather than a disclosure, and
+it is bounded by the 512-recipient schema cap and the per-socket envelope
+limit.
+Manual verification: Confirm the recipient cap and per-socket rate limit are in
+force before treating group fan-out as abuse-resistant.
 
 ## WebRTC Calling
 
