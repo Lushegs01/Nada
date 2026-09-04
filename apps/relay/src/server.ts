@@ -42,6 +42,7 @@ import {
   SocketMessageLimiter,
   trySend
 } from "./socket-limits";
+import { registerPrekeyRoutes } from "./prekey-routes";
 import { registerPushRoutes } from "./push-routes";
 import { TtlCache } from "./ttl-cache";
 import { registerStatusRoutes } from "./status-routes";
@@ -141,6 +142,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     options: { maxPayload: MAX_SOCKET_PAYLOAD_BYTES }
   });
   await registerMonetizationRoutes(app, env, db);
+  await registerPrekeyRoutes(app, db);
   await registerPushRoutes(app, env, db);
   await registerStatusRoutes(app, env, db);
   await registerTurnRoutes(app, env);

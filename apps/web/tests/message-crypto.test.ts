@@ -149,9 +149,12 @@ describe("direct message bodies", () => {
       ciphertext: sent.ciphertext,
       identity: asRecord(bob)
     });
+    // forwardSecret is false here: no relay is configured in this suite, so
+    // no prekey bundle can be claimed and the sealed-box path is used.
     expect(opened).toEqual({
       body: "the reading room, 8pm",
       encrypted: true,
+      forwardSecret: false,
       senderPublicKey: alice.pubkey
     });
 
@@ -182,6 +185,7 @@ describe("direct message bodies", () => {
       identity: asRecord(alice)
     });
     expect(sent.encrypted).toBe(false);
+    expect(sent.forwardSecret).toBe(false);
 
     const opened = await decryptDirectBody({
       ciphertext: sent.ciphertext,

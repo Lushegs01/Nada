@@ -3,8 +3,11 @@
 import {
   createGroupSenderKey,
   decryptDirectMessage,
+  decryptWithPrekeys,
   encryptDirectMessage,
+  encryptWithPrekeyBundle,
   hashPublicKey,
+  isPrekeyMessage,
   isSealedDirectMessage,
   openSealedContentKey,
   sealContentKey,
@@ -15,6 +18,11 @@ import {
 import type { ContactRecord, IdentityRecord } from "@nada/db";
 
 import { nadaDb } from "@/lib/db";
+import {
+  claimPrekeyBundle,
+  consumePrekeys,
+  resolvePrekeyPrivate
+} from "@/lib/prekey-store";
 import { useIdentityStore } from "@/stores/useIdentityStore";
 
 /**
@@ -32,12 +40,21 @@ export interface EncryptedBody {
   ciphertext: string;
   /** False when no identity key was available and the body is only encoded. */
   encrypted: boolean;
+  /**
+   * True when the message was encrypted under a prekey, so it becomes
+   * unreadable once that key is consumed. False means it is sealed to the
+   * recipient's long-term identity key and stays decryptable for as long as
+   * that key exists.
+   */
+  forwardSecret: boolean;
 }
 
 export interface DecryptedBody {
   body: string;
   /** True when the body arrived sealed and its signature verified. */
   encrypted: boolean;
+  /** True when it arrived under a prekey rather than the identity key. */
+  forwardSecret?: boolean;
   /** Sender key recovered from inside the sealed payload, when present. */
   senderPublicKey?: string;
 }
@@ -144,6 +161,35 @@ export async function encryptDirectBody(args: {
   const recipientPublicKey = await resolveRecipientKey(args.recipientPubkeyHash);
 
   if (sender && recipientPublicKey) {
+    // Prefer a prekey: it is the only path that survives the recipient's
+    // identity key being compromised later. Falls through to the sealed box
+    // when the recipient has published none, is on an older client, or the
+    // relay is unreachable — degraded, but never a failed send.
+    try {
+      const bundle = await claimPrekeyBundle(
+        args.recipientPubkeyHash,
+        sender.pubkeyHash
+      );
+      if (bundle) {
+        return {
+          ciphertext: await encryptWithPrekeyBundle({
+            body: args.body,
+            bundle,
+            recipientPubkeyHash: args.recipientPubkeyHash,
+            senderPublicKey: sender.pubkey,
+            senderPrivateKey: sender.privateKey,
+            ...(args.timestamp ? { timestamp: args.timestamp } : {})
+          }),
+          encrypted: true,
+          forwardSecret: true
+        };
+      }
+    } catch {
+      // A bundle that fails its signature check is a relay trying to insert
+      // its own key. Fall back to the identity key, which that relay cannot
+      // substitute, rather than trusting the bundle.
+    }
+
     return {
       ciphertext: await encryptDirectMessage({
         body: args.body,
@@ -153,13 +199,15 @@ export async function encryptDirectBody(args: {
         senderPrivateKey: sender.privateKey,
         ...(args.timestamp ? { timestamp: args.timestamp } : {})
       }),
-      encrypted: true
+      encrypted: true,
+      forwardSecret: false
     };
   }
 
   return {
     ciphertext: await __UNSAFE_mockEncryptMessage(args.body),
-    encrypted: false
+    encrypted: false,
+    forwardSecret: false
   };
 }
 
@@ -178,6 +226,30 @@ export async function decryptDirectBody(args: {
   ciphertext: string;
   identity: Pick<IdentityRecord, "pubkey" | "pubkeyHash" | "localPrivateKey">;
 }): Promise<DecryptedBody | null> {
+  if (isPrekeyMessage(args.ciphertext)) {
+    const recipient = resolveSenderIdentity(args.identity);
+    if (!recipient) return null;
+    try {
+      const opened = await decryptWithPrekeys({
+        payload: args.ciphertext,
+        recipientPubkeyHash: recipient.pubkeyHash,
+        resolvePrekey: resolvePrekeyPrivate
+      });
+      // Deleting the one-time prekey now is what makes this message
+      // unrecoverable from here on, including by us. It happens after a
+      // successful open so a failed decrypt cannot burn a key.
+      await consumePrekeys(opened.usedOneTimePrekeyId);
+      return {
+        body: opened.body,
+        encrypted: true,
+        forwardSecret: true,
+        senderPublicKey: opened.senderPublicKey
+      };
+    } catch {
+      return null;
+    }
+  }
+
   if (isSealedDirectMessage(args.ciphertext)) {
     const recipient = resolveSenderIdentity(args.identity);
     if (!recipient) return null;
@@ -191,6 +263,7 @@ export async function decryptDirectBody(args: {
       return {
         body: opened.body,
         encrypted: true,
+        forwardSecret: false,
         senderPublicKey: opened.senderPublicKey
       };
     } catch {

@@ -228,6 +228,34 @@ create index if not exists status_updates_sender_created_idx
   on status_updates(sender_pubkey_hash, created_at_ms desc);
 create index if not exists status_updates_expires_idx on status_updates(expires_at_ms);
 
+-- Prekeys for forward-secret direct messaging.
+--
+-- The relay stores only public halves: it distributes them, it cannot use
+-- them. The signed prekey carries an Ed25519 signature by its owner's identity
+-- key, which senders verify before use — that is what stops a relay handing
+-- out a prekey it holds the private half of.
+create table if not exists identity_prekeys (
+  pubkey_hash text primary key,
+  identity_pubkey text not null,
+  signed_prekey_id text not null,
+  signed_prekey text not null,
+  signed_prekey_signature text not null,
+  created_at_ms bigint not null,
+  updated_at timestamptz not null
+);
+
+-- One-time prekeys, claimed at most once each. Deleting on claim is what makes
+-- a message unreadable afterwards: the private half is already gone from the
+-- recipient's device by then, and this removes the last trace of the public one.
+create table if not exists one_time_prekeys (
+  id text primary key,
+  pubkey_hash text not null,
+  prekey text not null,
+  created_at_ms bigint not null
+);
+create index if not exists one_time_prekeys_owner_idx
+  on one_time_prekeys(pubkey_hash, created_at_ms);
+
 -- Audience of a status update: one copy of the status's symmetric content key,
 -- sealed to a single viewer's identity key. The relay stores these opaquely
 -- and only ever hands a caller the row addressed to their own *verified*

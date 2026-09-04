@@ -2,8 +2,11 @@
 
 ## Claims
 
-- Never describe NADA as Signal-equivalent or forward-secret. It is confidential
-  against the relay; an identity key obtained later decrypts message history.
+- Never describe NADA as Signal-equivalent. Direct messages are forward-secret
+  where both sides publish prekeys, but there is no ratchet, so a device
+  compromised now stays readable until its prekeys rotate.
+- Never imply a seed phrase recovers message history or queued mail. Prekey
+  private halves are not derived from it, by design.
 - Never claim metadata privacy. The relay routes on sender and recipient.
 - Keep the UI warning that browser PWAs do not provide IP-level anonymity.
 - Keep the "sent without encryption" notice on send paths where no verified
@@ -18,6 +21,9 @@
   rule that catches stale closures in the dashboard; blanket
   `/* eslint-disable */` headers are not an acceptable way to satisfy it.
 - Keep `pnpm lint` green and running in CI ahead of typecheck.
+- Keep `script-src` free of 'unsafe-inline'. It is nonced via middleware, and
+  pages that render statically carry no nonce — a new document route must be
+  dynamic or every script on it is refused.
 - Confirm WebSocket instances live only in the Zustand store.
 - Confirm no secrets enter the client bundle.
 - Confirm PWA manifest and service worker paths are relative.
@@ -61,6 +67,12 @@
 
 Done:
 
+- Forward secrecy via X3DH-style prekeys: signed prekey (weekly rotation) plus
+  one-time prekeys, deleted on consumption. Falls back to a sealed box when the
+  recipient has published none.
+- Prekey substitution blocked: signed prekeys carry an identity-key signature
+  that senders verify before use.
+- Group key epochs with owner-triggered rotation, sealed to current members.
 - Direct messages sealed to the recipient's key and signed inside the box.
 - Group and status keys sealed per member instead of sent in the clear.
 - Public keys verified against their hash before use or storage — a contact
@@ -70,9 +82,10 @@ Done:
 
 Outstanding:
 
-- Wire Signal sessions (or MLS) for forward secrecy. The envelope format is
-  versioned so a successor can land beside `v: 2`.
-- Rotate group keys on membership change.
+- A ratchet (Double Ratchet or the Signal adapter) for post-compromise
+  security. The envelope format is versioned so a successor lands beside `v: 3`.
+- Automatic group key rotation on membership change, which needs a
+  membership-management surface first.
 - Review `@signalapp/libsignal-client` licensing and browser/WASM loading.
 - Keep libsodium calls behind `getSodium()`.
 

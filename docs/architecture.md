@@ -84,20 +84,62 @@ whose `senderPublicKey` does not hash to the identity that socket proved it
 controls, and the client re-derives the hash itself rather than trusting that
 check.
 
+### Forward secrecy (v3, prekeys)
+
+A sealed box to a long-term identity key is confidential but permanent: whoever
+later obtains that key reads everything ever sent to it. Prekeys close that.
+
+Each identity publishes to the relay a *signed prekey* — an X25519 key signed
+by its Ed25519 identity key, rotated weekly — and a batch of *one-time
+prekeys*. A sender claims a bundle, verifies the signature against the
+recipient's identity key, and derives a message key from the Diffie-Hellmans
+between a fresh ephemeral key and the recipient's prekeys:
+
+```
+master = BLAKE2b("nada-prekey-v3" ‖ DH(EK, SPK) ‖ DH(EK, OPK)? ‖ EK ‖ SPK ‖ OPK?)
+```
+
+The recipient deletes the one-time prekey the moment it opens a message. From
+then on the ciphertext cannot be reconstructed by anyone — including the
+recipient, and including anyone holding the identity key.
+
+The signature is what makes the relay storage rather than a trusted party: a
+relay that substituted a prekey of its own would fail verification at the
+sender.
+
+Three fallbacks, in order, so delivery never depends on this working:
+
+1. one-time prekey + signed prekey — forward secrecy per message;
+2. signed prekey only, when an attacker has drained the one-time supply —
+   forward secrecy bounded by weekly rotation;
+3. v2 sealed box, when the recipient has published no prekeys at all —
+   confidential, not forward-secret. The sender knows which path was taken.
+
 ### What this does not provide
 
-- **No forward secrecy.** There is no ratchet. Whoever later obtains an
-  identity private key can decrypt every ciphertext ever sent to it. Signal
-  session support remains behind the adapter boundary in `@nada/crypto`.
+- **No post-compromise security.** Prekeys are not a ratchet. An attacker with
+  a device's current prekey state reads until those keys rotate.
 - **No metadata protection.** The relay sees sender, recipient and timing,
   because it routes on them.
-- **No automatic group key rotation.** A removed member keeps the sender key
-  they already hold until the group rotates. Group invite links still carry the
-  group key, so the link is the group credential.
-- **Legacy bodies.** Messages written before this format, and peers on older
+- **No server-enforced group membership.** The relay fans out to the recipient
+  list the sender supplies. Rotation revokes future reading and the client only
+  admits groups it was sealed a key for, but neither is membership control.
+- **No recovery of queued mail across devices.** Prekey private halves are not
+  derived from the seed phrase, so a restored identity cannot open messages
+  queued for the device it replaced.
+- **Legacy bodies.** Messages written before these formats, and peers on older
   clients, produce base64-encoded bodies. Those are still readable so history
   does not blank out, but they are marked unencrypted in the send path and the
   user is told once per conversation when a key is unavailable.
+
+### Group key epochs
+
+Group keys are versioned. Every group message names the epoch it was encrypted
+under, and members keep every epoch they have been given, so rotating forward
+never blanks out history. "Reset group key" mints the next epoch and seals it
+to current members only — which is the only way to revoke a leaked invite link,
+since the link embeds the key. A late message from an older epoch cannot roll
+the group back onto a key it has rotated away from.
 
 ## Real-Time Delivery
 

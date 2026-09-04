@@ -430,6 +430,52 @@ export const StatusDeleteRequestSchema = z.object({
   proof: IdentityProofSchema
 });
 
+// ── Prekeys (forward secrecy) ──────────────────────────────────────────────
+// The relay stores and distributes public halves only. Senders verify the
+// signature on a signed prekey against the owner's identity key before use, so
+// a relay that substituted its own key would be caught by the client.
+export const PrekeyIdSchema = z.string().min(8).max(64);
+export const PrekeyPublicSchema = z.string().min(32).max(128);
+
+export const PrekeyPublishRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  identityPubkey: PublicKeySchema,
+  signedPrekeyId: PrekeyIdSchema,
+  signedPrekey: PrekeyPublicSchema,
+  signedPrekeySignature: z.string().min(1).max(512),
+  oneTimePrekeys: z
+    .array(z.object({ id: PrekeyIdSchema, prekey: PrekeyPublicSchema }))
+    .max(100)
+    .default([]),
+  proof: IdentityProofSchema
+});
+
+// Claiming consumes a one-time prekey, so it must name who is consuming it.
+export const PrekeyClaimRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  requester: PubkeyHashSchema,
+  proof: IdentityProofSchema
+});
+
+export const PrekeyStatusRequestSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  proof: IdentityProofSchema
+});
+
+export const PrekeyBundleResponseSchema = z.object({
+  identityKey: PublicKeySchema,
+  signedPrekeyId: PrekeyIdSchema,
+  signedPrekey: PrekeyPublicSchema,
+  signedPrekeySignature: z.string().min(1).max(512),
+  oneTimePrekeyId: PrekeyIdSchema.optional(),
+  oneTimePrekey: PrekeyPublicSchema.optional()
+});
+
+export type PrekeyPublishRequest = z.infer<typeof PrekeyPublishRequestSchema>;
+export type PrekeyClaimRequest = z.infer<typeof PrekeyClaimRequestSchema>;
+export type PrekeyStatusRequest = z.infer<typeof PrekeyStatusRequestSchema>;
+export type PrekeyBundleResponse = z.infer<typeof PrekeyBundleResponseSchema>;
+
 // ── Whispers: NADA's public global feed ────────────────────────────────────
 // Unlike statuses, whispers are a public timeline visible to every user, so the
 // body is stored plaintext on the relay. Writes are still authenticated with an

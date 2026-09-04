@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createGroupSenderKey,
+  createOneTimePrekeys,
+  createSignedPrekey,
+  decryptWithPrekeys,
+  encryptWithPrekeyBundle,
   decryptDirectMessage,
   decryptGroupMessage,
   encryptDirectMessage,
@@ -127,6 +131,21 @@ function waitFor(
       }
     }, 10);
   });
+}
+
+function proofFor(identity: Identity, context: string, binding: string) {
+  const timestamp = Date.now();
+  const message = buildSignedMessage(context, timestamp, identity.pubkeyHash, binding);
+  return {
+    pubkey: identity.pubkey,
+    pubkeyHash: identity.pubkeyHash,
+    signature: sign(
+      null,
+      Buffer.from(message, "utf8"),
+      identity.nodePrivateKey
+    ).toString("base64"),
+    timestamp
+  };
 }
 
 let app: FastifyInstance | null = null;
@@ -396,6 +415,97 @@ describe("group key rotation over the wire", () => {
     ).resolves.toBeNull();
     await expect(
       decryptGroupMessage(JSON.parse(rotated.envelope.ciphertext), epochOneKey)
+    ).rejects.toThrow();
+  });
+});
+
+describe("forward secrecy through the relay", () => {
+  it("makes a delivered message unreadable once its prekey is consumed", async () => {
+    const url = await startServer();
+    const alice = await newIdentity();
+    const bob = await newIdentity();
+
+    const a = await connectRegistered(url, alice);
+    const b = await connectRegistered(url, bob);
+    openSockets.push(a.socket, b.socket);
+
+    // Bob publishes a bundle; Alice claims it through the relay.
+    const signed = await createSignedPrekey(bob.privateKey);
+    const oneTime = (await createOneTimePrekeys(1))[0]!;
+    const publishProof = proofFor(bob, "prekey-publish", signed.id);
+    const published = await app!.inject({
+      method: "POST",
+      url: "/api/v1/prekeys/publish",
+      payload: {
+        pubkeyHash: bob.pubkeyHash,
+        identityPubkey: bob.pubkey,
+        signedPrekeyId: signed.id,
+        signedPrekey: signed.publicKey,
+        signedPrekeySignature: signed.signature,
+        oneTimePrekeys: [{ id: oneTime.id, prekey: oneTime.publicKey }],
+        proof: publishProof
+      }
+    });
+    expect(published.statusCode).toBe(200);
+
+    const claimed = await app!.inject({
+      method: "POST",
+      url: "/api/v1/prekeys/claim",
+      payload: {
+        pubkeyHash: bob.pubkeyHash,
+        requester: alice.pubkeyHash,
+        proof: proofFor(alice, "prekey-claim", bob.pubkeyHash)
+      }
+    });
+    expect(claimed.statusCode).toBe(200);
+    const bundle = claimed.json();
+
+    const plaintext = "this must not survive a later key compromise";
+    a.socket.send(
+      JSON.stringify({
+        type: "message",
+        id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        sender: alice.pubkeyHash,
+        senderPublicKey: alice.pubkey,
+        recipient: bob.pubkeyHash,
+        ciphertext: await encryptWithPrekeyBundle({
+          body: plaintext,
+          bundle,
+          recipientPubkeyHash: bob.pubkeyHash,
+          senderPublicKey: alice.pubkey,
+          senderPrivateKey: alice.privateKey
+        }),
+        timestamp: Date.now()
+      })
+    );
+
+    const delivered = (await waitFor(b.messages, (m) => m["type"] === "message")) as {
+      envelope: { ciphertext: string };
+    };
+    expect(delivered.envelope.ciphertext).not.toContain(plaintext);
+
+    // Bob holds both private halves and opens it.
+    const held = new Map<string, string>([
+      [signed.id, signed.privateKey],
+      [oneTime.id, oneTime.privateKey]
+    ]);
+    const opened = await decryptWithPrekeys({
+      payload: delivered.envelope.ciphertext,
+      recipientPubkeyHash: bob.pubkeyHash,
+      resolvePrekey: async (id) => held.get(id) ?? null
+    });
+    expect(opened.body).toBe(plaintext);
+
+    // He consumes the one-time prekey, as the client does on receipt. From
+    // here the ciphertext is beyond reach — Bob's identity private key is
+    // still intact and is no longer enough, which is the entire point.
+    held.delete(opened.usedOneTimePrekeyId!);
+    await expect(
+      decryptWithPrekeys({
+        payload: delivered.envelope.ciphertext,
+        recipientPubkeyHash: bob.pubkeyHash,
+        resolvePrekey: async (id) => held.get(id) ?? null
+      })
     ).rejects.toThrow();
   });
 });

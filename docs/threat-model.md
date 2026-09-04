@@ -34,6 +34,16 @@ Solved:
   timestamp are inside the signature.
 - Group and status key distribution — keys are sealed per member instead of
   travelling in the clear beside the ciphertext.
+- **Forward secrecy**, where both sides support it. Each identity publishes a
+  signed prekey and a batch of one-time prekeys; a message consumes one, and
+  the recipient deletes it on receipt. From that point the ciphertext cannot be
+  reconstructed by anyone, including someone who later obtains the identity
+  private key. Where the recipient has published no prekeys the message falls
+  back to a sealed box, which is confidential but not forward-secret.
+- Prekey substitution — a signed prekey carries an Ed25519 signature by its
+  owner's identity key, and senders verify it before use. A relay handing out a
+  prekey it holds the private half of is rejected by the client.
+- Group revocation — key epochs, rotated and sealed to current members only.
 - Status read authorization — a read requires an identity proof, and the relay
   only ever returns the key copy addressed to that verified identity.
 
@@ -45,8 +55,10 @@ Not solved:
 - **Metadata privacy against the relay.** Sender, recipient, timing and volume
   are visible by construction.
 - **IP anonymity.** A browser PWA does not control network routing.
-- **Group membership-change secrecy.** Removing a member does not rotate the
-  group key, and an invite link still carries it.
+- **Group membership control.** The relay holds no membership and fans out to
+  whatever recipient list a sender supplies. Rotation revokes a departed
+  member's *future* reading, and the client only admits a group it was sealed a
+  key for, but neither is server-enforced membership.
 - **Push notification content privacy.** Push bodies are generic, but the push
   provider sees that a notification was sent and to which endpoint.
 - **A compromised device.** Local storage holds the identity key and decrypted
@@ -71,3 +83,15 @@ media payloads in supporting browsers but hide no network metadata. TURN
 credentials are per-user and time-limited when `TURN_SHARED_SECRET` is set;
 otherwise every caller shares one static credential. Production calling still
 requires an SFU plan and explicit privacy copy.
+
+## Cost of forward secrecy
+
+Prekey private halves live only on the device that minted them and are not
+derived from the seed phrase. Restoring an identity on a new device therefore
+cannot open messages that were queued for the old one — the keys that would
+decrypt them are gone, which is exactly what forward secrecy means.
+
+In practice this costs little, because message history is local-first and never
+transferred by the seed phrase either. What it does mean is that a user who
+loses a device loses undelivered mail as well as history, and the onboarding
+copy about seed phrases should not imply otherwise.

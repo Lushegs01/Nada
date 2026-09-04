@@ -17,6 +17,23 @@ export interface SettingRecord {
   updatedAt: number;
 }
 
+/**
+ * A prekey's private half, held only on this device.
+ *
+ * These are what forward secrecy rests on: when one is deleted, messages
+ * encrypted to it stop being decryptable by anyone, including the owner. They
+ * are deliberately not derivable from the seed phrase — an identity restored on
+ * a new device cannot open messages queued for the old one, which is the
+ * property working as intended rather than a defect.
+ */
+export interface PrekeyRecord {
+  id: string;
+  kind: "signed" | "one-time";
+  publicKey: string;
+  privateKey: string;
+  createdAt: number;
+}
+
 export interface SessionRecord {
   id: string;
   contactPubkeyHash: PubkeyHash;
@@ -57,6 +74,7 @@ class NadaDexie extends Dexie {
   encryptedFiles!: Table<EncryptedFileRecord, string>;
   groupKeys!: Table<GroupKeyRecord, string>;
   messages!: Table<MessageRecord, string>;
+  prekeys!: Table<PrekeyRecord, string>;
   settings!: Table<SettingRecord, string>;
   sessions!: Table<SessionRecord, string>;
 
@@ -103,6 +121,9 @@ class NadaDexie extends Dexie {
           existing.map((record) => ({ ...record, epoch: record.epoch ?? 1 }))
         );
       });
+    this.version(9).stores({
+      prekeys: "id, kind, createdAt"
+    });
   }
 }
 

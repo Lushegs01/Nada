@@ -6,6 +6,7 @@ import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/
 import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload } from "@/lib/media-message";
 import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib/media-upload";
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
+import { ensurePrekeysPublished } from "@/lib/prekey-store";
 import { encryptDirectBody, isKeyForIdentity, rotateGroupKey, sealKeyForMembers, storeGroupKey } from "@/lib/message-crypto";
 import { whispersRelayConfigured, queryWhisperFeed, FEED_UNCHANGED, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote } from "@/lib/whispers";
 import type { CallMode, LocalCallSession } from "@/lib/webrtc";
@@ -563,6 +564,28 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       navigator.serviceWorker.removeEventListener("message", handleWorkerMessage);
     };
     }, [openChatByChatId, showNotification]);
+    /**
+     * Keeps this device's prekeys published.
+     *
+     * Runs when the relay is reachable and again on a slow interval, because
+     * one-time prekeys are consumed by other people sending to us and the
+     * supply is invisible to us until we ask. Running out is not a failure —
+     * senders fall back to the identity key — but it silently costs forward
+     * secrecy, so it is worth topping up before it happens.
+     */
+    useEffect(() => {
+    if (relayStatus !== "connected") return;
+    let active = true;
+    const refresh = (): void => {
+      if (active) void ensurePrekeysPublished();
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 6 * 60 * 60 * 1000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+    }, [relayStatus]);
     // Notification inbox sync: authoritative read/unread state lives on the
     // relay; new arrivals surface as in-app alerts through the same
     // notification pipeline chats use (tones, preview privacy, vibration).
