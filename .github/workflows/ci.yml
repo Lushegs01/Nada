@@ -21,7 +21,12 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_PASSWORD: postgres
+          # Trust auth rather than a password. The container is ephemeral, bound
+          # to the runner, and reachable by nothing else — so a password here
+          # secures nothing and is only a credential-shaped string sitting in
+          # version control for a scanner to find. Not having one is strictly
+          # better than having a well-known one.
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
@@ -46,7 +51,7 @@ jobs:
           --health-retries 10
 
     env:
-      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres
       TEST_REDIS_URL: redis://127.0.0.1:6379
 
     steps:

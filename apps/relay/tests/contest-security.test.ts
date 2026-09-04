@@ -1,5 +1,5 @@
 import fastify, { type FastifyInstance } from "fastify";
-import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
+import { generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { registerContestAdminRoutes } from "../src/contest/admin-routes";
@@ -25,6 +25,13 @@ import {
  * ordinary key. The server has to decide identity, validity, scoring,
  * eligibility, status and ranking — the client decides none of them.
  */
+
+/**
+ * Generated per run rather than written down. A literal here would be a
+ * credential-shaped string in version control for a secret scanner to find,
+ * and the test is stronger this way: it proves the comparison, not a constant.
+ */
+const METRICS_TOKEN = randomBytes(16).toString("hex");
 
 interface Identity {
   privateKey: KeyObject;
@@ -70,7 +77,7 @@ describe.skipIf(!HAS_POSTGRES)("contest API security", () => {
   const env = {
     allowedOrigin: "https://nada.test",
     contestAdminPubkeyHashes: [admin.pubkeyHash],
-    contestMetricsToken: "metrics-token-0123456789",
+    contestMetricsToken: METRICS_TOKEN,
     stripeSecretKey: undefined
   } as unknown as RelayEnv;
 
@@ -388,7 +395,7 @@ describe.skipIf(!HAS_POSTGRES)("contest API security", () => {
     const right = await app.inject({
       method: "GET",
       url: "/api/v1/contests/metrics",
-      headers: { authorization: "Bearer metrics-token-0123456789" }
+      headers: { authorization: `Bearer ${METRICS_TOKEN}` }
     });
     expect(right.statusCode).toBe(200);
     expect(right.json()).toHaveProperty("contest_events_processed_total");
