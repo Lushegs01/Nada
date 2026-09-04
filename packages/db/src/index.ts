@@ -214,6 +214,56 @@ create index if not exists status_updates_sender_created_idx
   on status_updates(sender_pubkey_hash, created_at_ms desc);
 create index if not exists status_updates_expires_idx on status_updates(expires_at_ms);
 
+-- Audience of a status update: one copy of the status's symmetric content key,
+-- sealed to a single viewer's identity key. The relay stores these opaquely
+-- and only ever hands a caller the row addressed to their own *verified*
+-- identity, so a status is readable by the audience its author chose and by
+-- nobody else — the relay operator included.
+create table if not exists status_key_envelopes (
+  status_id uuid not null,
+  recipient_pubkey_hash text not null,
+  sealed_key text not null,
+  created_at_ms bigint not null,
+  primary key (status_id, recipient_pubkey_hash)
+);
+create index if not exists status_key_envelopes_recipient_idx
+  on status_key_envelopes(recipient_pubkey_hash);
+
+-- Stripe delivers each webhook at least once and retries on any non-2xx, so
+-- every event has to be processed exactly once. Recording the event id before
+-- acting on it turns a replayed delivery into a no-op instead of a duplicate
+-- subscription row.
+create table if not exists stripe_events (
+  event_id text primary key,
+  event_type text not null,
+  processed_at timestamptz not null
+);
+
+-- One subscription row per Stripe subscription. Without this the webhook
+-- handler inserted a fresh uuid on every delivery, so a retried event grew the
+-- table forever and left several rows claiming different states for one user.
+--
+-- Existing deployments already carry those duplicates, and a bare CREATE
+-- UNIQUE INDEX against them fails — which, since the schema is applied on
+-- boot, would stop the relay from starting. Collapse to the newest row per
+-- subscription first; the delete is a no-op on a clean database.
+delete from subscriptions a
+  using subscriptions b
+ where a.stripe_subscription_id = b.stripe_subscription_id
+   and (a.updated_at, a.id) < (b.updated_at, b.id);
+create unique index if not exists subscriptions_stripe_subscription_idx
+  on subscriptions(stripe_subscription_id);
+
+-- A referral code may be redeemed once per identity. Same de-duplication
+-- reason as above.
+delete from referral_redemptions a
+  using referral_redemptions b
+ where a.pubkey_hash = b.pubkey_hash
+   and a.referral_code = b.referral_code
+   and (a.created_at, a.id) < (b.created_at, b.id);
+create unique index if not exists referral_redemptions_unique_idx
+  on referral_redemptions(pubkey_hash, referral_code);
+
 -- Whispers: NADA's public global feed. Unlike statuses, whisper content is a
 -- public timeline visible to every user, so the body is stored in the clear.
 -- No real-world identity or contact data is ever persisted here.

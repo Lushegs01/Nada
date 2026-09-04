@@ -88,6 +88,16 @@ export const IdentityProofSchema = z.object({
 });
 export type IdentityProof = z.infer<typeof IdentityProofSchema>;
 
+// One copy of a symmetric content key, sealed to a single recipient's identity
+// key. Group sender keys and status keys used to travel beside the ciphertext
+// in the clear, which handed the relay the ability to decrypt everything it
+// routed; they now ride as an array of these instead.
+export const SealedKeyEnvelopeSchema = z.object({
+  recipient: PubkeyHashSchema,
+  sealedKey: z.string().min(1).max(1024)
+});
+export type SealedKeyEnvelope = z.infer<typeof SealedKeyEnvelopeSchema>;
+
 export const MessageEnvelopeSchema = z.object({
   type: z.literal("message"),
   id: UuidSchema,
@@ -97,6 +107,11 @@ export const MessageEnvelopeSchema = z.object({
   ciphertext: z.string().min(1),
   messageKind: MessageKindSchema.optional(),
   replyTo: ReplyToMessageSchema.optional(),
+  // Sender's Ed25519 identity key, so a recipient who has never seen an invite
+  // link can still address an encrypted reply. The relay rejects any envelope
+  // whose senderPublicKey does not hash to the authenticated sender, and the
+  // client re-derives the hash itself rather than trusting that check.
+  senderPublicKey: PublicKeySchema.optional(),
   devPlaintext: devPlaintextField
 });
 
@@ -109,7 +124,15 @@ export const GroupMessageEnvelopeSchema = z.object({
   timestamp: z.number().int().positive(),
   ciphertext: z.string().min(1),
   messageKind: MessageKindSchema.optional(),
+  /**
+   * @deprecated Plaintext sender key. Readable by the relay, so it is only
+   * still emitted when a member's identity key is unknown and there is no way
+   * to seal to them. Prefer `keyEnvelopes`.
+   */
   senderKeyPackage: z.string().min(1).optional(),
+  /** Per-member sealed copies of the group sender key. */
+  keyEnvelopes: z.array(SealedKeyEnvelopeSchema).max(512).optional(),
+  senderPublicKey: PublicKeySchema.optional(),
   devPlaintext: devPlaintextField,
   replyToId: UuidSchema.optional(),
   replyTo: ReplyToMessageSchema.optional(),
@@ -273,20 +296,6 @@ export const GroupInvitePayloadSchema = z.object({
   senderKeyPackage: z.string().min(1)
 });
 
-export const BlindUploadRequestSchema = z.object({
-  contentHash: z.string().min(32).max(256),
-  sizeBytes: z.number().int().positive(),
-  mimeType: z.string().min(1).max(120).optional()
-});
-
-export const BlindUploadResponseSchema = z.object({
-  uploadId: UuidSchema,
-  contentHash: z.string().min(32).max(256),
-  expiresAt: z.number().int().positive(),
-  uploadUrl: z.null(),
-  storage: z.literal("client-encrypted-blind-upload-mvp")
-});
-
 export const MediaUploadResponseSchema = z.object({
   id: UuidSchema,
   url: z.string().min(1),
@@ -398,6 +407,25 @@ export const StatusPublishRequestSchema = z.object({
   id: UuidSchema,
   sender: PubkeyHashSchema,
   timestamp: z.number().int().positive(),
+  /**
+   * Audience of the status: one sealed copy of the status key per viewer the
+   * author chose. The relay stores these opaquely and hands a caller only the
+   * envelope addressed to their own verified identity, so a status is
+   * readable by its audience and by nobody else — including the relay.
+   */
+  keyEnvelopes: z.array(SealedKeyEnvelopeSchema).max(512).optional(),
+  proof: IdentityProofSchema
+});
+
+// Reading statuses requires proving who you are. Without a proof any caller
+// could ask for any identity's statuses, and pubkey hashes are public on the
+// Whispers feed — so an unauthenticated read was an open window onto every
+// user's "vanishing" updates.
+export const StatusQueryRequestSchema = z.object({
+  limit: z.number().int().min(1).max(200).optional(),
+  senderPubkeyHashes: z.array(PubkeyHashSchema).min(1).max(256),
+  since: z.number().int().positive().optional(),
+  viewerPubkeyHash: PubkeyHashSchema,
   proof: IdentityProofSchema
 });
 
@@ -649,8 +677,6 @@ export type DeliveryStatus = z.infer<typeof DeliveryStatusSchema>;
 export type ServerSocketEnvelope = z.infer<typeof ServerSocketEnvelopeSchema>;
 export type InvitePayload = z.infer<typeof InvitePayloadSchema>;
 export type GroupInvitePayload = z.infer<typeof GroupInvitePayloadSchema>;
-export type BlindUploadRequest = z.infer<typeof BlindUploadRequestSchema>;
-export type BlindUploadResponse = z.infer<typeof BlindUploadResponseSchema>;
 export type MediaUploadResponse = z.infer<typeof MediaUploadResponseSchema>;
 export type BillingPlan = z.infer<typeof BillingPlanSchema>;
 export type PaidBillingPlan = z.infer<typeof PaidBillingPlanSchema>;
@@ -675,6 +701,7 @@ export type PushSubscriptionRequest = z.infer<
 >;
 export type StatusPublishRequest = z.infer<typeof StatusPublishRequestSchema>;
 export type StatusDeleteRequest = z.infer<typeof StatusDeleteRequestSchema>;
+export type StatusQueryRequest = z.infer<typeof StatusQueryRequestSchema>;
 export type WhisperRippleSource = z.infer<typeof WhisperRippleSourceSchema>;
 export type WhisperPublishRequest = z.infer<typeof WhisperPublishRequestSchema>;
 export type WhisperDeleteRequest = z.infer<typeof WhisperDeleteRequestSchema>;

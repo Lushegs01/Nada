@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { timingSafeEqual } from "node:crypto";
 import Stripe from "stripe";
 
 import {
@@ -173,7 +174,7 @@ export async function registerMonetizationRoutes(
     const authHeader = request.headers.authorization;
     if (
       !env.capabilityIssuerSecret ||
-      authHeader !== `Bearer ${env.capabilityIssuerSecret}`
+      !matchesBearerSecret(authHeader, env.capabilityIssuerSecret)
     ) {
       return reply.code(401).send({
         code: "capability_issuer_unauthorized",
@@ -288,6 +289,27 @@ export async function registerMonetizationRoutes(
           message: "Invalid Stripe webhook signature."
         });
       }
+      // Claim the event before doing any work. Stripe retries on any non-2xx
+      // and can redeliver on success, so without this a single subscription
+      // update could be applied several times — and, because deliveries can
+      // arrive out of order, a replayed "updated" could resurrect a
+      // subscription that a later "deleted" had already ended.
+      let claimed: boolean;
+      try {
+        claimed = await repository.claimStripeEvent(event.id, event.type);
+      } catch (err) {
+        app.log.error({ err, eventId: event.id }, "Stripe event claim failed");
+        // Ask Stripe to retry rather than silently skipping a real event.
+        return reply.code(500).send({
+          code: "stripe_webhook_processing_failed",
+          message: "Failed to process Stripe webhook."
+        });
+      }
+      if (!claimed) {
+        app.log.info({ eventId: event.id }, "Stripe webhook already processed");
+        return reply.send({ received: true, duplicate: true });
+      }
+
       try {
         await handleStripeEvent(event, repository, app);
       } catch (err) {
@@ -300,6 +322,22 @@ export async function registerMonetizationRoutes(
       return reply.send({ received: true });
     });
   });
+}
+
+/**
+ * Constant-time bearer comparison. `===` on secrets short-circuits at the
+ * first differing byte, which leaks the secret's prefix to anyone who can
+ * measure response timing across many requests.
+ */
+function matchesBearerSecret(
+  header: string | undefined,
+  secret: string
+): boolean {
+  if (typeof header !== "string") return false;
+  const expected = Buffer.from(`Bearer ${secret}`, "utf8");
+  const provided = Buffer.from(header, "utf8");
+  if (expected.length !== provided.length) return false;
+  return timingSafeEqual(expected, provided);
 }
 
 function priceIdForPlan(env: RelayEnv, plan: PaidBillingPlan): string | null {

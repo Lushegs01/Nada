@@ -25,6 +25,7 @@ function testEnv(): RelayEnv {
     mediaS3Region: "auto",
     mediaS3SecretAccessKey: undefined,
     mediaStorageDir: ".nada-media-test",
+    mediaTtlSeconds: 2_592_000,
     nodeEnv: "test",
     port: 0,
     rateLimitIdentityMax: 240,

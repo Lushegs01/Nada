@@ -14,6 +14,7 @@ const EnvSchema = z.object({
   MEDIA_S3_REGION: z.string().min(1).optional(),
   MEDIA_S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   MEDIA_STORAGE_DIR: z.string().min(1).optional(),
+  MEDIA_TTL_SECONDS: z.coerce.number().int().positive().optional(),
   NODE_ENV: z.string().optional(),
   PORT: z.coerce.number().int().positive(),
   RATE_LIMIT_IDENTITY_MAX: z.coerce.number().int().positive().optional(),
@@ -49,6 +50,7 @@ export interface RelayEnv {
   mediaS3Region: string;
   mediaS3SecretAccessKey: string | undefined;
   mediaStorageDir: string;
+  mediaTtlSeconds: number;
   nodeEnv: string;
   port: number;
   rateLimitIdentityMax: number;
@@ -91,6 +93,10 @@ export function readEnv(): RelayEnv {
     mediaS3Region: result.data.MEDIA_S3_REGION ?? "auto",
     mediaS3SecretAccessKey: result.data.MEDIA_S3_SECRET_ACCESS_KEY,
     mediaStorageDir: result.data.MEDIA_STORAGE_DIR ?? ".nada-media",
+    // Attachments are conversation data, not archives. The relay refuses to
+    // serve an object past this age; a bucket lifecycle rule set to the same
+    // window is what actually reclaims the bytes.
+    mediaTtlSeconds: result.data.MEDIA_TTL_SECONDS ?? 30 * 24 * 60 * 60,
     nodeEnv,
     port: result.data.PORT,
     // Per-identity ceiling. A normal client spends ~9 requests/minute on
