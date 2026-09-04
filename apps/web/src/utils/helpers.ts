@@ -13,8 +13,9 @@ import {
 } from "@/utils/dashboard-types";
 import { decodeMessagePayload } from "@/lib/media-message";
 import { loadMessagesForChat, nadaDb, directChatId } from "@/lib/db";
+import { decryptDirectBody, isKeyForIdentity, learnPeerPublicKey, openKeyForSelf } from "@/lib/message-crypto";
 import {} from "@/lib/media-message";
-import { mockDecryptMessage, decryptGroupMessage } from "@nada/crypto";
+import { decryptGroupMessage, __UNSAFE_mockDecryptMessage } from "@nada/crypto";
 import type { MessageRecord, ContactRecord, IdentityRecord, ChatRecord } from "@nada/db";
 import type { InvitePayload, GroupInvitePayload, MessageEnvelope, GroupMessageEnvelope } from "@nada/types";
 
@@ -612,12 +613,35 @@ export function isLegacyNadaName(name: string): boolean {
     return name === "NADA" || /^NADA\s+[a-f0-9]/i.test(name);
 }
 
+/**
+ * Writes or refreshes a contact.
+ *
+ * The public key is only accepted when it actually hashes to the contact's
+ * identity, and a verified key already on file is never replaced by an
+ * unverifiable one. This used to be the opposite: callers passed whatever they
+ * had — `persistIncomingMessages` passed the pubkey *hash* — and it
+ * overwrote the real key an invite link had provided, leaving the contact
+ * permanently unable to receive an encrypted message.
+ */
 export async function upsertContact(payload: InvitePayload): Promise<ContactRecord> {
     const existing = await nadaDb.contacts.get(payload.pubkeyHash);
+    const incomingKeyValid = await isKeyForIdentity(
+      payload.publicKey,
+      payload.pubkeyHash
+    );
+    const existingKeyValid = await isKeyForIdentity(
+      existing?.publicKey,
+      payload.pubkeyHash
+    );
+    const publicKey = incomingKeyValid
+      ? payload.publicKey
+      : existingKeyValid
+        ? existing!.publicKey
+        : payload.publicKey;
     const contact: ContactRecord = {
             id: payload.pubkeyHash,
             pubkeyHash: payload.pubkeyHash,
-            publicKey: payload.publicKey,
+            publicKey,
             localDisplayName:
               existing && !isLegacyNadaName(existing.localDisplayName)
                 ? existing.localDisplayName
@@ -702,30 +726,40 @@ export function dataUrlSize(dataUrl: string): number {
 
 export async function persistIncomingMessages(identity: IdentityRecord, envelopes: MessageEnvelope[]): Promise<void> {
     for (const envelope of envelopes) {
-    const contactPayload: InvitePayload = {
-      version: 1,
-      pubkeyHash: envelope.sender,
-      // ⚠️ MVP_ONLY — replace before production
-      publicKey: envelope.sender
-    };
-    await upsertContact(contactPayload);
     const chatId = directChatId(identity.pubkeyHash, envelope.sender);
     const existing = await nadaDb.messages.get(envelope.id);
     if (existing) {
       continue;
     }
 
-    // Try to decrypt the message body. Use devPlaintext first (dev mode),
-    // then fall back to mockDecryptMessage (base64 decode), then raw ciphertext.
-    let body: string;
-    if (envelope.devPlaintext) {
-      body = envelope.devPlaintext;
-    } else {
-      try {
-        body = await mockDecryptMessage(envelope.ciphertext);
-    } catch {
-        body = envelope.ciphertext;
-      }
+    // Open the body first: a sealed envelope carries the sender's real
+    // identity key inside it, which is the most trustworthy source we have
+    // for learning how to encrypt a reply.
+    const opened = envelope.devPlaintext
+      ? { body: envelope.devPlaintext, encrypted: false as const, senderPublicKey: undefined }
+      : await decryptDirectBody({ ciphertext: envelope.ciphertext, identity });
+
+    // A payload that claimed to be sealed and failed verification is a forged
+    // or corrupted message. Showing its raw ciphertext as if it were content
+    // would be worse than saying nothing, so it is skipped entirely.
+    if (!opened) {
+      continue;
+    }
+    const body = opened.body;
+
+    // Record the sender's key so the reply can be encrypted. Both sources are
+    // verified against the sender's hash before they are trusted: the key
+    // sealed inside the payload, and the envelope hint the relay also checks.
+    await upsertContact({
+      version: 1,
+      pubkeyHash: envelope.sender,
+      publicKey:
+        opened.senderPublicKey ?? envelope.senderPublicKey ?? envelope.sender
+    });
+    if (opened.senderPublicKey) {
+      await learnPeerPublicKey(envelope.sender, opened.senderPublicKey);
+    } else if (envelope.senderPublicKey) {
+      await learnPeerPublicKey(envelope.sender, envelope.senderPublicKey);
     }
 
     const statusComment = parseStatusCommentPayload(body);
@@ -808,6 +842,80 @@ export async function persistIncomingMessages(identity: IdentityRecord, envelope
     }
 }
 
+/**
+ * Persists status updates pulled back from the relay.
+ *
+ * A status is encrypted once under a per-status content key; the relay hands
+ * back only the copy of that key sealed to the *authenticated* viewer. No
+ * envelope for this viewer means the author did not share the status with
+ * them, which is a normal outcome and simply produces nothing — not an error,
+ * and never a readable body.
+ */
+/** One row of the relay's `/api/v1/statuses/query` response. */
+export interface RelayStatusRow {
+    id: string;
+    sender: string;
+    timestamp: number;
+    ciphertext: string;
+    /** This viewer's sealed copy of the status content key, when shared. */
+    statusKeyEnvelope?: string;
+    devPlaintext?: string;
+}
+
+export async function persistIncomingStatuses(
+    identity: IdentityRecord,
+    statuses: RelayStatusRow[]
+): Promise<void> {
+    for (const status of statuses) {
+    if (await nadaDb.messages.get(status.id)) {
+      continue;
+    }
+
+    let body: string | null = null;
+    if (status.devPlaintext) {
+      body = status.devPlaintext;
+    } else if (status.statusKeyEnvelope) {
+      const contentKey = await openKeyForSelf({
+        envelopes: [
+          { recipient: identity.pubkeyHash, sealedKey: status.statusKeyEnvelope }
+        ],
+        identity
+      });
+      if (contentKey) {
+        try {
+          const parsed = JSON.parse(status.ciphertext) as {
+            ciphertext: string;
+            nonce: string;
+            version: 1;
+          };
+          body = await decryptGroupMessage(parsed, contentKey);
+        } catch {
+          body = null;
+        }
+      }
+    }
+
+    // Not in the audience, or the payload did not decrypt: skip rather than
+    // storing ciphertext that would render as garbage in the status viewer.
+    if (body === null) {
+      continue;
+    }
+
+    await nadaDb.messages.put({
+      id: status.id,
+      chatId: "status",
+      senderPubkeyHash: status.sender,
+      recipientPubkeyHash: identity.pubkeyHash,
+      direction: "inbound",
+      kind: "status",
+      body,
+      encryptedPayload: status.ciphertext,
+      status: "delivered",
+      createdAt: status.timestamp
+    });
+    }
+}
+
 export async function persistIncomingGroupMessages(identity: IdentityRecord, envelopes: GroupMessageEnvelope[]): Promise<void> {
     for (const envelope of envelopes) {
     const existingMessage = await nadaDb.messages.get(envelope.id);
@@ -816,10 +924,23 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
     }
 
     let existingChat = await nadaDb.chats.get(envelope.groupId);
-    const envelopeSenderKey = envelope.senderKeyPackage;
+    // Prefer the copy of the sender key sealed to this identity. The plaintext
+    // `senderKeyPackage` is the legacy path: it is readable by the relay, so
+    // it is only trusted when the sender had no key to seal to us with.
+    const sealedSenderKey = await openKeyForSelf({
+      envelopes: envelope.keyEnvelopes,
+      identity
+    });
+    const envelopeSenderKey = sealedSenderKey ?? envelope.senderKeyPackage;
     const keyRecord = await nadaDb.groupKeys.get(envelope.groupId);
     const senderKey =
       envelopeSenderKey ?? existingChat?.groupSenderKey ?? keyRecord?.senderKey;
+
+    // Group members exchange identity keys through the same envelopes, so a
+    // member can seal the next rotation back to everyone who has spoken.
+    if (envelope.senderPublicKey) {
+      await learnPeerPublicKey(envelope.sender, envelope.senderPublicKey);
+    }
 
     if (envelopeSenderKey) {
       if (!keyRecord || keyRecord.senderKey !== envelopeSenderKey) {
@@ -867,11 +988,11 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
             senderKey
           );
         } else {
-          body = await mockDecryptMessage(envelope.ciphertext);
+          body = await __UNSAFE_mockDecryptMessage(envelope.ciphertext);
         }
       } catch {
         try {
-        body = await mockDecryptMessage(envelope.ciphertext);
+        body = await __UNSAFE_mockDecryptMessage(envelope.ciphertext);
       } catch {
           body = GROUP_DECRYPTION_FALLBACK_TEXT;
       }

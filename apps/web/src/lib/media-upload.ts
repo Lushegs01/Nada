@@ -12,6 +12,7 @@ import {
 } from "@/lib/file-encryption";
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
 import { classifyMimeType } from "@/lib/media-message";
+import { useIdentityStore } from "@/stores/useIdentityStore";
 
 export const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
 
@@ -119,6 +120,16 @@ export async function uploadEncryptedMedia({
     return null;
   }
 
+  // The relay only accepts authenticated uploads: without a proof the endpoint
+  // would be open object storage for anyone who found the URL. Sign before
+  // spending time on encryption so a locked identity fails fast.
+  const proof = await useIdentityStore
+    .getState()
+    .signProof("media-upload", senderPubkeyHash);
+  if (!proof) {
+    return null;
+  }
+
   const encryptedFile = await encryptFileForBlindUpload(file);
   await nadaDb.encryptedFiles.put(encryptedFile);
 
@@ -131,6 +142,7 @@ export async function uploadEncryptedMedia({
   body.set("mimeType", encryptedFile.mimeType);
   body.set("originalName", file.name);
   body.set("size", String(file.size));
+  body.set("proof", JSON.stringify(proof));
   body.set(
     "file",
     new Blob([encryptedBytes as BlobPart], { type: "application/octet-stream" }),
