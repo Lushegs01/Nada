@@ -410,6 +410,8 @@ request; without `TEST_DATABASE_URL` / `TEST_REDIS_URL` they skip.
   a sustained burst beyond `MAX_QUEUE_DEPTH` (20,000) sheds the oldest jobs, and
   reconciliation is what recovers them. It has not been load-tested at that
   volume.
+- **Leaderboard display names are captured at join time.** Changing a Whispers
+  handle afterwards does not rename the leaderboard entry; re-joining does.
 - **Legal compliance is not asserted.** The rules page states the mechanics; it
   does not claim the contest is lawful in any particular jurisdiction. That
   determination is the operator's.

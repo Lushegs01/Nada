@@ -271,3 +271,53 @@ Manual verification: After adding a route, confirm `curl -D-` on it returns a
 `content-security-policy` header containing a `nonce-`. Pages must also render
 dynamically — a prerendered page carries no nonce and every script on it is
 refused.
+
+## Contest Admin Allow-List
+
+Risk: `CONTEST_ADMIN_PUBKEY_HASHES` names the identities that can freeze,
+finalize, disqualify and approve payouts.
+What breaks if wrong: An empty list disables contest administration entirely
+(a contest cannot be published or finalized). A wrong or stale entry hands
+those powers to a key nobody controls, and there is no recovery path other than
+editing the variable and redeploying.
+Manual verification: Confirm each hash is a 64-character hex pubkey hash held by
+a person who should have it, and that `POST /api/v1/contests/admin/whoami`
+answers `{"admin": true}` for each before a contest is published.
+
+## Contest Prize Currency
+
+Risk: Entry fees are charged through Stripe in `entryCurrency`, and Stripe does
+not support every ISO-4217 code in every account region — NGN in particular.
+What breaks if wrong: Checkout session creation fails and no one can enter a
+paid contest; a contest already advertised as paid has no working entry path.
+Manual verification: Create a test-mode Checkout session for the intended
+currency and amount before publishing a paid contest.
+
+## Contest Reconciliation Before Finalization
+
+Risk: Scoring is asynchronous, so the live ledger can be incomplete.
+Reconciliation is what makes it complete, and it is an explicit admin step.
+What breaks if wrong: A contest finalized without reconciling pays out on
+standings that may be missing the events in flight when it froze.
+Manual verification: The state machine enforces FROZEN → UNDER_REVIEW via the
+reconcile endpoint, so a finalized contest necessarily passed through it.
+Confirm the reconcile response reported `recorded: 0` on a second run before
+approving a winner.
+
+## Contest Payout Records
+
+Risk: NADA records payouts; it does not make them.
+What breaks if wrong: A `PAID` row asserts a transfer that may not have
+happened, and the contest's audit trail is then wrong about money.
+Manual verification: Record a payout only after the transfer has settled with
+the payment provider, using that provider's reference.
+
+## Contest Leaderboard Tie Ordering
+
+Risk: The Redis sorted set breaks ties lexicographically by member; the
+authoritative ranking breaks them by who joined first.
+What breaks if wrong: Displayed ranks can differ from final ranks between
+participants on identical scores.
+Manual verification: Confirm prize decisions are read from
+`contest_participants.final_rank` (set by `finalizeStandings`) and never from a
+displayed leaderboard position.
