@@ -17,6 +17,7 @@ import {
   CircleDashed,
   CircleUserRound,
   Loader2,
+  Trophy,
   Waves,
   Bell,
   X
@@ -53,6 +54,7 @@ const NAV_TABS = [
   { id: "status", label: "Status", icon: CircleDashed },
   { id: "groups", label: "Groups", icon: Users },
   { id: "whispers", label: "Whispers", icon: Waves },
+  { id: "contest", label: "Contest", icon: Trophy },
   { id: "alerts", label: "Alerts", icon: Bell },
   { id: "profile", label: "Profile", icon: CircleUserRound },
   { id: "settings", label: "Settings", icon: Settings }
@@ -614,6 +616,7 @@ const TAB_TITLES: Record<string, string> = {
   status: "Status",
   groups: "Groups",
   whispers: "Whispers",
+  contest: "Contest",
   alerts: "Alerts",
   profile: "Profile",
   settings: "Settings"

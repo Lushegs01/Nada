@@ -43,6 +43,7 @@ import { LaunchOnboardingSheet } from "../panels/Sheet";
 import { parseVoiceNoteBody } from "../VoiceNote";
 import { GroupsHome } from "./CommunitiesHome";
 import { WhispersFeed, type WhisperThreadMeta } from "./WhispersFeed";
+import { ContestScreen } from "../contest/ContestScreen";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { ProfilePage } from "./ProfilePage";
 import { StatusView, StatusCreateSheet, StatusViewerSheet } from "./StatusView";
@@ -4108,6 +4109,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               onToggleReflectionLike={toggleReflectionLike}
               threadMeta={whisperThreadMeta}
             />
+          ) : activeTab === "contest" ? (
+            <ContestScreen displayName={whisperAuthorName()} identity={identity} />
           ) : activeTab === "alerts" ? (
             <NotificationsPanel
               loading={notificationsLoading}
