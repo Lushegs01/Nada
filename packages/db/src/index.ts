@@ -66,6 +66,8 @@ export const ChatRecordSchema = z.object({
   memberPubkeyHashes: z.array(PubkeyHashSchema).min(1),
   ownerPubkeyHash: PubkeyHashSchema.optional(),
   groupSenderKey: z.string().min(1).optional(),
+  /** Epoch of `groupSenderKey`. Absent on records written before epochs. */
+  groupKeyEpoch: z.number().int().positive().optional(),
   createdAt: z.number().int().positive(),
   updatedAt: z.number().int().positive(),
   disappearingTimer: z.number().int().nonnegative()
@@ -93,8 +95,20 @@ export const MessageRecordSchema = z.object({
   reactions: z.record(z.string(), z.array(PubkeyHashSchema)).optional()
 });
 
+/**
+ * One group sender key, at one epoch.
+ *
+ * Keys are kept per epoch rather than one-per-group so a rotation does not
+ * destroy the ability to read history: messages name the epoch they were
+ * encrypted under, and old epochs stay readable while new messages use the
+ * current one. Rotation is what makes group membership revocable at all —
+ * without it, anyone who ever held the key (or an invite link carrying it)
+ * could read every future message.
+ */
 export const GroupKeyRecordSchema = z.object({
   groupId: z.string().min(1).max(128),
+  /** Monotonic per group. Epoch 1 is the key a group is created with. */
+  epoch: z.number().int().positive().default(1),
   senderKey: z.string().min(1),
   createdByPubkeyHash: PubkeyHashSchema,
   createdAt: z.number().int().positive(),

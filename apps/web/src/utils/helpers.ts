@@ -13,7 +13,7 @@ import {
 } from "@/utils/dashboard-types";
 import { decodeMessagePayload } from "@/lib/media-message";
 import { loadMessagesForChat, nadaDb, directChatId } from "@/lib/db";
-import { decryptDirectBody, isKeyForIdentity, learnPeerPublicKey, openKeyForSelf } from "@/lib/message-crypto";
+import { decryptDirectBody, groupKeyForEpoch, isKeyForIdentity, learnPeerPublicKey, openKeyForSelf, storeGroupKey } from "@/lib/message-crypto";
 import {} from "@/lib/media-message";
 import { decryptGroupMessage, __UNSAFE_mockDecryptMessage } from "@nada/crypto";
 import type { MessageRecord, ContactRecord, IdentityRecord, ChatRecord } from "@nada/db";
@@ -664,16 +664,19 @@ export async function upsertGroupFromInvite(identity: IdentityRecord, payload: G
               new Set([...payload.memberPubkeyHashes, identity.pubkeyHash])
             ),
             ownerPubkeyHash: payload.ownerPubkeyHash,
-            // ⚠️ MVP_ONLY — replace before production
+            // The invite URL carries this key, so the link is the group
+            // credential. Rotating the group key is what revokes a leaked one.
             groupSenderKey: payload.senderKeyPackage,
+            groupKeyEpoch: 1,
             createdAt: existing?.createdAt ?? now,
             updatedAt: now,
             disappearingTimer: existing?.disappearingTimer ?? 0,
             ...(existing?.avatar ? { avatar: existing.avatar } : {})
           };
     await nadaDb.chats.put(chat);
-    await nadaDb.groupKeys.put({
+    await storeGroupKey({
     groupId: payload.groupId,
+    epoch: 1,
     senderKey: payload.senderKeyPackage,
     createdByPubkeyHash: payload.ownerPubkeyHash,
     createdAt: now
@@ -927,14 +930,23 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
     // Prefer the copy of the sender key sealed to this identity. The plaintext
     // `senderKeyPackage` is the legacy path: it is readable by the relay, so
     // it is only trusted when the sender had no key to seal to us with.
+    // Messages name the key epoch they were encrypted under. Absent means
+    // epoch 1, from before rotation existed.
+    const messageEpoch = envelope.keyEpoch ?? 1;
     const sealedSenderKey = await openKeyForSelf({
       envelopes: envelope.keyEnvelopes,
       identity
     });
     const envelopeSenderKey = sealedSenderKey ?? envelope.senderKeyPackage;
-    const keyRecord = await nadaDb.groupKeys.get(envelope.groupId);
+    // Prefer the key stored for this message's own epoch: after a rotation the
+    // chat's current key is a later one and would not open older history.
+    const storedEpochKey = await groupKeyForEpoch(envelope.groupId, messageEpoch);
     const senderKey =
-      envelopeSenderKey ?? existingChat?.groupSenderKey ?? keyRecord?.senderKey;
+      envelopeSenderKey ??
+      storedEpochKey ??
+      (messageEpoch === (existingChat?.groupKeyEpoch ?? 1)
+        ? existingChat?.groupSenderKey
+        : undefined);
 
     // Group members exchange identity keys through the same envelopes, so a
     // member can seal the next rotation back to everyone who has spoken.
@@ -942,22 +954,26 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
       await learnPeerPublicKey(envelope.sender, envelope.senderPublicKey);
     }
 
-    if (envelopeSenderKey) {
-      if (!keyRecord || keyRecord.senderKey !== envelopeSenderKey) {
-        await nadaDb.groupKeys.put({
-          groupId: envelope.groupId,
-          senderKey: envelopeSenderKey,
-          createdByPubkeyHash: envelope.sender,
-          createdAt: envelope.timestamp
-        });
-      }
-      if (existingChat && existingChat.groupSenderKey !== envelopeSenderKey) {
+    if (envelopeSenderKey && envelopeSenderKey !== storedEpochKey) {
+      await storeGroupKey({
+        groupId: envelope.groupId,
+        epoch: messageEpoch,
+        senderKey: envelopeSenderKey,
+        createdByPubkeyHash: envelope.sender,
+        createdAt: envelope.timestamp
+      });
+      // Only advance the chat's active key when this message carries a *newer*
+      // epoch. A late-arriving message from an older epoch must not roll the
+      // group back onto a key that has already been rotated away from.
+      if (existingChat && messageEpoch >= (existingChat.groupKeyEpoch ?? 1)) {
         await nadaDb.chats.update(envelope.groupId, {
-          groupSenderKey: envelopeSenderKey
+          groupSenderKey: envelopeSenderKey,
+          groupKeyEpoch: messageEpoch
         });
         existingChat = {
           ...existingChat,
-          groupSenderKey: envelopeSenderKey
+          groupSenderKey: envelopeSenderKey,
+          groupKeyEpoch: messageEpoch
         };
       }
     }
@@ -1008,7 +1024,7 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
       ) {
         await nadaDb.messages.where("chatId").equals(envelope.groupId).delete();
         await nadaDb.chatPrefs.delete(envelope.groupId);
-        await nadaDb.groupKeys.delete(envelope.groupId);
+        await nadaDb.groupKeys.where("groupId").equals(envelope.groupId).delete();
         await nadaDb.chats.delete(envelope.groupId);
       }
       continue;
@@ -1037,7 +1053,7 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
           new Set([identity.pubkeyHash, envelope.sender, ...envelope.recipients])
         ),
         ownerPubkeyHash: envelope.sender,
-        ...(senderKey ? { groupSenderKey: senderKey } : {}),
+        ...(senderKey ? { groupSenderKey: senderKey, groupKeyEpoch: messageEpoch } : {}),
         createdAt: now,
         updatedAt: envelope.timestamp,
         disappearingTimer: 0

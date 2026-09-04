@@ -87,6 +87,22 @@ class NadaDexie extends Dexie {
     this.version(7).stores({
       messages: "id, chatId, [chatId+createdAt], kind, [kind+createdAt], status, expiresAt, createdAt"
     });
+    // Group keys become per-epoch. A group holds every epoch it has been given
+    // so rotating a key revokes future messages without losing history.
+    this.version(8)
+      .stores({
+        groupKeys: "[groupId+epoch], groupId, createdByPubkeyHash, createdAt"
+      })
+      .upgrade(async (tx) => {
+        // Existing rows were keyed by groupId alone and predate epochs; they
+        // are epoch 1 by definition.
+        const table = tx.table<GroupKeyRecord>("groupKeys");
+        const existing = await table.toArray();
+        await table.clear();
+        await table.bulkPut(
+          existing.map((record) => ({ ...record, epoch: record.epoch ?? 1 }))
+        );
+      });
   }
 }
 

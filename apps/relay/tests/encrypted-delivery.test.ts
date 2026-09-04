@@ -305,3 +305,97 @@ describe("encrypted delivery through the relay", () => {
     ).resolves.toBe("group business");
   });
 });
+
+describe("group key rotation over the wire", () => {
+  it("leaves a member behind once the key rotates without them", async () => {
+    const url = await startServer();
+    const owner = await newIdentity();
+    const staying = await newIdentity();
+    const removed = await newIdentity();
+
+    const o = await connectRegistered(url, owner);
+    const s = await connectRegistered(url, staying);
+    const r = await connectRegistered(url, removed);
+    openSockets.push(o.socket, s.socket, r.socket);
+
+    // Epoch 1: everyone is a member.
+    const epochOneKey = await createGroupSenderKey();
+    o.socket.send(
+      JSON.stringify({
+        type: "group-message",
+        id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        groupId: "study-group",
+        recipients: [staying.pubkeyHash, removed.pubkeyHash],
+        sender: owner.pubkeyHash,
+        senderPublicKey: owner.pubkey,
+        keyEpoch: 1,
+        keyEnvelopes: await sealContentKey(epochOneKey, [
+          { pubkeyHash: staying.pubkeyHash, publicKey: staying.pubkey },
+          { pubkeyHash: removed.pubkeyHash, publicKey: removed.pubkey }
+        ]),
+        ciphertext: JSON.stringify(
+          await encryptGroupMessage("before the reset", epochOneKey)
+        ),
+        timestamp: Date.now()
+      })
+    );
+    await waitFor(r.messages, (m) => m["type"] === "group-message");
+
+    // Epoch 2: the owner rotates and seals only to the remaining member.
+    const epochTwoKey = await createGroupSenderKey();
+    o.socket.send(
+      JSON.stringify({
+        type: "group-message",
+        id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        groupId: "study-group",
+        // The removed member is still addressed here on purpose: even a relay
+        // that keeps delivering to them must not make the message readable.
+        recipients: [staying.pubkeyHash, removed.pubkeyHash],
+        sender: owner.pubkeyHash,
+        senderPublicKey: owner.pubkey,
+        keyEpoch: 2,
+        keyEnvelopes: await sealContentKey(epochTwoKey, [
+          { pubkeyHash: staying.pubkeyHash, publicKey: staying.pubkey }
+        ]),
+        ciphertext: JSON.stringify(
+          await encryptGroupMessage("after the reset", epochTwoKey)
+        ),
+        timestamp: Date.now()
+      })
+    );
+
+    const rotated = (await waitFor(
+      s.messages,
+      (m) => m["type"] === "group-message" && (m as any).envelope.keyEpoch === 2
+    )) as {
+      envelope: {
+        ciphertext: string;
+        keyEnvelopes: { recipient: string; sealedKey: string }[];
+      };
+    };
+
+    const forStaying = await openSealedContentKey({
+      envelopes: rotated.envelope.keyEnvelopes,
+      recipientPubkeyHash: staying.pubkeyHash,
+      recipientPublicKey: staying.pubkey,
+      recipientPrivateKey: staying.privateKey
+    });
+    expect(forStaying).toBe(epochTwoKey);
+    await expect(
+      decryptGroupMessage(JSON.parse(rotated.envelope.ciphertext), forStaying!)
+    ).resolves.toBe("after the reset");
+
+    // The removed member holds epoch 1 and has no envelope at epoch 2.
+    await expect(
+      openSealedContentKey({
+        envelopes: rotated.envelope.keyEnvelopes,
+        recipientPubkeyHash: removed.pubkeyHash,
+        recipientPublicKey: removed.pubkey,
+        recipientPrivateKey: removed.privateKey
+      })
+    ).resolves.toBeNull();
+    await expect(
+      decryptGroupMessage(JSON.parse(rotated.envelope.ciphertext), epochOneKey)
+    ).rejects.toThrow();
+  });
+});

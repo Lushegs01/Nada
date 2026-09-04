@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  createGroupSenderKey,
   decryptDirectMessage,
   encryptDirectMessage,
   hashPublicKey,
@@ -266,4 +267,79 @@ export async function contactsMissingKeys(
     }
   }
   return missing;
+}
+
+// ── Group key epochs ────────────────────────────────────────────────────────
+
+/**
+ * Records a group key at a given epoch.
+ *
+ * Keys accumulate rather than replace: a member who was present for epoch 2
+ * must still be able to read epoch-2 history after the group rotates to
+ * epoch 3. Only the *current* epoch is used for new messages.
+ */
+export async function storeGroupKey(args: {
+  groupId: string;
+  epoch: number;
+  senderKey: string;
+  createdByPubkeyHash: string;
+  createdAt: number;
+}): Promise<void> {
+  await nadaDb.groupKeys.put({
+    groupId: args.groupId,
+    epoch: args.epoch,
+    senderKey: args.senderKey,
+    createdByPubkeyHash: args.createdByPubkeyHash,
+    createdAt: args.createdAt
+  });
+}
+
+/** The key for one epoch, or null when this identity was never given it. */
+export async function groupKeyForEpoch(
+  groupId: string,
+  epoch: number
+): Promise<string | null> {
+  const record = await nadaDb.groupKeys.get([groupId, epoch]);
+  return record?.senderKey ?? null;
+}
+
+/** The highest epoch this identity holds a key for. */
+export async function latestGroupEpoch(groupId: string): Promise<number> {
+  const records = await nadaDb.groupKeys.where("groupId").equals(groupId).toArray();
+  return records.reduce((highest, record) => Math.max(highest, record.epoch), 0);
+}
+
+/**
+ * Mints the next key epoch for a group.
+ *
+ * This is what makes group membership revocable. The new key is only ever
+ * sealed to the members the group holds *now*, so anyone dropped from the
+ * member list — or holding an invite link that carried an older key — can read
+ * nothing sent from this point on. History under previous epochs is untouched
+ * for everyone who legitimately received those keys.
+ *
+ * Returns the new epoch and key; the caller is responsible for putting them on
+ * the wire, which happens naturally because every group send seals the current
+ * key to every member.
+ */
+export async function rotateGroupKey(
+  groupId: string,
+  rotatedByPubkeyHash: string
+): Promise<{ epoch: number; senderKey: string }> {
+  const epoch = (await latestGroupEpoch(groupId)) + 1;
+  const senderKey = await createGroupSenderKey();
+  const now = Date.now();
+  await storeGroupKey({
+    groupId,
+    epoch,
+    senderKey,
+    createdByPubkeyHash: rotatedByPubkeyHash,
+    createdAt: now
+  });
+  await nadaDb.chats.update(groupId, {
+    groupSenderKey: senderKey,
+    groupKeyEpoch: epoch,
+    updatedAt: now
+  });
+  return { epoch, senderKey };
 }

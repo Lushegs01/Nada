@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ContactRecord } from "@nada/db";
+import type { ChatRecord, ContactRecord, GroupKeyRecord } from "@nada/db";
 
 // Dexie needs a real IndexedDB, which this suite does not: the behaviour under
 // test is key handling, so the contacts table is stood up in memory.
 const contacts = new Map<string, ContactRecord>();
+/** Keyed "groupId\u0000epoch", mirroring Dexie's [groupId+epoch] primary key. */
+const groupKeys = new Map<string, GroupKeyRecord>();
+const chats = new Map<string, Partial<ChatRecord>>();
 
 vi.mock("@/lib/db", () => ({
   nadaDb: {
@@ -16,6 +19,26 @@ vi.mock("@/lib/db", () => ({
       update: async (id: string, patch: Partial<ContactRecord>) => {
         const existing = contacts.get(id);
         if (existing) contacts.set(id, { ...existing, ...patch });
+      }
+    },
+    groupKeys: {
+      get: async ([groupId, epoch]: [string, number]) =>
+        groupKeys.get(`${groupId}\u0000${epoch}`),
+      put: async (record: GroupKeyRecord) => {
+        groupKeys.set(`${record.groupId}\u0000${record.epoch}`, record);
+      },
+      where: (field: string) => ({
+        equals: (value: string) => ({
+          toArray: async () =>
+            [...groupKeys.values()].filter(
+              (record) => (record as Record<string, unknown>)[field] === value
+            )
+        })
+      })
+    },
+    chats: {
+      update: async (id: string, patch: Partial<ChatRecord>) => {
+        chats.set(id, { ...(chats.get(id) ?? {}), ...patch });
       }
     }
   }
@@ -32,11 +55,15 @@ const {
 const {
   decryptDirectBody,
   encryptDirectBody,
+  groupKeyForEpoch,
   isKeyForIdentity,
+  latestGroupEpoch,
   learnPeerPublicKey,
   openKeyForSelf,
   resolveRecipientKey,
-  sealKeyForMembers
+  rotateGroupKey,
+  sealKeyForMembers,
+  storeGroupKey
 } = await import("@/lib/message-crypto");
 const { useIdentityStore } = await import("@/stores/useIdentityStore");
 
@@ -66,6 +93,8 @@ let bob: Identity;
 
 beforeEach(async () => {
   contacts.clear();
+  groupKeys.clear();
+  chats.clear();
   useIdentityStore.getState().setUnlocked(null);
   alice = await createAnonymousIdentity(createSeedPhrase());
   bob = await createAnonymousIdentity(createSeedPhrase());
@@ -262,5 +291,99 @@ describe("group admission", () => {
     await expect(
       openKeyForSelf({ envelopes, identity: asRecord(bob) })
     ).resolves.toBeNull();
+  });
+});
+
+describe("group key rotation", () => {
+  const GROUP = "study-group";
+
+  it("mints a new epoch and leaves history readable", async () => {
+    await storeGroupKey({
+      groupId: GROUP,
+      epoch: 1,
+      senderKey: await createGroupSenderKey(),
+      createdByPubkeyHash: alice.pubkeyHash,
+      createdAt: Date.now()
+    });
+    const original = await groupKeyForEpoch(GROUP, 1);
+
+    const rotated = await rotateGroupKey(GROUP, alice.pubkeyHash);
+    expect(rotated.epoch).toBe(2);
+    expect(rotated.senderKey).not.toBe(original);
+
+    // The old epoch survives, so messages sent under it still open.
+    await expect(groupKeyForEpoch(GROUP, 1)).resolves.toBe(original);
+    await expect(groupKeyForEpoch(GROUP, 2)).resolves.toBe(rotated.senderKey);
+    await expect(latestGroupEpoch(GROUP)).resolves.toBe(2);
+  });
+
+  it("cuts off anyone the new key is not sealed to", async () => {
+    const staying = bob;
+    const removed = await createAnonymousIdentity(createSeedPhrase());
+    addContact(staying);
+    addContact(removed);
+
+    await storeGroupKey({
+      groupId: GROUP,
+      epoch: 1,
+      senderKey: await createGroupSenderKey(),
+      createdByPubkeyHash: alice.pubkeyHash,
+      createdAt: Date.now()
+    });
+    const { senderKey: newKey } = await rotateGroupKey(GROUP, alice.pubkeyHash);
+
+    // The rotation is sealed to the members that remain — the removed member
+    // simply is not addressed, so there is no envelope for them to open.
+    const { envelopes } = await sealKeyForMembers(newKey, [staying.pubkeyHash]);
+
+    useIdentityStore.getState().setUnlocked({
+      pubkey: staying.pubkey,
+      pubkeyHash: staying.pubkeyHash,
+      privateKey: staying.privateKey
+    });
+    await expect(
+      openKeyForSelf({ envelopes, identity: asRecord(staying) })
+    ).resolves.toBe(newKey);
+
+    useIdentityStore.getState().setUnlocked({
+      pubkey: removed.pubkey,
+      pubkeyHash: removed.pubkeyHash,
+      privateKey: removed.privateKey
+    });
+    await expect(
+      openKeyForSelf({ envelopes, identity: asRecord(removed) })
+    ).resolves.toBeNull();
+
+    // And a message under the new epoch is opaque to them even if they kept
+    // the key they held before.
+    const oldKey = await groupKeyForEpoch(GROUP, 1);
+    const ciphertext = await encryptGroupMessage("after the reset", newKey);
+    await expect(decryptGroupMessage(ciphertext, oldKey!)).rejects.toThrow();
+  });
+
+  it("keeps epochs monotonic across repeated rotations", async () => {
+    await storeGroupKey({
+      groupId: GROUP,
+      epoch: 1,
+      senderKey: await createGroupSenderKey(),
+      createdByPubkeyHash: alice.pubkeyHash,
+      createdAt: Date.now()
+    });
+    const first = await rotateGroupKey(GROUP, alice.pubkeyHash);
+    const second = await rotateGroupKey(GROUP, alice.pubkeyHash);
+    expect([first.epoch, second.epoch]).toEqual([2, 3]);
+    expect(first.senderKey).not.toBe(second.senderKey);
+  });
+
+  it("scopes keys to their own group", async () => {
+    await storeGroupKey({
+      groupId: "group-a",
+      epoch: 1,
+      senderKey: await createGroupSenderKey(),
+      createdByPubkeyHash: alice.pubkeyHash,
+      createdAt: Date.now()
+    });
+    await expect(groupKeyForEpoch("group-b", 1)).resolves.toBeNull();
+    await expect(latestGroupEpoch("group-b")).resolves.toBe(0);
   });
 });

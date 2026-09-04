@@ -132,6 +132,13 @@ export const GroupMessageEnvelopeSchema = z.object({
   senderKeyPackage: z.string().min(1).optional(),
   /** Per-member sealed copies of the group sender key. */
   keyEnvelopes: z.array(SealedKeyEnvelopeSchema).max(512).optional(),
+  /**
+   * Which key epoch `ciphertext` was encrypted under. Recipients keep every
+   * epoch they have been given, so a rotation revokes future messages from
+   * anyone no longer sealed to, without blanking out history for those who
+   * remain. Absent means epoch 1.
+   */
+  keyEpoch: z.number().int().positive().optional(),
   senderPublicKey: PublicKeySchema.optional(),
   devPlaintext: devPlaintextField,
   replyToId: UuidSchema.optional(),

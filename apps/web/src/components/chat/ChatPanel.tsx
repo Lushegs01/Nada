@@ -195,6 +195,7 @@ export function ChatPanel({
       onCancelReply,
       onCopyGroupInvite,
       onDeleteGroup,
+      onResetGroupKey,
       onDisappearingTimerChange,
       onEditMessage,
       onMessageSearchChange,
@@ -252,6 +253,7 @@ export function ChatPanel({
           onCancelReply: () => void;
           onCopyGroupInvite: () => void;
           onDeleteGroup: () => void;
+          onResetGroupKey: () => void;
           onDisappearingTimerChange: (value: number) => void;
           onEditMessage: (message: MessageRecord) => void;
           onMessageSearchChange: (value: string) => void;
@@ -981,6 +983,28 @@ export function ChatPanel({
                     </button>
                     {canDeleteGroup ? (
                       <>
+                        <div className="my-1 border-t border-nada-border/[.08]" />
+                        {/*
+                          The only way to revoke access to a NADA group. The
+                          invite link embeds the group key, so a link that has
+                          been forwarded on reads everything the group says
+                          until the key is replaced.
+                        */}
+                        <button
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
+                          onClick={() => {
+                            setShowOptions(false);
+                            onResetGroupKey();
+                          }}
+                        >
+                          <Lock size={14} className="text-nada-secondary" />
+                          <span className="flex flex-col">
+                            <span>Reset group key</span>
+                            <span className="text-[11px] leading-tight text-nada-secondary/70">
+                              Revokes older invite links
+                            </span>
+                          </span>
+                        </button>
                         <div className="my-1 border-t border-nada-border/[.08]" />
                         <button
                           className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-semibold text-nada-danger hover:bg-red-500/10 transition-colors"
