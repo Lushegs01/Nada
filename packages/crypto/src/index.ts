@@ -2,6 +2,7 @@ export * from "./directMessage";
 export * from "./identity";
 export * from "./groupSenderKey";
 export * from "./mockEncryption";
+export * from "./prekeys";
 export * from "./sealedKeys";
 export * from "./seed";
 export * from "./signalAdapter";

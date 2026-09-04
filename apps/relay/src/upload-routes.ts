@@ -190,7 +190,17 @@ export async function registerUploadRoutes(
     return reply.code(201).send(response);
   });
 
-  app.get("/api/media/:id", async (request, reply) => {
+  /**
+   * Downloads one encrypted object.
+   *
+   * POST, not GET, because the request carries an identity proof: this used to
+   * be an unauthenticated read where the object id was the only credential.
+   * The bodies are client-encrypted, so that was a leak of ciphertext rather
+   * than content — but it was still an open read, and it let anyone enumerate
+   * and drain the bucket. The only consumer is a programmatic fetch that
+   * decrypts to a blob URL before rendering, so no `<img src>` depends on GET.
+   */
+  app.post("/api/media/:id", async (request, reply) => {
     const { id } = request.params as { id?: string };
     if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
       return reply.code(404).send({
@@ -199,8 +209,54 @@ export async function registerUploadRoutes(
       });
     }
 
+    const body = request.body as { proof?: unknown } | undefined;
+    const proof = isProofShape(body?.proof) ? body.proof : null;
+    if (!proof) {
+      return reply.code(400).send({
+        code: "missing_proof",
+        message: "Media download requires an identity proof."
+      });
+    }
+    const verification = verifyIdentityProof(proof, {
+      context: "media-download",
+      binding: id
+    });
+    if (!verification.ok) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+
     const stored = await mediaStore.get(id);
     if (!stored) {
+      return reply.code(404).send({
+        code: "media_not_found",
+        message: "Media was not found."
+      });
+    }
+
+    // Object-level authorization for direct media: only the two parties named
+    // on the object may read it.
+    //
+    // Group media is the exception, and deliberately weaker: `recipientPubkeyHash`
+    // holds the group id there, and the relay holds no group membership at all,
+    // so it cannot tell a member from a stranger. Those fall back to "any
+    // identity that proved itself and knows the object id", which is a real
+    // narrowing of the previous "anyone at all" but is not membership control.
+    // Closing it properly requires the relay to learn group membership, which
+    // is a privacy trade the product has not made.
+    const { senderPubkeyHash, recipientPubkeyHash } = stored.metadata;
+    const isDirectObject =
+      recipientPubkeyHash.length === 64 && /^[0-9a-f]+$/i.test(recipientPubkeyHash);
+    if (
+      isDirectObject &&
+      verification.pubkeyHash !== senderPubkeyHash &&
+      verification.pubkeyHash !== recipientPubkeyHash
+    ) {
+      // 404 rather than 403: a 403 would confirm the object exists to a caller
+      // with no business knowing that.
       return reply.code(404).send({
         code: "media_not_found",
         message: "Media was not found."
@@ -245,17 +301,18 @@ function parseProofField(raw: string | undefined): IdentityProof | null {
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== "object") return null;
-  const value = parsed as Record<string, unknown>;
-  if (
-    typeof value["pubkey"] !== "string" ||
-    typeof value["pubkeyHash"] !== "string" ||
-    typeof value["signature"] !== "string" ||
-    typeof value["timestamp"] !== "number"
-  ) {
-    return null;
-  }
-  return value as unknown as IdentityProof;
+  return isProofShape(parsed) ? parsed : null;
+}
+
+function isProofShape(value: unknown): value is IdentityProof {
+  if (!value || typeof value !== "object") return false;
+  const proof = value as Record<string, unknown>;
+  return (
+    typeof proof["pubkey"] === "string" &&
+    typeof proof["pubkeyHash"] === "string" &&
+    typeof proof["signature"] === "string" &&
+    typeof proof["timestamp"] === "number"
+  );
 }
 
 function sanitizeFileName(fileName: string): string {

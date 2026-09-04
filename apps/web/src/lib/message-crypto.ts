@@ -1,9 +1,13 @@
 "use client";
 
 import {
+  createGroupSenderKey,
   decryptDirectMessage,
+  decryptWithPrekeys,
   encryptDirectMessage,
+  encryptWithPrekeyBundle,
   hashPublicKey,
+  isPrekeyMessage,
   isSealedDirectMessage,
   openSealedContentKey,
   sealContentKey,
@@ -14,6 +18,11 @@ import {
 import type { ContactRecord, IdentityRecord } from "@nada/db";
 
 import { nadaDb } from "@/lib/db";
+import {
+  claimPrekeyBundle,
+  consumePrekeys,
+  resolvePrekeyPrivate
+} from "@/lib/prekey-store";
 import { useIdentityStore } from "@/stores/useIdentityStore";
 
 /**
@@ -31,12 +40,21 @@ export interface EncryptedBody {
   ciphertext: string;
   /** False when no identity key was available and the body is only encoded. */
   encrypted: boolean;
+  /**
+   * True when the message was encrypted under a prekey, so it becomes
+   * unreadable once that key is consumed. False means it is sealed to the
+   * recipient's long-term identity key and stays decryptable for as long as
+   * that key exists.
+   */
+  forwardSecret: boolean;
 }
 
 export interface DecryptedBody {
   body: string;
   /** True when the body arrived sealed and its signature verified. */
   encrypted: boolean;
+  /** True when it arrived under a prekey rather than the identity key. */
+  forwardSecret?: boolean;
   /** Sender key recovered from inside the sealed payload, when present. */
   senderPublicKey?: string;
 }
@@ -143,6 +161,35 @@ export async function encryptDirectBody(args: {
   const recipientPublicKey = await resolveRecipientKey(args.recipientPubkeyHash);
 
   if (sender && recipientPublicKey) {
+    // Prefer a prekey: it is the only path that survives the recipient's
+    // identity key being compromised later. Falls through to the sealed box
+    // when the recipient has published none, is on an older client, or the
+    // relay is unreachable — degraded, but never a failed send.
+    try {
+      const bundle = await claimPrekeyBundle(
+        args.recipientPubkeyHash,
+        sender.pubkeyHash
+      );
+      if (bundle) {
+        return {
+          ciphertext: await encryptWithPrekeyBundle({
+            body: args.body,
+            bundle,
+            recipientPubkeyHash: args.recipientPubkeyHash,
+            senderPublicKey: sender.pubkey,
+            senderPrivateKey: sender.privateKey,
+            ...(args.timestamp ? { timestamp: args.timestamp } : {})
+          }),
+          encrypted: true,
+          forwardSecret: true
+        };
+      }
+    } catch {
+      // A bundle that fails its signature check is a relay trying to insert
+      // its own key. Fall back to the identity key, which that relay cannot
+      // substitute, rather than trusting the bundle.
+    }
+
     return {
       ciphertext: await encryptDirectMessage({
         body: args.body,
@@ -152,30 +199,57 @@ export async function encryptDirectBody(args: {
         senderPrivateKey: sender.privateKey,
         ...(args.timestamp ? { timestamp: args.timestamp } : {})
       }),
-      encrypted: true
+      encrypted: true,
+      forwardSecret: false
     };
   }
 
   return {
     ciphertext: await __UNSAFE_mockEncryptMessage(args.body),
-    encrypted: false
+    encrypted: false,
+    forwardSecret: false
   };
 }
 
 /**
  * Opens an inbound direct-message body.
  *
- * Accepts both wire formats on purpose: a user's existing history and any peer
+ * Accepts every wire format on purpose: a user's existing history and any peer
  * still on an older client produce legacy payloads, and refusing those would
- * blank out conversations rather than protect them. A payload that *claims* to
- * be sealed and fails verification is never silently downgraded — it surfaces
- * as undecryptable, because a forged message shown as authentic is worse than
- * one that fails to render.
+ * blank out conversations rather than protect them.
+ *
+ * The one payload never accepted is one that *claims* to be sealed and fails
+ * verification. That is never downgraded to a legacy read — a forged message
+ * shown as authentic is worse than one that fails to render.
  */
 export async function decryptDirectBody(args: {
   ciphertext: string;
   identity: Pick<IdentityRecord, "pubkey" | "pubkeyHash" | "localPrivateKey">;
 }): Promise<DecryptedBody | null> {
+  if (isPrekeyMessage(args.ciphertext)) {
+    const recipient = resolveSenderIdentity(args.identity);
+    if (!recipient) return null;
+    try {
+      const opened = await decryptWithPrekeys({
+        payload: args.ciphertext,
+        recipientPubkeyHash: recipient.pubkeyHash,
+        resolvePrekey: resolvePrekeyPrivate
+      });
+      // Deleting the one-time prekey now is what makes this message
+      // unrecoverable from here on, including by us. It happens after a
+      // successful open so a failed decrypt cannot burn a key.
+      await consumePrekeys(opened.usedOneTimePrekeyId);
+      return {
+        body: opened.body,
+        encrypted: true,
+        forwardSecret: true,
+        senderPublicKey: opened.senderPublicKey
+      };
+    } catch {
+      return null;
+    }
+  }
+
   if (isSealedDirectMessage(args.ciphertext)) {
     const recipient = resolveSenderIdentity(args.identity);
     if (!recipient) return null;
@@ -189,6 +263,7 @@ export async function decryptDirectBody(args: {
       return {
         body: opened.body,
         encrypted: true,
+        forwardSecret: false,
         senderPublicKey: opened.senderPublicKey
       };
     } catch {
@@ -202,7 +277,12 @@ export async function decryptDirectBody(args: {
       encrypted: false
     };
   } catch {
-    return null;
+    // Not sealed and not base64 — an older client that put the body on the
+    // wire as-is. Returning null here dropped those messages on the floor
+    // rather than showing them, which is a worse outcome than rendering a
+    // payload the relay could already read. It is still reported as
+    // unencrypted, so nothing claims protection it does not have.
+    return { body: args.ciphertext, encrypted: false };
   }
 }
 
@@ -260,4 +340,79 @@ export async function contactsMissingKeys(
     }
   }
   return missing;
+}
+
+// ── Group key epochs ────────────────────────────────────────────────────────
+
+/**
+ * Records a group key at a given epoch.
+ *
+ * Keys accumulate rather than replace: a member who was present for epoch 2
+ * must still be able to read epoch-2 history after the group rotates to
+ * epoch 3. Only the *current* epoch is used for new messages.
+ */
+export async function storeGroupKey(args: {
+  groupId: string;
+  epoch: number;
+  senderKey: string;
+  createdByPubkeyHash: string;
+  createdAt: number;
+}): Promise<void> {
+  await nadaDb.groupKeys.put({
+    groupId: args.groupId,
+    epoch: args.epoch,
+    senderKey: args.senderKey,
+    createdByPubkeyHash: args.createdByPubkeyHash,
+    createdAt: args.createdAt
+  });
+}
+
+/** The key for one epoch, or null when this identity was never given it. */
+export async function groupKeyForEpoch(
+  groupId: string,
+  epoch: number
+): Promise<string | null> {
+  const record = await nadaDb.groupKeys.get([groupId, epoch]);
+  return record?.senderKey ?? null;
+}
+
+/** The highest epoch this identity holds a key for. */
+export async function latestGroupEpoch(groupId: string): Promise<number> {
+  const records = await nadaDb.groupKeys.where("groupId").equals(groupId).toArray();
+  return records.reduce((highest, record) => Math.max(highest, record.epoch), 0);
+}
+
+/**
+ * Mints the next key epoch for a group.
+ *
+ * This is what makes group membership revocable. The new key is only ever
+ * sealed to the members the group holds *now*, so anyone dropped from the
+ * member list — or holding an invite link that carried an older key — can read
+ * nothing sent from this point on. History under previous epochs is untouched
+ * for everyone who legitimately received those keys.
+ *
+ * Returns the new epoch and key; the caller is responsible for putting them on
+ * the wire, which happens naturally because every group send seals the current
+ * key to every member.
+ */
+export async function rotateGroupKey(
+  groupId: string,
+  rotatedByPubkeyHash: string
+): Promise<{ epoch: number; senderKey: string }> {
+  const epoch = (await latestGroupEpoch(groupId)) + 1;
+  const senderKey = await createGroupSenderKey();
+  const now = Date.now();
+  await storeGroupKey({
+    groupId,
+    epoch,
+    senderKey,
+    createdByPubkeyHash: rotatedByPubkeyHash,
+    createdAt: now
+  });
+  await nadaDb.chats.update(groupId, {
+    groupSenderKey: senderKey,
+    groupKeyEpoch: epoch,
+    updatedAt: now
+  });
+  return { epoch, senderKey };
 }

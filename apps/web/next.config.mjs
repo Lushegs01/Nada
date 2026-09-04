@@ -6,53 +6,6 @@ const withSerwist = withSerwistInit({
   disable: process.env.NODE_ENV === "development",
 });
 
-// Build connect-src from configured relay URL so the browser can only talk to
-// the relay we deployed. Falls back to allowing any https/wss in dev so local
-// setups without NEXT_PUBLIC_RELAY_URL keep working.
-function deriveConnectSrc() {
-  const relay = process.env.NEXT_PUBLIC_RELAY_URL;
-  const baseSelf = "'self' data:";
-  const livekitDefaults = "https://*.livekit.cloud wss://*.livekit.cloud";
-  if (!relay) {
-    if (process.env.NODE_ENV === "production") {
-      // Production must specify the relay explicitly. Keep something usable
-      // but still narrower than `https: wss:`.
-      return `${baseSelf} ${livekitDefaults}`;
-    }
-    return `${baseSelf} https: wss: ws:`;
-  }
-  try {
-    const url = new URL(/^[a-z]+:\/\//i.test(relay) ? relay : `https://${relay}`);
-    // Respect the configured scheme: an http/ws relay (local dev, LAN,
-    // self-hosted behind a VPN) must not be force-upgraded to https/wss or
-    // the CSP blocks every relay fetch (media downloads, status sync).
-    const insecure = url.protocol === "http:" || url.protocol === "ws:";
-    const httpOrigin = `${insecure ? "http" : "https"}://${url.host}`;
-    const wsOrigin = `${insecure ? "ws" : "wss"}://${url.host}`;
-    return `${baseSelf} ${httpOrigin} ${wsOrigin} ${livekitDefaults}`;
-  } catch {
-    return `${baseSelf} ${livekitDefaults}`;
-  }
-}
-
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  `connect-src ${deriveConnectSrc()}`,
-  "font-src 'self' data:",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-  "img-src 'self' data: blob:",
-  "media-src 'self' data: blob:",
-  "object-src 'none'",
-  // 'wasm-unsafe-eval' lets libsodium initialize WASM without enabling eval();
-  // 'unsafe-inline' is still required by Next.js for hydration scripts and
-  // should be removed when nonces are wired through middleware.
-  "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "worker-src 'self' blob:"
-].join("; ");
-
 const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true
@@ -68,7 +21,8 @@ const nextConfig = {
       {
         source: "/:path*",
         headers: [
-          { key: "Content-Security-Policy", value: contentSecurityPolicy },
+          // Content-Security-Policy is set per request in middleware.ts, which
+          // is the only place a fresh nonce can be minted.
           { key: "Referrer-Policy", value: "no-referrer" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },

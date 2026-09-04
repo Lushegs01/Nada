@@ -39,17 +39,39 @@ Risk: Web and relay services may be merged by mistake.
 What breaks if wrong: WebSocket scaling, CORS, and deployment boundaries collapse.
 Manual verification: Confirm `render.yaml` creates `app-web` and `app-relay`.
 
-## No Forward Secrecy
+## No Post-Compromise Security
 
-Risk: Messages are sealed to a long-term identity key with no ratchet.
-What breaks if wrong: Anyone who later obtains an identity private key — a
-seized device, a restored seed phrase, a compromised backup — can decrypt every
-message ever sent to that identity, including ciphertext captured months
-earlier. This is the largest remaining gap against Signal.
-Manual verification: Confirm product copy never claims forward secrecy or
-Signal equivalence. Closing it means wiring the Signal adapter or MLS through
-`@nada/crypto`; the sealed-envelope format is versioned (`v: 2`) so a
-successor can be introduced without breaking existing history.
+Risk: Prekeys give forward secrecy but are not a ratchet.
+What breaks if wrong: An attacker who takes a device's *current* prekey state
+reads messages until those keys rotate — one-time prekeys as they are consumed,
+the signed prekey on its weekly schedule. Past messages are safe; future ones
+are not, until rotation.
+Manual verification: Confirm `SIGNED_PREKEY_LIFETIME_MS` is short enough to
+bound the window and that the client actually replenishes. Closing it properly
+needs a Double Ratchet or the Signal adapter; the wire format is versioned
+(`v: 3`) so a successor can land beside it.
+
+## Prekey Exhaustion
+
+Risk: One-time prekeys are a finite published supply, and anyone with an
+identity can claim one.
+What breaks if wrong: An attacker who drains a victim's supply forces every
+sender onto the signed-prekey path, where forward secrecy is bounded by weekly
+rotation rather than per message. Delivery is unaffected.
+Manual verification: Confirm claims require an identity proof (so draining is
+attributable and rate-limited), that the client replenishes below its
+threshold, and that exhaustion degrades to the signed prekey rather than to a
+sealed box.
+
+## Forward Secrecy Costs Queued Mail
+
+Risk: Prekey private halves are not derived from the seed phrase.
+What breaks if wrong: An identity restored on a new device cannot open messages
+that were queued for the old one — the keys are gone. This is forward secrecy
+working, not a defect, but it is surprising if the product implies a seed
+phrase restores everything.
+Manual verification: Confirm onboarding and recovery copy does not promise that
+a seed phrase recovers message history or undelivered mail.
 
 ## Unencryptable Recipients
 
@@ -170,17 +192,19 @@ obligations that are incompatible with the product plan.
 Manual verification: Confirm legal review, install behavior, browser/WASM
 loading, and app bundle impact before enabling Signal-backed sessions.
 
-## Media Download Authorization
+## Group Media Download Authorization
 
-Risk: `/api/media/:id` serves any object to anyone who knows its id. Uploads
-require an identity proof; downloads do not.
-What breaks if wrong: An id leak exposes ciphertext. Objects are encrypted
-client-side with a key that travels in the message envelope, so this is an
-unauthenticated read of ciphertext rather than a disclosure — but it is still
-an unauthenticated read, and it permits enumeration attempts.
-Manual verification: Confirm `MEDIA_TTL_SECONDS` matches the bucket lifecycle
-rule, since the relay refusing to serve an expired object does not reclaim the
-bytes. Add proof-gated downloads before treating object ids as sensitive.
+Risk: Direct media is authorized to the two identities named on the object.
+Group media cannot be: `recipientPubkeyHash` holds the group id there, and the
+relay has no membership to check against.
+What breaks if wrong: Any authenticated identity that learns a group object's
+id can fetch its ciphertext. That is much narrower than the previous
+"anyone at all", and the bytes are client-encrypted, but it is not membership
+control.
+Manual verification: Confirm downloads require a proof bound to the object id,
+that a stranger gets 404 rather than 403 on direct media, and that
+`MEDIA_TTL_SECONDS` matches the bucket lifecycle rule — the relay refusing to
+serve an expired object does not reclaim the bytes.
 
 ## Stripe Webhook Raw Body
 
@@ -194,16 +218,15 @@ id in `stripe_events` before doing any work. Note that Stripe can deliver
 events out of order: the handler is idempotent per event but does not currently
 reject a stale `customer.subscription.updated` arriving after a `deleted`.
 
-## Group Key Rotation
+## Group Key Rotation Is Manual
 
-Risk: The group sender key is sealed to each member, so the relay cannot read
-it — but nothing rotates it when membership changes.
-What breaks if wrong: A removed member keeps the key they already hold and can
-decrypt subsequent messages if they still receive the envelopes. The relay
-fans out to the recipient list the sender supplies, so removal is enforced by
-the sender's client, not by the server.
-Manual verification: Confirm group removal copy does not promise that a removed
-member loses access. Rotation on membership change is the fix.
+Risk: Rotation exists ("Reset group key", owner-only) but nothing triggers it
+automatically, and there is no member-removal UI to trigger it from.
+What breaks if wrong: A leaked invite link, or someone who should no longer be
+in the group, keeps reading until an owner remembers to rotate.
+Manual verification: Confirm the group menu exposes the reset action and that
+its copy explains what it revokes. Automatic rotation on membership change is
+the remaining work, and needs a membership-management surface first.
 
 ## Group Invite Links
 
@@ -220,12 +243,13 @@ treating group membership as access control.
 Risk: The relay fans a group message out to the recipient list the sender
 supplies; it holds no group membership state.
 What breaks if wrong: A malicious client can address a "group message" to
-arbitrary identities. The payload is encrypted under a key those identities do
-not hold, so this is a spam and metadata vector rather than a disclosure, and
-it is bounded by the 512-recipient schema cap and the per-socket envelope
-limit.
-Manual verification: Confirm the recipient cap and per-socket rate limit are in
-force before treating group fan-out as abuse-resistant.
+arbitrary identities. Three things bound it: the payload is encrypted under a
+key those identities do not hold, the client only *admits* a new group when it
+was sealed a key for it, and the socket budget is charged per delivery rather
+than per envelope. None of these is membership control.
+Manual verification: Confirm the 512-recipient schema cap, the per-delivery
+fan-out charge, and the client-side admission check are all in force before
+treating group fan-out as abuse-resistant.
 
 ## WebRTC Calling
 
@@ -235,3 +259,15 @@ What breaks if wrong: Calls may undermine anonymity claims even when media is
 encrypted.
 Manual verification: Verify TURN/SFU routing, Insertable Streams availability,
 ICE candidate policy, and UI privacy warnings before enabling production calls.
+
+## Middleware CSP Coverage
+
+Risk: The Content-Security-Policy is applied by `middleware.ts`, whose matcher
+excludes static assets by path.
+What breaks if wrong: A new document route that happens to match an excluded
+pattern would be served with no policy at all, silently losing the nonce
+protection for that page.
+Manual verification: After adding a route, confirm `curl -D-` on it returns a
+`content-security-policy` header containing a `nonce-`. Pages must also render
+dynamically — a prerendered page carries no nonce and every script on it is
+refused.

@@ -397,6 +397,7 @@ async function handleStripeEvent(
     if (pubkeyHash && customerId && subscriptionId) {
       await repository.upsertSubscription({
         currentPeriodEnd: null,
+        eventAt: event.created * 1000,
         plan: planParse.data,
         pubkeyHash,
         status: "active",
@@ -437,9 +438,18 @@ async function handleStripeEvent(
       const currentPeriodEnd = periodEndSeconds ? periodEndSeconds * 1000 : null;
       await repository.upsertSubscription({
         currentPeriodEnd,
+        // Stripe's own clock for this event, not ours: it is the only ordering
+        // the two sides agree on, and deliveries arrive out of order.
+        eventAt: event.created * 1000,
         plan: planParse.data,
         pubkeyHash,
-        status: normalizeStripeStatus(subscription.status),
+        // A `deleted` event carries whatever status the object had when it was
+        // removed, which is not always "canceled". Deriving it from the event
+        // type keeps a deletion from landing as an active plan.
+        status:
+          event.type === "customer.subscription.deleted"
+            ? "canceled"
+            : normalizeStripeStatus(subscription.status),
         stripeCustomerId: customerId,
         stripeSubscriptionId: subscription.id
       });

@@ -66,6 +66,8 @@ export const ChatRecordSchema = z.object({
   memberPubkeyHashes: z.array(PubkeyHashSchema).min(1),
   ownerPubkeyHash: PubkeyHashSchema.optional(),
   groupSenderKey: z.string().min(1).optional(),
+  /** Epoch of `groupSenderKey`. Absent on records written before epochs. */
+  groupKeyEpoch: z.number().int().positive().optional(),
   createdAt: z.number().int().positive(),
   updatedAt: z.number().int().positive(),
   disappearingTimer: z.number().int().nonnegative()
@@ -93,8 +95,20 @@ export const MessageRecordSchema = z.object({
   reactions: z.record(z.string(), z.array(PubkeyHashSchema)).optional()
 });
 
+/**
+ * One group sender key, at one epoch.
+ *
+ * Keys are kept per epoch rather than one-per-group so a rotation does not
+ * destroy the ability to read history: messages name the epoch they were
+ * encrypted under, and old epochs stay readable while new messages use the
+ * current one. Rotation is what makes group membership revocable at all —
+ * without it, anyone who ever held the key (or an invite link carrying it)
+ * could read every future message.
+ */
 export const GroupKeyRecordSchema = z.object({
   groupId: z.string().min(1).max(128),
+  /** Monotonic per group. Epoch 1 is the key a group is created with. */
+  epoch: z.number().int().positive().default(1),
   senderKey: z.string().min(1),
   createdByPubkeyHash: PubkeyHashSchema,
   createdAt: z.number().int().positive(),
@@ -214,6 +228,34 @@ create index if not exists status_updates_sender_created_idx
   on status_updates(sender_pubkey_hash, created_at_ms desc);
 create index if not exists status_updates_expires_idx on status_updates(expires_at_ms);
 
+-- Prekeys for forward-secret direct messaging.
+--
+-- The relay stores only public halves: it distributes them, it cannot use
+-- them. The signed prekey carries an Ed25519 signature by its owner's identity
+-- key, which senders verify before use — that is what stops a relay handing
+-- out a prekey it holds the private half of.
+create table if not exists identity_prekeys (
+  pubkey_hash text primary key,
+  identity_pubkey text not null,
+  signed_prekey_id text not null,
+  signed_prekey text not null,
+  signed_prekey_signature text not null,
+  created_at_ms bigint not null,
+  updated_at timestamptz not null
+);
+
+-- One-time prekeys, claimed at most once each. Deleting on claim is what makes
+-- a message unreadable afterwards: the private half is already gone from the
+-- recipient's device by then, and this removes the last trace of the public one.
+create table if not exists one_time_prekeys (
+  id text primary key,
+  pubkey_hash text not null,
+  prekey text not null,
+  created_at_ms bigint not null
+);
+create index if not exists one_time_prekeys_owner_idx
+  on one_time_prekeys(pubkey_hash, created_at_ms);
+
 -- Audience of a status update: one copy of the status's symmetric content key,
 -- sealed to a single viewer's identity key. The relay stores these opaquely
 -- and only ever hands a caller the row addressed to their own *verified*
@@ -253,6 +295,12 @@ delete from subscriptions a
    and (a.updated_at, a.id) < (b.updated_at, b.id);
 create unique index if not exists subscriptions_stripe_subscription_idx
   on subscriptions(stripe_subscription_id);
+
+-- Stripe does not guarantee webhook ordering: a "subscription.updated" can be
+-- delivered after the "subscription.deleted" that superseded it, and applying
+-- it would resurrect a cancelled plan. Recording the event's own timestamp
+-- lets a write reject an event older than the one already applied.
+alter table subscriptions add column if not exists last_event_at bigint not null default 0;
 
 -- A referral code may be redeemed once per identity. Same de-duplication
 -- reason as above.

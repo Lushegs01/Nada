@@ -6,7 +6,8 @@ import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/
 import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload } from "@/lib/media-message";
 import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib/media-upload";
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
-import { encryptDirectBody, isKeyForIdentity, sealKeyForMembers } from "@/lib/message-crypto";
+import { ensurePrekeysPublished } from "@/lib/prekey-store";
+import { encryptDirectBody, isKeyForIdentity, rotateGroupKey, sealKeyForMembers, storeGroupKey } from "@/lib/message-crypto";
 import { whispersRelayConfigured, queryWhisperFeed, FEED_UNCHANGED, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote } from "@/lib/whispers";
 import type { CallMode, LocalCallSession } from "@/lib/webrtc";
 import { createLocalCallSession } from "@/lib/webrtc";
@@ -563,6 +564,28 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       navigator.serviceWorker.removeEventListener("message", handleWorkerMessage);
     };
     }, [openChatByChatId, showNotification]);
+    /**
+     * Keeps this device's prekeys published.
+     *
+     * Runs when the relay is reachable and again on a slow interval, because
+     * one-time prekeys are consumed by other people sending to us and the
+     * supply is invisible to us until we ask. Running out is not a failure —
+     * senders fall back to the identity key — but it silently costs forward
+     * secrecy, so it is worth topping up before it happens.
+     */
+    useEffect(() => {
+    if (relayStatus !== "connected") return;
+    let active = true;
+    const refresh = (): void => {
+      if (active) void ensurePrekeysPublished();
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 6 * 60 * 60 * 1000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+    }, [relayStatus]);
     // Notification inbox sync: authoritative read/unread state lives on the
     // relay; new arrivals surface as in-app alerts through the same
     // notification pipeline chats use (tones, preview privacy, vibration).
@@ -943,6 +966,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           ): Promise<{
             keyEnvelopes?: { recipient: string; sealedKey: string }[];
             senderKeyPackage?: string;
+            keyEpoch?: number;
           }> => {
             if (!group.groupSenderKey) return {};
             const members = group.memberPubkeyHashes.filter(
@@ -959,12 +983,46 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               );
             }
             return {
+              keyEpoch: group.groupKeyEpoch ?? 1,
               ...(envelopes.length > 0 ? { keyEnvelopes: envelopes } : {}),
               // Only when at least one member cannot be sealed to.
               ...(unreachable.length > 0
                 ? { senderKeyPackage: group.groupSenderKey }
                 : {})
             };
+          }, [identity.pubkeyHash, showToast]);
+    /**
+     * Mints a new group key and starts using it.
+     *
+     * This is the only way to revoke access to a NADA group. Membership is
+     * carried in the sender's own chat record and the invite link embeds the
+     * key, so a link that leaks — or a member who should no longer be there —
+     * can otherwise read everything the group says from then on. Rotating
+     * seals a fresh key to the current members only; the next message they
+     * receive carries it, and anyone not sealed to is left behind.
+     *
+     * History is unaffected: previous epochs stay stored and readable.
+     */
+    const rotateGroupKeyForChat = useCallback(async (group: ChatRecord): Promise<void> => {
+            const owner = group.ownerPubkeyHash ?? identity.pubkeyHash;
+            if (owner !== identity.pubkeyHash) {
+              showToast("Only the group creator can reset the group key.");
+              return;
+            }
+            const { epoch } = await rotateGroupKey(group.id, identity.pubkeyHash);
+            setChats((current) =>
+              current.map((chat) =>
+                chat.id === group.id
+                  ? { ...chat, groupKeyEpoch: epoch, updatedAt: Date.now() }
+                  : chat
+              )
+            );
+            // The warning about members with no identity key is per-group and
+            // must be re-evaluated against the new key.
+            unencryptedWarned.current.delete(group.id);
+            showToast(
+              "Group key reset. Older invite links can no longer read new messages."
+            );
           }, [identity.pubkeyHash, showToast]);
     const saveNotificationSettings = useCallback(async (
             nextSettings: NotificationSettings
@@ -1657,14 +1715,20 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               direction: "outbound",
               kind: "call",
               body,
-              encryptedPayload: body,
+              // PENDING_ENCRYPTED_PAYLOAD rather than the body: the outbox flush
+              // resends `encryptedPayload` verbatim, so storing plaintext here
+              // would have put it back on the wire in the clear on every retry.
+              encryptedPayload: PENDING_ENCRYPTED_PAYLOAD,
               status: "local",
               createdAt: timestamp
             };
             await nadaDb.messages.put(record);
             setMessages((current) => [...current, record]);
 
-            // Broadcast call log to peer if it's a direct chat
+            // Broadcast call log to peer if it's a direct chat. This is
+            // encrypted like any other message: the payload names the call, its
+            // mode, whether it was missed or declined, and how long it lasted —
+            // precisely the metadata a privacy product must not hand its relay.
             if (selectedContact) {
               sendEnvelope({
                 type: "message",
@@ -1672,11 +1736,12 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 recipient: selectedContact.pubkeyHash,
                 sender: identity.pubkeyHash,
                 timestamp,
-                ciphertext: body,
-                messageKind: "call"
+                ciphertext: await encryptDirect(body, selectedContact.pubkeyHash),
+                messageKind: "call",
+                senderPublicKey: identity.pubkey
               });
             }
-          }, [selectedChatId, selectedContact, selectedGroup, identity.pubkeyHash, sendEnvelope]);
+          }, [selectedChatId, selectedContact, selectedGroup, identity.pubkey, identity.pubkeyHash, encryptDirect, sendEnvelope]);
     const clearCallRingTimeout = useCallback((): void => {
             if (callRingTimeoutRef.current) {
               window.clearTimeout(callRingTimeoutRef.current);
@@ -3221,16 +3286,17 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 new Set([identity.pubkeyHash, ...memberPubkeyHashes])
               ),
               ownerPubkeyHash: identity.pubkeyHash,
-              // ⚠️ MVP_ONLY — replace before production
               groupSenderKey,
+              groupKeyEpoch: 1,
               createdAt: now,
               updatedAt: now,
               disappearingTimer
             };
 
             await nadaDb.chats.put(chat);
-            await nadaDb.groupKeys.put({
+            await storeGroupKey({
               groupId,
+              epoch: 1,
               senderKey: groupSenderKey,
               createdByPubkeyHash: identity.pubkeyHash,
               createdAt: now
@@ -3781,7 +3847,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
 
               await nadaDb.messages.where("chatId").equals(group.id).delete();
               await nadaDb.chatPrefs.delete(group.id);
-              await nadaDb.groupKeys.delete(group.id);
+              await nadaDb.groupKeys.where("groupId").equals(group.id).delete();
               await nadaDb.chats.delete(group.id);
               setChats((current) => current.filter((chat) => chat.id !== group.id));
               setArchivedChatIds((current) => {
@@ -3811,7 +3877,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             await nadaDb.messages.where("chatId").equals(chatId).delete();
             await nadaDb.chatPrefs.delete(chatId);
             if (groupId) {
-              await nadaDb.groupKeys.delete(groupId);
+              await nadaDb.groupKeys.where("groupId").equals(groupId).delete();
               await nadaDb.chats.delete(groupId);
               setChats((current) => current.filter((chat) => chat.id !== groupId));
             }
@@ -4219,6 +4285,9 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           setReplyToId(null);
         }}
         onCopyGroupInvite={copyGroupInvite}
+        onResetGroupKey={() => {
+          if (selectedGroup) void rotateGroupKeyForChat(selectedGroup);
+        }}
         onDisappearingTimerChange={(value) => {
           setDisappearingTimer(value);
           if (selectedGroup) {

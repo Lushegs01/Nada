@@ -10,15 +10,27 @@ recipient's key and signed inside the sealed box; group messages and status
 updates use a per-epoch symmetric key distributed as one sealed copy per member.
 The relay cannot read any of it.
 
+Direct messages are forward-secret where both sides support it: each identity
+publishes X3DH-style prekeys, and the one-time prekey a message consumed is
+deleted on receipt, so that message stops being decryptable by anyone —
+including its recipient, and including anyone who later obtains the identity
+key. Where the recipient has published no prekeys, the message falls back to a
+sealed box, which is confidential but not forward-secret.
+
 What that does **not** cover, stated plainly because the difference matters:
 
-- **No forward secrecy.** There is no ratchet, so an identity private key
-  obtained later decrypts everything ever sent to it.
+- **No post-compromise security.** There is no ratchet. An attacker who takes a
+  device's current prekey state reads until those keys rotate.
 - **No metadata privacy.** The relay sees who talks to whom and when, because
   it routes on exactly that.
 - **No IP anonymity.** A browser PWA does not control network routing.
-- **Groups do not rotate keys on membership change,** and an invite link carries
-  the group key — the link is the group credential.
+- **An invite link carries the group key** — the link is the group credential.
+  "Reset group key" mints a new epoch sealed to current members only, which is
+  what revokes a leaked link.
+- **Forward secrecy costs recoverability.** Prekey private halves are not
+  derived from the seed phrase, so an identity restored on a new device cannot
+  open messages queued for the old one. That is the property working, not a
+  defect.
 
 `docs/threat-model.md` is the full version. Do not describe NADA as
 Signal-equivalent: it is confidential against the relay, not forward-secret.
@@ -137,14 +149,18 @@ installability, WebRTC calling, Stripe subscriptions, and CampOS SSO.
 
 Known gaps, in priority order:
 
-1. **No forward secrecy.** The Signal adapter in `@nada/crypto` is loadable but
-   not wired into sessions; until it is, compromise of an identity key is
-   retroactive.
-2. **Group key rotation.** Removing a member does not rotate the group key.
-3. **Media authorization.** Uploads require an identity proof, but a download
-   only requires the object id. Objects are client-encrypted, so this is an
-   unauthenticated read of ciphertext rather than a disclosure.
-4. **CSP `unsafe-inline`.** Required by Next.js hydration until nonces are
-   wired through middleware.
-5. **Load testing.** The relay has correctness tests for its scaling paths but
-   has not been driven at institution scale.
+1. **No post-compromise security.** Prekeys give forward secrecy but there is
+   no ratchet, so a device compromised *now* stays readable until its prekeys
+   rotate. Closing this means a Double Ratchet or the Signal adapter.
+2. **Group fan-out is sender-driven.** The relay holds no group membership, so
+   it delivers to whatever recipient list a sender supplies. The client only
+   admits a group it was sealed a key for, and the fan-out budget is charged
+   per delivery, but this is not membership control.
+3. **Group media downloads.** Direct media is authorized to its two parties;
+   group media falls back to "any authenticated identity that knows the object
+   id", because the relay cannot check membership it does not hold.
+4. **`style-src` keeps `unsafe-inline`.** React writes inline style attributes
+   throughout, and there is no nonce mechanism for those. `script-src` is
+   nonced.
+5. **Load testing.** Measured single-instance (`docs/load-testing.md`); the
+   multi-instance path with Redis in the loop has not been driven at scale.

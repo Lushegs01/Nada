@@ -64,10 +64,22 @@
   at module scope so `react-hooks/exhaustive-deps` can run.
 - Client memory bounded; reconnect backoff jittered.
 
+## Risk-elimination pass
+
+- Forward secrecy: X3DH-style prekeys, relay distribution, consumption on
+  receipt, replenishment. Sealed-box fallback when a peer has published none.
+- Group key epochs and owner-triggered rotation, which is what makes a leaked
+  invite link revocable.
+- Proof-gated media downloads with object-level authorization.
+- Stripe events ordered by their own clock, so a replay cannot resurrect a
+  cancelled plan.
+- Group fan-out charged per delivery; clients admit a group only on a sealed key.
+- CSP nonces; 'unsafe-inline' gone from script-src.
+- Call logs encrypted (they were going out in the clear).
+
 ## Next
 
-1. Signal sessions or MLS for forward secrecy.
-2. Group key rotation on membership change.
-3. Proof-gated media downloads.
-4. CSP nonces to drop `unsafe-inline`.
-5. Load testing at institution scale.
+1. A ratchet for post-compromise security.
+2. Membership management, and automatic rotation on removal.
+3. Server-side group membership, or an accepted decision not to have it.
+4. Load testing the multi-instance path with Redis in the loop.
