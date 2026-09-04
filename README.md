@@ -61,7 +61,20 @@ pnpm test
 pnpm --filter web test:e2e
 ```
 
-`pnpm --filter web test:e2e` skips safely unless `PLAYWRIGHT_BASE_URL` is set.
+`pnpm --filter web test:e2e` runs the browser journey against a running app:
+
+```bash
+pnpm --filter web build && pnpm --filter web start &
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 pnpm --filter web test:e2e
+```
+
+It skips when `PLAYWRIGHT_BASE_URL` is unset. Set `PLAYWRIGHT_CHROMIUM_PATH`
+when the environment ships its own Chromium rather than the build Playwright
+downloads. The suite runs on a desktop and a mobile viewport — NADA is
+phone-first, so a layout that only works on a desktop is a broken product.
+
+`pnpm --filter relay loadtest` drives the relay with authenticated sockets and
+reports latency percentiles; see `docs/load-testing.md`.
 
 ## Deployment
 
