@@ -19,6 +19,9 @@ import {
   type TypingEnvelope
 } from "@nada/types";
 
+import { registerContestAdminRoutes } from "./contest/admin-routes";
+import { registerContestRoutes } from "./contest/routes";
+import { ContestService } from "./contest/service";
 import { createRelayDb, ensureRelaySchema } from "./db";
 import type { RelayEnv } from "./env";
 import { derivePubkeyHash, verifyIdentityProof } from "./identity-proof";
@@ -112,8 +115,16 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
   // endpoint. The schema is applied once here rather than once per repository.
   const db = createRelayDb(env, app.log);
   if (db) {
-    await ensureRelaySchema(db);
+    const applied = await ensureRelaySchema(db);
+    if (applied.length > 0) {
+      app.log.info({ migrations: applied }, "Applied database migrations");
+    }
   }
+
+  // The contest engine needs durable storage; without a database it is simply
+  // not available, and its routes say so rather than pretending otherwise.
+  const contest = db ? new ContestService(db, redis, app.log) : null;
+  contest?.start();
 
   await app.register(cors, {
     origin: (origin, callback) => {
@@ -141,15 +152,18 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     // instance's memory with a single message.
     options: { maxPayload: MAX_SOCKET_PAYLOAD_BYTES }
   });
-  await registerMonetizationRoutes(app, env, db);
+  await registerMonetizationRoutes(app, env, db, contest);
   await registerPrekeyRoutes(app, db);
   await registerPushRoutes(app, env, db);
   await registerStatusRoutes(app, env, db);
   await registerTurnRoutes(app, env);
   await registerUploadRoutes(app, env, mediaStore);
-  await registerWhisperRoutes(app, env, db);
+  await registerWhisperRoutes(app, env, db, contest);
+  await registerContestRoutes(app, env, contest);
+  await registerContestAdminRoutes(app, env, contest);
 
   app.addHook("onClose", async () => {
+    await contest?.close();
     await queue.close();
     await bus.close();
     await redis?.close();
@@ -163,6 +177,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     ok: true,
     service: "nada-relay",
     backends: {
+      contest: contest ? "enabled" : "unavailable",
       database: db ? "postgres" : "memory",
       media: mediaStore.kind,
       // "memory" here means offline envelopes are lost on restart and the

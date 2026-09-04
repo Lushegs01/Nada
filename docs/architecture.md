@@ -173,7 +173,25 @@ Stripe retries every non-2xx webhook delivery and can redeliver on success, so
 events are claimed by id in `stripe_events` before any work happens, and
 subscriptions are keyed on the Stripe subscription id. Referral redemptions are
 unique per (identity, code). Whisper notifications are deduplicated by
-(recipient, actor, kind, target).
+(recipient, actor, kind, target). Contest engagement events are deduplicated by
+a deterministic key derived from the interaction itself, so a retry, a
+reconnect, a second instance and the reconciliation sweep all converge on one
+event and one credit.
+
+## Schema migrations
+
+The relay applies ordered, named migrations at boot, recording each in
+`schema_migrations` inside its own transaction and behind a Postgres advisory
+lock so concurrent instance starts do not race. Statements stay idempotent, so
+a database predating the runner accepts the baseline migration as a no-op.
+
+## Engagement contests
+
+The contest engine is a first-class subsystem with its own event ledger,
+scoring engine, risk engine and admin surface. Contest processing is
+asynchronous and cannot block or break messaging or the feed: the Whisper
+routes call a `void` emit that swallows everything. Postgres is the source of
+truth; Redis only accelerates leaderboard reads. See `docs/contest-engine.md`.
 
 ## Calls
 

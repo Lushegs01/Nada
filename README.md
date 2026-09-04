@@ -88,6 +88,32 @@ phone-first, so a layout that only works on a desktop is a broken product.
 `pnpm --filter relay loadtest` drives the relay with authenticated sockets and
 reports latency percentiles; see `docs/load-testing.md`.
 
+The contest engine's integration and security suites need a real PostgreSQL —
+the guarantees under test are SQL guarantees (unique indexes for idempotency,
+row locks for caps, window functions for ranks), and a mock would only assert
+that the mock behaves. The leaderboard cache suite needs a real Redis for the same reason. Set
+`TEST_DATABASE_URL` and `TEST_REDIS_URL`; CI runs `postgres:16-alpine` and
+`redis:7-alpine` services so they execute on every pull request. Without them
+they skip.
+
+```bash
+TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres \
+TEST_REDIS_URL=redis://localhost:6379 \
+pnpm test
+```
+
+## Engagement contests
+
+NADA runs recurring engagement contests with real prize money. The engine is
+backend-controlled and event-driven: every qualifying interaction the relay
+already authenticates becomes an immutable engagement event, a double-entry
+ledger records what it was worth, and every number that decides a prize is
+recomputed from that ledger rather than read from a cache. Scoring runs off the
+request path and cannot break messaging or the feed.
+
+See `docs/contest-engine.md` for the architecture, scoring model, anti-cheat
+model, API, environment variables and setup.
+
 ## Deployment
 
 Render deploys from `render.yaml`:

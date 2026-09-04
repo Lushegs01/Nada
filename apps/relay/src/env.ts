@@ -5,6 +5,8 @@ const EnvSchema = z.object({
   ALLOW_DEV_PLAINTEXT: z.string().optional(),
   CAPABILITY_ISSUER_SECRET: z.string().min(32).optional(),
   CAPABILITY_TOKEN_SECRET: z.string().min(32).optional(),
+  CONTEST_ADMIN_PUBKEY_HASHES: z.string().optional(),
+  CONTEST_METRICS_TOKEN: z.string().min(16).optional(),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().optional(),
   DATABASE_URL: z.string().url().optional(),
   MEDIA_MAX_BYTES: z.coerce.number().int().positive().optional(),
@@ -41,6 +43,18 @@ export interface RelayEnv {
   allowDevPlaintext: boolean;
   capabilityIssuerSecret: string | undefined;
   capabilityTokenSecret: string | undefined;
+  /**
+   * Identities allowed to administer contests, as pubkey hashes.
+   *
+   * Contest administration reuses NADA's one identity system rather than
+   * inventing a second: an admin proves control of an Ed25519 key exactly as
+   * every other authenticated call does, and this list decides which keys are
+   * privileged. Empty means contest administration is disabled entirely, which
+   * is the correct default for a relay that is not running one.
+   */
+  contestAdminPubkeyHashes: string[];
+  /** Bearer token gating the aggregate contest metrics endpoint. */
+  contestMetricsToken: string | undefined;
   databasePoolMax: number | undefined;
   databaseUrl: string | undefined;
   mediaMaxBytes: number;
@@ -84,6 +98,11 @@ export function readEnv(): RelayEnv {
     allowDevPlaintext: result.data.ALLOW_DEV_PLAINTEXT === "true",
     capabilityIssuerSecret: result.data.CAPABILITY_ISSUER_SECRET,
     capabilityTokenSecret: result.data.CAPABILITY_TOKEN_SECRET,
+    contestAdminPubkeyHashes: (result.data.CONTEST_ADMIN_PUBKEY_HASHES ?? "")
+      .split(",")
+      .map((hash) => hash.trim().toLowerCase())
+      .filter((hash) => hash.length > 0),
+    contestMetricsToken: result.data.CONTEST_METRICS_TOKEN,
     databasePoolMax: result.data.DATABASE_POOL_MAX,
     databaseUrl: result.data.DATABASE_URL,
     mediaMaxBytes: result.data.MEDIA_MAX_BYTES ?? 25 * 1024 * 1024,
