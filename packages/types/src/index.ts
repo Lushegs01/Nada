@@ -1,8 +1,20 @@
 import { z } from "zod";
 
-export const PubkeyHashSchema = z.string().min(16).max(128);
-export const PublicKeySchema = z.string().min(32).max(512);
-export const UuidSchema = z.string().uuid();
+import {
+  IdentityProofSchema,
+  PubkeyHashSchema,
+  PublicKeySchema,
+  UuidSchema
+} from "./primitives";
+
+export {
+  IdentityProofSchema,
+  PubkeyHashSchema,
+  PublicKeySchema,
+  UuidSchema
+} from "./primitives";
+export type { IdentityProof } from "./primitives";
+export * from "./contest";
 
 export const MessageKindSchema = z.enum([
   "text",
@@ -76,17 +88,6 @@ export const MessagePayloadSchema = z.object({
 // schema by NODE_ENV captured at module load was unreliable across self-hosted
 // and preview deployments.
 const devPlaintextField = z.string().max(20000).optional();
-
-// Ed25519 identity proof. Mirrors apps/relay/src/identity-proof.ts and
-// apps/web/src/lib/identity-proof-server.ts so request schemas can validate
-// the shape before handing off to the verifier.
-export const IdentityProofSchema = z.object({
-  pubkey: PublicKeySchema,
-  pubkeyHash: PubkeyHashSchema,
-  signature: z.string().min(1).max(512),
-  timestamp: z.number().int().positive()
-});
-export type IdentityProof = z.infer<typeof IdentityProofSchema>;
 
 // One copy of a symmetric content key, sealed to a single recipient's identity
 // key. Group sender keys and status keys used to travel beside the ciphertext

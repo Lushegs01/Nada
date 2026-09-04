@@ -22,6 +22,7 @@ import {
 } from "@nada/types";
 import type { WhisperNotificationKind } from "@nada/types";
 
+import type { ContestService } from "./contest/service";
 import type { RelayDb } from "./db";
 import type { RelayEnv } from "./env";
 import { verifyIdentityProof } from "./identity-proof";
@@ -86,7 +87,15 @@ const PUSH_COPY: Record<WhisperNotificationKind, string> = {
 export async function registerWhisperRoutes(
   app: FastifyInstance,
   env: RelayEnv,
-  db: RelayDb | null
+  db: RelayDb | null,
+  /**
+   * Optional contest engine. Whisper interactions are the only server-verified
+   * engagement NADA has, so this is where contest events come from — but the
+   * feed must never depend on the contest: `emit` and `reverse` return
+   * immediately and cannot throw, so a broken or absent contest engine leaves
+   * every code path below unchanged.
+   */
+  contest: ContestService | null = null
 ): Promise<void> {
   const repository = await createWhisperRepository(db);
 
@@ -145,6 +154,14 @@ export async function registerWhisperRoutes(
       result.data.proof.pubkey,
       result.data.timestamp
     );
+    contest?.emit({
+      eventType: "ECHO_CREATED",
+      participantPubkeyHash: result.data.author,
+      actorPubkeyHash: result.data.author,
+      sourceEntityType: "echo",
+      sourceEntityId: result.data.id,
+      occurredAtMs: result.data.timestamp
+    });
     return reply.send({ success: true });
   });
 
@@ -169,6 +186,14 @@ export async function registerWhisperRoutes(
       });
     }
     await repository.deleteEcho(result.data.id, result.data.author);
+    // Deleting content takes back the points it generated — for its author and
+    // for everyone who earned from interacting with it. The events survive as
+    // REVERSED rows so the history still explains itself.
+    contest?.reverse({
+      sourceEntityType: "echo",
+      sourceEntityId: result.data.id,
+      reason: "echo_deleted"
+    });
     return reply.send({ success: true });
   });
 
@@ -214,6 +239,26 @@ export async function registerWhisperRoutes(
       result.data.proof.pubkey,
       result.data.timestamp
     );
+
+    contest?.emit({
+      eventType: "REFLECTION_CREATED",
+      participantPubkeyHash: result.data.author,
+      actorPubkeyHash: result.data.author,
+      sourceEntityType: "reflection",
+      sourceEntityId: result.data.id,
+      occurredAtMs: result.data.timestamp
+    });
+    if (created.echoAuthorPubkeyHash) {
+      contest?.emit({
+        eventType: "REFLECTION_RECEIVED",
+        participantPubkeyHash: created.echoAuthorPubkeyHash,
+        actorPubkeyHash: result.data.author,
+        sourceEntityType: "reflection",
+        sourceEntityId: result.data.id,
+        occurredAtMs: result.data.timestamp,
+        metadata: { echoId: result.data.echoId }
+      });
+    }
 
     const preview = notificationPreview(result.data.body);
     const base = {
@@ -297,6 +342,11 @@ export async function registerWhisperRoutes(
         .code(404)
         .send({ code: "reflection_not_found", message: "Reflection not found." });
     }
+    contest?.reverse({
+      sourceEntityType: "reflection",
+      sourceEntityId: result.data.id,
+      reason: "reflection_deleted"
+    });
     return reply.send({ success: true, outcome });
   });
 
@@ -327,6 +377,27 @@ export async function registerWhisperRoutes(
       result.data.timestamp
     );
     if (target) {
+      if (result.data.on) {
+        contest?.emit({
+          eventType: "REFLECTION_REACTION_RECEIVED",
+          participantPubkeyHash: target.authorPubkeyHash,
+          actorPubkeyHash: result.data.reactor,
+          sourceEntityType: "reflection",
+          sourceEntityId: result.data.reflectionId,
+          occurredAtMs: result.data.timestamp
+        });
+      } else {
+        // Un-liking takes the point back; the like can be re-applied later and
+        // will score again, which the per-pair caps keep from being farmable.
+        contest?.reverse({
+          sourceEntityType: "reflection",
+          sourceEntityId: result.data.reflectionId,
+          participantPubkeyHash: target.authorPubkeyHash,
+          actorPubkeyHash: result.data.reactor,
+          eventType: "REFLECTION_REACTION_RECEIVED",
+          reason: "reflection_like_removed"
+        });
+      }
       if (result.data.on) {
         await notify({
           actorName: result.data.reactorName ?? "Someone",
@@ -379,6 +450,25 @@ export async function registerWhisperRoutes(
     );
     if (target) {
       if (result.data.on) {
+        contest?.emit({
+          eventType: "REACTION_RECEIVED",
+          participantPubkeyHash: target.authorPubkeyHash,
+          actorPubkeyHash: result.data.reactor,
+          sourceEntityType: "echo",
+          sourceEntityId: result.data.echoId,
+          occurredAtMs: result.data.timestamp
+        });
+      } else {
+        contest?.reverse({
+          sourceEntityType: "echo",
+          sourceEntityId: result.data.echoId,
+          participantPubkeyHash: target.authorPubkeyHash,
+          actorPubkeyHash: result.data.reactor,
+          eventType: "REACTION_RECEIVED",
+          reason: "echo_like_removed"
+        });
+      }
+      if (result.data.on) {
         await notify({
           actorName: result.data.reactorName ?? "Someone",
           actorPubkeyHash: result.data.reactor,
@@ -430,7 +520,23 @@ export async function registerWhisperRoutes(
       id: result.data.id,
       rippleOf: result.data.rippleOf
     });
+    contest?.emit({
+      eventType: "RIPPLE_CREATED",
+      participantPubkeyHash: result.data.author,
+      actorPubkeyHash: result.data.author,
+      sourceEntityType: "echo",
+      sourceEntityId: result.data.echoId,
+      occurredAtMs: result.data.timestamp
+    });
     if (target) {
+      contest?.emit({
+        eventType: "RIPPLE_RECEIVED",
+        participantPubkeyHash: target.authorPubkeyHash,
+        actorPubkeyHash: result.data.author,
+        sourceEntityType: "echo",
+        sourceEntityId: result.data.echoId,
+        occurredAtMs: result.data.timestamp
+      });
       await notify({
         actorName: result.data.authorName,
         actorPubkeyHash: result.data.author,
@@ -638,6 +744,23 @@ export async function registerWhisperRoutes(
       result.data.on,
       result.data.timestamp
     );
+    const followEntityId = `${result.data.follower}:${result.data.followee}`;
+    if (result.data.on && created) {
+      contest?.emit({
+        eventType: "FOLLOW_RECEIVED",
+        participantPubkeyHash: result.data.followee,
+        actorPubkeyHash: result.data.follower,
+        sourceEntityType: "follow",
+        sourceEntityId: followEntityId,
+        occurredAtMs: result.data.timestamp
+      });
+    } else if (!result.data.on) {
+      contest?.reverse({
+        sourceEntityType: "follow",
+        sourceEntityId: followEntityId,
+        reason: "unfollowed"
+      });
+    }
     if (result.data.on && created) {
       await notify({
         actorName: result.data.followerName,

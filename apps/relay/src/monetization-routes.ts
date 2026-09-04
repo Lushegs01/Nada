@@ -19,6 +19,7 @@ import {
   createCapabilityPayload,
   issueCapabilityToken
 } from "./capability";
+import type { ContestService } from "./contest/service";
 import type { RelayDb } from "./db";
 import type { RelayEnv } from "./env";
 import { verifyIdentityProof } from "./identity-proof";
@@ -28,15 +29,27 @@ import {
 } from "./monetization-repository";
 
 const STRIPE_METADATA_KEYS = {
+  contestId: "contest_id",
+  kind: "kind",
   plan: "plan",
   pubkeyHash: "pubkey_hash",
   referralCode: "referral_code"
 } as const;
 
+/** Marks a Checkout session as a contest entry rather than a subscription. */
+const CONTEST_ENTRY_KIND = "contest_entry";
+
 export async function registerMonetizationRoutes(
   app: FastifyInstance,
   env: RelayEnv,
-  db: RelayDb | null
+  db: RelayDb | null,
+  /**
+   * Contest entry fees ride the relay's existing Stripe webhook rather than a
+   * second endpoint with a second signature check and a second idempotency
+   * story. The event is already claimed exactly once by `claimStripeEvent`
+   * above; this just routes contest-entry sessions to the contest engine.
+   */
+  contest: ContestService | null = null
 ): Promise<void> {
   const repository = await createMonetizationRepository(db);
   app.addHook("onClose", async () => {
@@ -311,7 +324,7 @@ export async function registerMonetizationRoutes(
       }
 
       try {
-        await handleStripeEvent(event, repository, app);
+        await handleStripeEvent(event, repository, app, contest);
       } catch (err) {
         app.log.error({ err, eventType: event.type }, "Stripe webhook handler failed");
         return reply.code(500).send({
@@ -376,8 +389,20 @@ async function maybeIssueCapabilityToken(
 async function handleStripeEvent(
   event: Stripe.Event,
   repository: MonetizationRepository,
-  app: FastifyInstance
+  app: FastifyInstance,
+  contest: ContestService | null
 ): Promise<void> {
+  if (
+    event.type === "checkout.session.completed" ||
+    event.type === "checkout.session.async_payment_failed"
+  ) {
+    const session = event.data.object;
+    if (session.metadata?.[STRIPE_METADATA_KEYS.kind] === CONTEST_ENTRY_KIND) {
+      await handleContestEntry(event, session, app, contest);
+      return;
+    }
+  }
+
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
     const pubkeyHash = session.metadata?.[STRIPE_METADATA_KEYS.pubkeyHash];
@@ -455,6 +480,58 @@ async function handleStripeEvent(
       });
     }
   }
+}
+
+/**
+ * Settles a contest entry from Stripe's own account of what happened.
+ *
+ * This is the only thing that makes a paying entrant eligible. The browser's
+ * success redirect is a UI convenience and grants nothing: a client that
+ * forges it lands on a page saying they are in, while the server still has
+ * them as pending_payment and refuses to score them.
+ */
+async function handleContestEntry(
+  event: Stripe.Event,
+  session: Stripe.Checkout.Session,
+  app: FastifyInstance,
+  contest: ContestService | null
+): Promise<void> {
+  if (!contest) {
+    app.log.warn({ eventId: event.id }, "Contest entry webhook with no contest engine");
+    return;
+  }
+  const contestId = session.metadata?.[STRIPE_METADATA_KEYS.contestId];
+  const pubkeyHash = session.metadata?.[STRIPE_METADATA_KEYS.pubkeyHash];
+  if (!contestId || !pubkeyHash) {
+    app.log.warn({ eventId: event.id }, "Contest entry webhook missing metadata");
+    return;
+  }
+
+  const paid =
+    event.type === "checkout.session.completed" && session.payment_status === "paid";
+  const paymentReference =
+    typeof session.payment_intent === "string"
+      ? session.payment_intent
+      : session.payment_intent?.id ?? null;
+
+  const settled = await contest.repository.settleEntryPayment({
+    providerSessionId: session.id,
+    contestId,
+    pubkeyHash,
+    paymentReference,
+    amountMinor: session.amount_total ?? 0,
+    currency: (session.currency ?? "ngn").toUpperCase(),
+    status: paid ? "paid" : "failed"
+  });
+  if (!settled) {
+    app.log.info({ eventId: event.id }, "Contest entry already settled");
+    return;
+  }
+  contest.invalidateParticipant(contestId, pubkeyHash);
+  if (paid) {
+    contest.metrics.paymentSuccess();
+  }
+  app.log.info({ contestId, paid }, "Contest entry payment settled");
 }
 
 function normalizeStripeStatus(

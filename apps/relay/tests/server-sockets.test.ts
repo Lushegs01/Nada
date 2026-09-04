@@ -16,6 +16,8 @@ function testEnv(): RelayEnv {
     allowDevPlaintext: false,
     capabilityIssuerSecret: undefined,
     capabilityTokenSecret: undefined,
+    contestAdminPubkeyHashes: [],
+    contestMetricsToken: undefined,
     databasePoolMax: undefined,
     databaseUrl: undefined,
     mediaMaxBytes: 1024,
