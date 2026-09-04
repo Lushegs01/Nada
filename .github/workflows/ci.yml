@@ -31,8 +31,23 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # The leaderboard cache is the one part of the engine whose behaviour
+      # cannot be read off the source — it depends on what the Redis client
+      # actually does with ZRANGE … REV and on rename-into-place being atomic
+      # for readers.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      TEST_REDIS_URL: redis://127.0.0.1:6379
 
     steps:
       - name: Checkout

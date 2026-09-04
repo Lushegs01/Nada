@@ -67,7 +67,16 @@ export interface ScoreEventResult {
   challenges: ChallengeAward[];
 }
 
-const DAY_MS = 86_400_000;
+/**
+ * Contest states in which an in-window event may still be scored. New events
+ * only ever arrive while a contest is ACTIVE (`listScoringContests` returns
+ * nothing else); the later two exist so reconciliation can finish the work.
+ */
+const SCOREABLE_STATUSES: ReadonlySet<string> = new Set([
+  "ACTIVE",
+  "FROZEN",
+  "UNDER_REVIEW"
+]);
 
 /**
  * Scores one already-recorded event.
@@ -139,8 +148,17 @@ export async function scoreEvent(args: {
     };
 
     // ── Eligibility ────────────────────────────────────────────────────────
-    if (contest.status !== "ACTIVE") {
-      return reject("contest_not_active");
+    //
+    // Scoring is allowed after the freeze, not just during ACTIVE, because
+    // that is precisely when reconciliation runs: an event that happened
+    // inside the window but was still in flight at the deadline has to be
+    // scorable, or freezing a contest would quietly discard the last minute of
+    // it. What stops post-deadline engagement counting is the window check
+    // below, which is exact — the status is not doing that job.
+    //
+    // A finalized or cancelled contest scores nothing: its numbers are fixed.
+    if (!SCOREABLE_STATUSES.has(contest.status)) {
+      return reject("contest_not_scoring");
     }
     if (event.occurredAtMs < contest.startAtMs || event.occurredAtMs >= contest.endAtMs) {
       return reject("outside_contest_window");
@@ -551,5 +569,3 @@ const DESCRIPTIONS: Record<ContestEventType, string> = {
 export function describe(eventType: ContestEventType): string {
   return DESCRIPTIONS[eventType];
 }
-
-export { DAY_MS };

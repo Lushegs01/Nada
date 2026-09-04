@@ -260,7 +260,7 @@ an admin-key oracle.
 
 Applied at boot, once each, recorded in `schema_migrations`, each inside its own
 transaction behind a Postgres advisory lock so concurrent instance starts do not
-race.
+race. PostgreSQL 13 or later is required (`gen_random_uuid`).
 
 | id | Contents |
 | --- | --- |
@@ -340,6 +340,7 @@ failed job.
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | for paid entry | Reuses the existing subscription webhook |
 | `ALLOWED_ORIGIN` | yes | Also constrains Checkout return URLs |
 | `TEST_DATABASE_URL` | tests only | A database the test process may create/drop databases on |
+| `TEST_REDIS_URL` | tests only | A Redis the leaderboard suite may write `contest:*` keys to |
 
 ## Local setup
 
@@ -371,7 +372,9 @@ Migrations apply on relay boot; there is no separate migrate step.
 To run the integration suites:
 
 ```bash
-TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres pnpm test
+TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres \
+TEST_REDIS_URL=redis://localhost:6379 \
+pnpm test
 ```
 
 ## Tests
@@ -382,12 +385,16 @@ TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres pnpm test
 | `apps/relay/tests/contest-engine.test.ts` | Event → score → ledger, duplicate suppression, ledger reconstruction, self-interaction, non-participants, window bounds, decay, pair cap, new-identity discount, per-type daily cap, cooldown, per-content cap, reversal on deletion, double-reversal, challenges, risk hold, ranking, crash recovery, reconciliation idempotence, disqualification, held-event release, freeze→review→finalize, ledger-derived final scores, payout gating, webhook replay, unpaid entry, audit, migration idempotence |
 | `apps/relay/tests/contest-security.test.ts` | Missing/forged/replayed/mis-bound proofs, cross-identity reads, client-supplied points and ranks, leaderboard field exposure, threshold leakage, admin allow-list, admin proof binding, illegal transitions, metrics gating, closed registration, admin-key oracle |
 | `apps/web/tests/contest.test.ts` | Money formatting in minor units, countdown arithmetic, registration window, labels |
+| `apps/relay/tests/contest-leaderboard.test.ts` | Cold-cache rebuild, rank order, paging, live score publication, removal, cache loss, disqualification, Postgres fallback, own standing and gap |
 | `apps/web/tests/contest.spec.ts` | Contest tab reachable on desktop and mobile, public page without an identity, admin console refusing an unverifiable identity |
 
 The engine suites need a real PostgreSQL — the guarantees under test *are* SQL
-guarantees, and a mock would only assert that the mock behaves. CI runs a
-`postgres:16-alpine` service so they execute on every pull request; without
-`TEST_DATABASE_URL` they skip.
+guarantees, and a mock would only assert that the mock behaves. The leaderboard
+suite needs a real Redis for the same reason: its correctness depends on what
+the client does with `ZRANGE … REV` and on rename-into-place being atomic for
+readers, neither of which can be read off the source. CI runs
+`postgres:16-alpine` and `redis:7-alpine` services so both execute on every pull
+request; without `TEST_DATABASE_URL` / `TEST_REDIS_URL` they skip.
 
 ## Known limitations
 

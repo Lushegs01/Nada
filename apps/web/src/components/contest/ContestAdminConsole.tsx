@@ -355,6 +355,7 @@ function ParticipantsPanel({
   const [rows, setRows] = useState<AdminParticipant[]>([]);
   const [investigation, setInvestigation] = useState<ParticipantInvestigation | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setRows(await adminParticipants(identity, contestId, 100, 0));
@@ -371,8 +372,15 @@ function ParticipantsPanel({
     const reason = window.prompt(`Reason for "${action}"?`) ?? "";
     if (!reason.trim()) return;
     setBusy(true);
-    await adminReview(identity, contestId, target, action, reason.trim());
+    const { error } = await adminReview(identity, contestId, target, action, reason.trim());
     setBusy(false);
+    setNotice(
+      error
+        ? `Failed: ${error}`
+        : action === "release_held_events"
+          ? "Held events re-scored. If they are still held, clear the participant's risk flags first — releasing does not by itself lower their risk band."
+          : `Applied "${action}".`
+    );
     await load();
     if (investigation) {
       setInvestigation(await adminParticipant(identity, contestId, target));
@@ -381,6 +389,11 @@ function ParticipantsPanel({
 
   return (
     <div className="grid gap-4">
+      {notice ? (
+        <p className="rounded-xl border border-nada-border/10 bg-nada-surface-elevated/40 px-3.5 py-2.5 text-[12.5px] text-nada-text-muted">
+          {notice}
+        </p>
+      ) : null}
       <section className="nada-premium-card overflow-x-auto p-5">
         <h2 className="mb-3 text-[15px] font-bold">Participants</h2>
         <table className="w-full min-w-[720px] text-left text-[13px]">

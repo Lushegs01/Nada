@@ -64,6 +64,10 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   };
 }
 
+export const TEST_REDIS_URL = process.env["TEST_REDIS_URL"];
+/** True when a Redis is configured, so the cache suite can skip cleanly. */
+export const HAS_REDIS = Boolean(TEST_REDIS_URL);
+
 /** Silences the service's logger so a passing suite prints nothing. */
 export const silentLogger = {
   error: () => {},

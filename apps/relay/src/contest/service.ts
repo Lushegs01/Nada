@@ -148,9 +148,13 @@ export class ContestService {
     this.enqueue({ kind: "reversal", input });
   }
 
-  /** Drops a participant's cached membership so a fresh join scores at once. */
+  /**
+   * Drops a participant's cached membership so the next event re-reads it.
+   * Called on join (so a new entrant scores immediately rather than after the
+   * cache expires) and on any admin decision that changes eligibility.
+   */
   invalidateParticipant(contestId: string, pubkeyHash: string): void {
-    this.participantCache.set(`${contestId}:${pubkeyHash}`, true);
+    this.participantCache.forget(`${contestId}:${pubkeyHash}`);
   }
 
   /** Forces the next scoring pass to reload rules and contest windows. */
@@ -314,17 +318,16 @@ export class ContestService {
       participantPubkeyHash
     );
     if (!participant) return;
-    const events = await this.repository.listEvents(contestId, {
-      participantPubkeyHash,
-      status: "VALID",
-      limit: 1
-    });
+    const events = await this.repository.countValidEvents(
+      contestId,
+      participantPubkeyHash
+    );
     await this.leaderboard.publishScore(
       contestId,
       participantPubkeyHash,
       participant.currentScore,
       participant.displayName,
-      events.length
+      events
     );
   }
 
@@ -488,6 +491,23 @@ export class ContestService {
     let cursor: { occurredAtMs: number; sourceId: string; eventType: string } | null = null;
     let scanned = 0;
     let recorded = 0;
+
+    // Anything the live path recorded but never scored — including events that
+    // were in flight when the contest froze, which the background sweeper
+    // ignores because it only looks at ACTIVE contests.
+    for (;;) {
+      const pending = await this.repository.listPendingEventIdsForContest(
+        contestId,
+        batchSize
+      );
+      if (pending.length === 0) break;
+      for (const id of pending) {
+        const event = await this.repository.getEvent(id);
+        if (!event) continue;
+        await this.settleEvent(contest, event.id, event.participantPubkeyHash);
+      }
+      if (pending.length < batchSize) break;
+    }
 
     for (;;) {
       const batch = await this.repository.reconciliationBatch({

@@ -19,7 +19,7 @@
       // is invisible unless it is declared here. Without this the contest
       // integration suites skipped silently under `pnpm test` while passing
       // when vitest was invoked directly.
-      "env": ["TEST_DATABASE_URL", "CONTEST_TEST_DATABASE_URL"]
+      "env": ["TEST_DATABASE_URL", "CONTEST_TEST_DATABASE_URL", "TEST_REDIS_URL"]
     },
     "typecheck": {
       "dependsOn": ["^build"]

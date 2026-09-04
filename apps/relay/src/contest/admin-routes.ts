@@ -15,7 +15,7 @@ import {
 import type { RelayEnv } from "../env";
 import { finalizeContest, transitionContest } from "./lifecycle";
 import type { ContestRepository } from "./repository";
-import { defaultRules } from "./rules";
+import { defaultRules, riskBand } from "./rules";
 import { describe } from "./scoring";
 import type { ContestService } from "./service";
 import { verifyContestAdmin } from "./admin-auth";
@@ -36,6 +36,9 @@ import { verifyContestAdmin } from "./admin-auth";
  */
 
 const DEFAULT_WINNER_COUNT = 3;
+/** Risk weight of an operator's manual flag. Deliberately short of any band
+ *  boundary on its own: a human's suspicion is a signal, not a verdict. */
+const MANUAL_FLAG_RISK_SCORE = 40;
 
 interface AdminParams {
   contestId: string;
@@ -582,18 +585,25 @@ export async function registerContestAdminRoutes(
               eventId: null,
               riskType: "DUPLICATE_BEHAVIOR",
               severity: "HIGH",
-              score: 40,
+              score: MANUAL_FLAG_RISK_SCORE,
               evidence: { manual: true, reason },
               dedupeKey: `manual:${Date.now()}`
             },
             tx
           );
           const score = await repository.cumulativeRisk(contestId, target, tx);
+          // Banded by the contest's own ruleset, not by numbers written here:
+          // an operator who tuned their thresholds would otherwise find a
+          // manual flag landing in a band their configuration does not use.
+          const contest = await repository.getContest(contestId, tx);
+          const rules = contest
+            ? await service.rulesForContest(contest)
+            : defaultRules();
           await repository.setParticipantRisk(
             contestId,
             target,
             score,
-            score >= 81 ? "HIGH_RISK" : score >= 51 ? "SUSPICIOUS" : "WATCH",
+            riskBand(rules, score),
             tx
           );
         } else if (action === "disqualify") {

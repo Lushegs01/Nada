@@ -71,6 +71,12 @@ export class TtlCache<T> {
     return pending;
   }
 
+  /** Drops one entry, so the next read recomputes it. */
+  forget(key: string): void {
+    this.entries.delete(key);
+    this.inFlight.delete(key);
+  }
+
   clear(): void {
     this.entries.clear();
     this.inFlight.clear();

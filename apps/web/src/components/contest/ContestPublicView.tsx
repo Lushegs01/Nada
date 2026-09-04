@@ -41,11 +41,14 @@ export function ContestPublicView({ slug }: { slug?: string }): JSX.Element {
     }
     let cancelled = false;
     void (async () => {
-      const target = slug
-        ? (await fetchContest(slug))?.contest ?? null
-        : (await listContests()).find((entry) => entry.status === "ACTIVE") ??
-          (await listContests())[0] ??
-          null;
+      let target: Contest | null = null;
+      if (slug) {
+        target = (await fetchContest(slug))?.contest ?? null;
+      } else {
+        const contests = await listContests();
+        target =
+          contests.find((entry) => entry.status === "ACTIVE") ?? contests[0] ?? null;
+      }
       if (cancelled || !target) {
         setLoading(false);
         return;

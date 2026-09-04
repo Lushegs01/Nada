@@ -43,6 +43,18 @@ describe.skipIf(!HAS_POSTGRES)("contest engine", () => {
     // of isolation the engine itself uses, so tests share the schema exactly
     // as production instances do.
     await database.db.query("delete from contests");
+    // Reconciliation reads the Whisper tables, so a row left behind by an
+    // earlier test would silently join the next contest's window.
+    for (const table of [
+      "whisper_reactions",
+      "whisper_reflection_reactions",
+      "whisper_reflections",
+      "whisper_ripples",
+      "whisper_follows",
+      "whisper_echoes"
+    ]) {
+      await database.db.query(`delete from ${table}`);
+    }
     repository = new ContestRepository(database.db);
     service = new ContestService(database.db, null, silentLogger);
 
@@ -548,6 +560,72 @@ describe.skipIf(!HAS_POSTGRES)("contest engine", () => {
     const second = await service.reconcile(contestId);
     expect(second.recorded).toBe(0);
     expect(await score()).toBe(afterFirst);
+  });
+
+  it("scores events that were still in flight when the contest froze", async () => {
+    // The worst moment to lose an event is the last minute of a contest. A row
+    // recorded but not yet scored at the deadline has to survive the freeze,
+    // or the standings a prize is paid on are missing their final minutes.
+    const inserted = await repository.insertPendingEvent({
+      contestId,
+      participantPubkeyHash: AUTHOR,
+      actorPubkeyHash: AUTHOR,
+      eventType: "ECHO_CREATED",
+      sourceEntityType: "echo",
+      sourceEntityId: "echo-in-flight",
+      occurredAtMs: Date.now() - 5_000,
+      idempotencyKey: "in-flight-key",
+      metadata: {}
+    });
+    expect(inserted).not.toBeNull();
+
+    await transitionContest({
+      repository,
+      contestId,
+      to: "FROZEN",
+      actorPubkeyHash: "admin",
+      action: "CONTEST_FROZEN",
+      reason: "ended"
+    });
+    service.invalidateContests();
+    expect(await score()).toBe(0);
+
+    await service.reconcile(contestId);
+    expect(await score()).toBe(10);
+  });
+
+  it("scores nothing once a contest is finalized", async () => {
+    await transitionContest({
+      repository, contestId, to: "FROZEN",
+      actorPubkeyHash: "admin", action: "CONTEST_FROZEN", reason: "ended"
+    });
+    await transitionContest({
+      repository, contestId, to: "UNDER_REVIEW",
+      actorPubkeyHash: "admin", action: "CONTEST_UNDER_REVIEW", reason: "reconciled"
+    });
+    const contest = await repository.getContest(contestId);
+    await finalizeContest({
+      repository, contest: contest!, actorPubkeyHash: "admin",
+      reason: "reviewed", winnerCount: 3
+    });
+
+    const inserted = await repository.insertPendingEvent({
+      contestId,
+      participantPubkeyHash: AUTHOR,
+      actorPubkeyHash: AUTHOR,
+      eventType: "ECHO_CREATED",
+      sourceEntityType: "echo",
+      sourceEntityId: "echo-too-late",
+      occurredAtMs: Date.now() - 5_000,
+      idempotencyKey: "too-late-key",
+      metadata: {}
+    });
+    await service.reconcile(contestId);
+
+    const event = await repository.getEvent(inserted!.id);
+    expect(event?.qualificationStatus).toBe("REJECTED");
+    expect(event?.rejectionReason).toBe("contest_not_scoring");
+    expect(await score()).toBe(0);
   });
 
   it("takes a disqualified participant's points off the board", async () => {

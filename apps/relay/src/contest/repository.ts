@@ -746,6 +746,39 @@ export class ContestRepository {
     return row ? mapEvent(row) : null;
   }
 
+  async countValidEvents(contestId: string, pubkeyHash: string): Promise<number> {
+    const result = await this.db.query<{ n: string }>(
+      `select count(*) as n from contest_engagement_events
+        where contest_id = $1 and participant_pubkey_hash = $2
+          and qualification_status = 'VALID'`,
+      [contestId, pubkeyHash]
+    );
+    return num(result.rows[0]?.n);
+  }
+
+  /**
+   * Pending events for one contest regardless of its status.
+   *
+   * The background sweeper deliberately only looks at ACTIVE contests, so
+   * anything still pending when a contest freezes would never be scored — and
+   * re-deriving it during reconciliation is a no-op, because the row already
+   * exists and holds the idempotency key. Finalization has to drain these
+   * explicitly or those points are lost at exactly the moment they count.
+   */
+  async listPendingEventIdsForContest(
+    contestId: string,
+    limit: number
+  ): Promise<string[]> {
+    const result = await this.db.query<{ id: string }>(
+      `select id from contest_engagement_events
+        where contest_id = $1 and qualification_status = 'PENDING'
+        order by created_at asc
+        limit $2`,
+      [contestId, limit]
+    );
+    return result.rows.map((row) => row.id);
+  }
+
   async listPendingEventIds(limit: number, olderThanMs: number): Promise<string[]> {
     const result = await this.db.query<{ id: string }>(
       `select e.id from contest_engagement_events e
@@ -1799,7 +1832,8 @@ export class ContestRepository {
           `update contest_participants
               set payment_status = 'failed', eligibility_status = 'pending_payment',
                   updated_at = now()
-            where contest_id = $1 and pubkey_hash = $2`,
+            where contest_id = $1 and pubkey_hash = $2
+              and payment_status <> 'paid'`,
           [input.contestId, input.pubkeyHash]
         );
       }

@@ -12,7 +12,7 @@ import type { RelayEnv } from "../env";
 import { verifyIdentityProof } from "../identity-proof";
 import { isOriginAllowed } from "../origin";
 import type { ContestRecord, ContestRepository } from "./repository";
-import { categoryFor, pointsFor } from "./rules";
+import { categoryFor } from "./rules";
 import { describe } from "./scoring";
 import type { ContestService } from "./service";
 
@@ -32,7 +32,6 @@ import type { ContestService } from "./service";
  */
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const DEFAULT_WINNER_COUNT = 3;
 
 interface ContestParams {
   contestId: string;
@@ -486,4 +485,4 @@ function safeRedirect(raw: string | undefined, env: RelayEnv): string | null {
   }
 }
 
-export { DEFAULT_WINNER_COUNT, publicScoring, pointsFor };
+export { publicScoring };
