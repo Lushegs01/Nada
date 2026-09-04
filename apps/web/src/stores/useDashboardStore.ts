@@ -1,4 +1,3 @@
-/* eslint-disable */
 import { create } from 'zustand';
 type Updater<T> = T | ((prev: T) => T);
 import type { ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
@@ -195,3 +194,98 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   mutedChatIds: new Set(),
   setMutedChatIds: (mutedChatIds) => set((state) => ({ mutedChatIds: typeof mutedChatIds === 'function' ? mutedChatIds(state.mutedChatIds) : mutedChatIds })),
 }));
+
+
+/**
+ * Stable, module-scope handles for every store action.
+ *
+ * Reading a setter through `useDashboardStore((s) => s.setX)` subscribes the
+ * component to the store once per setter — forty subscriptions on the
+ * dashboard alone — and hands React a value it must treat as a fresh
+ * dependency, which is why `react-hooks/exhaustive-deps` had to be disabled
+ * across the largest component in the app. Zustand's actions never change
+ * identity, so binding them once here removes the subscriptions and lets the
+ * dependency rule run for real, where it can catch actual stale closures.
+ */
+export const dashboardActions = {
+  setActiveFilter: ((value: Parameters<DashboardState["setActiveFilter"]>[0]) =>
+    useDashboardStore.getState().setActiveFilter(value)) as DashboardState["setActiveFilter"],
+  setActiveTab: ((value: Parameters<DashboardState["setActiveTab"]>[0]) =>
+    useDashboardStore.getState().setActiveTab(value)) as DashboardState["setActiveTab"],
+  setAllStatuses: ((value: Parameters<DashboardState["setAllStatuses"]>[0]) =>
+    useDashboardStore.getState().setAllStatuses(value)) as DashboardState["setAllStatuses"],
+  setArchivedChatIds: ((value: Parameters<DashboardState["setArchivedChatIds"]>[0]) =>
+    useDashboardStore.getState().setArchivedChatIds(value)) as DashboardState["setArchivedChatIds"],
+  setBlurShieldActive: ((value: Parameters<DashboardState["setBlurShieldActive"]>[0]) =>
+    useDashboardStore.getState().setBlurShieldActive(value)) as DashboardState["setBlurShieldActive"],
+  setBlurShieldRevealed: ((value: Parameters<DashboardState["setBlurShieldRevealed"]>[0]) =>
+    useDashboardStore.getState().setBlurShieldRevealed(value)) as DashboardState["setBlurShieldRevealed"],
+  setChatPref: ((value: Parameters<DashboardState["setChatPref"]>[0]) =>
+    useDashboardStore.getState().setChatPref(value)) as DashboardState["setChatPref"],
+  setChats: ((value: Parameters<DashboardState["setChats"]>[0]) =>
+    useDashboardStore.getState().setChats(value)) as DashboardState["setChats"],
+  setCommunities: ((value: Parameters<DashboardState["setCommunities"]>[0]) =>
+    useDashboardStore.getState().setCommunities(value)) as DashboardState["setCommunities"],
+  setContacts: ((value: Parameters<DashboardState["setContacts"]>[0]) =>
+    useDashboardStore.getState().setContacts(value)) as DashboardState["setContacts"],
+  setDisappearingTimer: ((value: Parameters<DashboardState["setDisappearingTimer"]>[0]) =>
+    useDashboardStore.getState().setDisappearingTimer(value)) as DashboardState["setDisappearingTimer"],
+  setDisplayName: ((value: Parameters<DashboardState["setDisplayName"]>[0]) =>
+    useDashboardStore.getState().setDisplayName(value)) as DashboardState["setDisplayName"],
+  setEditingMessageId: ((value: Parameters<DashboardState["setEditingMessageId"]>[0]) =>
+    useDashboardStore.getState().setEditingMessageId(value)) as DashboardState["setEditingMessageId"],
+  setFocusedEchoId: ((value: Parameters<DashboardState["setFocusedEchoId"]>[0]) =>
+    useDashboardStore.getState().setFocusedEchoId(value)) as DashboardState["setFocusedEchoId"],
+  setForwardMessageId: ((value: Parameters<DashboardState["setForwardMessageId"]>[0]) =>
+    useDashboardStore.getState().setForwardMessageId(value)) as DashboardState["setForwardMessageId"],
+  setGhostMode: ((value: Parameters<DashboardState["setGhostMode"]>[0]) =>
+    useDashboardStore.getState().setGhostMode(value)) as DashboardState["setGhostMode"],
+  setGlobalSearchResults: ((value: Parameters<DashboardState["setGlobalSearchResults"]>[0]) =>
+    useDashboardStore.getState().setGlobalSearchResults(value)) as DashboardState["setGlobalSearchResults"],
+  setInAppNotification: ((value: Parameters<DashboardState["setInAppNotification"]>[0]) =>
+    useDashboardStore.getState().setInAppNotification(value)) as DashboardState["setInAppNotification"],
+  setMessageSearchQuery: ((value: Parameters<DashboardState["setMessageSearchQuery"]>[0]) =>
+    useDashboardStore.getState().setMessageSearchQuery(value)) as DashboardState["setMessageSearchQuery"],
+  setMessages: ((value: Parameters<DashboardState["setMessages"]>[0]) =>
+    useDashboardStore.getState().setMessages(value)) as DashboardState["setMessages"],
+  setMood: ((value: Parameters<DashboardState["setMood"]>[0]) =>
+    useDashboardStore.getState().setMood(value)) as DashboardState["setMood"],
+  setMutedChatIds: ((value: Parameters<DashboardState["setMutedChatIds"]>[0]) =>
+    useDashboardStore.getState().setMutedChatIds(value)) as DashboardState["setMutedChatIds"],
+  setNotificationSettings: ((value: Parameters<DashboardState["setNotificationSettings"]>[0]) =>
+    useDashboardStore.getState().setNotificationSettings(value)) as DashboardState["setNotificationSettings"],
+  setPanel: ((value: Parameters<DashboardState["setPanel"]>[0]) =>
+    useDashboardStore.getState().setPanel(value)) as DashboardState["setPanel"],
+  setPendingChatAction: ((value: Parameters<DashboardState["setPendingChatAction"]>[0]) =>
+    useDashboardStore.getState().setPendingChatAction(value)) as DashboardState["setPendingChatAction"],
+  setPendingReportTarget: ((value: Parameters<DashboardState["setPendingReportTarget"]>[0]) =>
+    useDashboardStore.getState().setPendingReportTarget(value)) as DashboardState["setPendingReportTarget"],
+  setReplyToId: ((value: Parameters<DashboardState["setReplyToId"]>[0]) =>
+    useDashboardStore.getState().setReplyToId(value)) as DashboardState["setReplyToId"],
+  setSafetyReports: ((value: Parameters<DashboardState["setSafetyReports"]>[0]) =>
+    useDashboardStore.getState().setSafetyReports(value)) as DashboardState["setSafetyReports"],
+  setSearchQuery: ((value: Parameters<DashboardState["setSearchQuery"]>[0]) =>
+    useDashboardStore.getState().setSearchQuery(value)) as DashboardState["setSearchQuery"],
+  setSelectedContactHash: ((value: Parameters<DashboardState["setSelectedContactHash"]>[0]) =>
+    useDashboardStore.getState().setSelectedContactHash(value)) as DashboardState["setSelectedContactHash"],
+  setSelectedGroupId: ((value: Parameters<DashboardState["setSelectedGroupId"]>[0]) =>
+    useDashboardStore.getState().setSelectedGroupId(value)) as DashboardState["setSelectedGroupId"],
+  setSelectedStatusSenderHash: ((value: Parameters<DashboardState["setSelectedStatusSenderHash"]>[0]) =>
+    useDashboardStore.getState().setSelectedStatusSenderHash(value)) as DashboardState["setSelectedStatusSenderHash"],
+  setShowArchivedChats: ((value: Parameters<DashboardState["setShowArchivedChats"]>[0]) =>
+    useDashboardStore.getState().setShowArchivedChats(value)) as DashboardState["setShowArchivedChats"],
+  setShowGhostModal: ((value: Parameters<DashboardState["setShowGhostModal"]>[0]) =>
+    useDashboardStore.getState().setShowGhostModal(value)) as DashboardState["setShowGhostModal"],
+  setShowMoodModal: ((value: Parameters<DashboardState["setShowMoodModal"]>[0]) =>
+    useDashboardStore.getState().setShowMoodModal(value)) as DashboardState["setShowMoodModal"],
+  setShowOnboarding: ((value: Parameters<DashboardState["setShowOnboarding"]>[0]) =>
+    useDashboardStore.getState().setShowOnboarding(value)) as DashboardState["setShowOnboarding"],
+  setUploadStatus: ((value: Parameters<DashboardState["setUploadStatus"]>[0]) =>
+    useDashboardStore.getState().setUploadStatus(value)) as DashboardState["setUploadStatus"],
+  setWhisperNotifications: ((value: Parameters<DashboardState["setWhisperNotifications"]>[0]) =>
+    useDashboardStore.getState().setWhisperNotifications(value)) as DashboardState["setWhisperNotifications"],
+  setWhisperUnreadCount: ((value: Parameters<DashboardState["setWhisperUnreadCount"]>[0]) =>
+    useDashboardStore.getState().setWhisperUnreadCount(value)) as DashboardState["setWhisperUnreadCount"],
+  setWhispers: ((value: Parameters<DashboardState["setWhispers"]>[0]) =>
+    useDashboardStore.getState().setWhispers(value)) as DashboardState["setWhispers"],
+} as const;

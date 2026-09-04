@@ -428,9 +428,13 @@ async function handleStripeEvent(
         ? subscription.customer
         : subscription.customer?.id ?? null;
     if (pubkeyHash && customerId) {
-      const currentPeriodEnd = (subscription as any).current_period_end
-        ? (subscription as any).current_period_end * 1000
-        : null;
+      // `current_period_end` moved to the subscription item in newer Stripe
+      // API versions and is absent from the SDK's top-level type, but the
+      // field is still delivered on the webhook payload for older versions.
+      const periodEndSeconds = (
+        subscription as unknown as { current_period_end?: number }
+      ).current_period_end;
+      const currentPeriodEnd = periodEndSeconds ? periodEndSeconds * 1000 : null;
       await repository.upsertSubscription({
         currentPeriodEnd,
         plan: planParse.data,

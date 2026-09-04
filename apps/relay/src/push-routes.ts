@@ -72,8 +72,11 @@ export async function registerPushRoutes(
       subscriptions.map(async (sub) => {
         try {
           await webpush.sendNotification(sub, payload);
-        } catch (err: any) {
-          if (err?.statusCode === 404 || err?.statusCode === 410) {
+        } catch (err) {
+          // 404/410 mean the browser dropped the subscription; the endpoint is
+          // dead for good, so stop retrying it on every future notification.
+          const statusCode = (err as { statusCode?: number } | null)?.statusCode;
+          if (statusCode === 404 || statusCode === 410) {
             await repository.deleteSubscription(sub.endpoint);
             return;
           }

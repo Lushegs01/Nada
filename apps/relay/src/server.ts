@@ -1,7 +1,10 @@
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
-import fastify, { type FastifyInstance } from "fastify";
+import fastify, {
+  type FastifyInstance,
+  type FastifyServerOptions
+} from "fastify";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 
@@ -80,10 +83,13 @@ interface PushPayload {
 }
 
 export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance> {
-  const app = fastify({
-    logger: createLoggerOption(env) as any,
+  // Typed explicitly: the logger option is a wide union, and inline it makes
+  // TypeScript pick the HTTP/2 `fastify()` overload instead of the default one.
+  const serverOptions: FastifyServerOptions = {
+    logger: createLoggerOption(env),
     trustProxy: true
-  });
+  };
+  const app = fastify(serverOptions);
 
   // One shared Redis connection pair backs the offline queue, the rate-limit
   // store, and the cross-instance delivery bus.
@@ -106,19 +112,19 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     await ensureRelaySchema(db);
   }
 
-  await (app as any).register(cors, {
-    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  await app.register(cors, {
+    origin: (origin, callback) => {
       callback(null, isOriginAllowed(origin, env.allowedOrigin));
     }
   });
-  await (app as any).register(rateLimit, {
+  await app.register(rateLimit, {
     // preHandler (rather than the default onRequest) so the parsed body is
     // available to the key generator — that is where a request's NADA identity
     // lives. Body-size limits still cap what gets parsed.
     hook: "preHandler",
     keyGenerator: buildRateLimitKey,
     max: (_request: unknown, key: string) => resolveRateLimitMax(env, key),
-    allowList: (request: any) => isRateLimitAllowListed(request),
+    allowList: (request) => isRateLimitAllowListed(request),
     // Shared counters across instances; without this each instance keeps its
     // own tally and N instances silently permit N times the limit.
     ...(redis ? { store: createRedisRateLimitStore(redis.command) } : {}),
@@ -126,18 +132,18 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     skipOnError: true,
     timeWindow: "1 minute"
   });
-  await (app as any).register(websocket, {
+  await app.register(websocket, {
     // Envelopes are JSON; media goes through the upload routes. Without a
     // ceiling, `ws` defaults to 100 MiB per frame and one client can pin the
     // instance's memory with a single message.
     options: { maxPayload: MAX_SOCKET_PAYLOAD_BYTES }
   });
-  await registerMonetizationRoutes(app as any, env, db);
-  await registerPushRoutes(app as any, env, db);
-  await registerStatusRoutes(app as any, env, db);
-  await registerTurnRoutes(app as any, env);
-  await registerUploadRoutes(app as any, env, mediaStore);
-  await registerWhisperRoutes(app as any, env, db);
+  await registerMonetizationRoutes(app, env, db);
+  await registerPushRoutes(app, env, db);
+  await registerStatusRoutes(app, env, db);
+  await registerTurnRoutes(app, env);
+  await registerUploadRoutes(app, env, mediaStore);
+  await registerWhisperRoutes(app, env, db);
 
   app.addHook("onClose", async () => {
     await queue.close();
@@ -288,7 +294,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
         sessions,
         queue,
         bus,
-        app as any,
+        app,
         env
       );
     });
@@ -307,7 +313,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     connection.socket.on("error", teardown);
   });
 
-  return app as any;
+  return app;
 }
 
 type DependencyStatus = "ok" | "down" | "not-configured";
@@ -348,7 +354,7 @@ async function handleSocketMessage(
   sessions: SessionRegistry,
   queue: RelayQueue,
   bus: PresenceBus,
-  app: any,
+  app: FastifyInstance,
   env: RelayEnv
 ): Promise<void> {
   let parsed: unknown;
@@ -514,7 +520,7 @@ async function handleSocketMessage(
   }
 
   if ("type" in result.data && result.data.type === "delivery") {
-    await routeDelivery(result.data as any, sessions, bus);
+    await routeDelivery(result.data, sessions, bus);
     return;
   }
 
@@ -924,5 +930,5 @@ function queuePush(
   pubkeyHash: string,
   payload: PushPayload
 ): void {
-  void (app as any).sendPushNotification?.(pubkeyHash, JSON.stringify(payload));
+  void app.sendPushNotification?.(pubkeyHash, JSON.stringify(payload));
 }

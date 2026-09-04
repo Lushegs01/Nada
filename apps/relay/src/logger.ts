@@ -2,7 +2,12 @@ import type { FastifyServerOptions } from "fastify";
 
 import type { RelayEnv } from "./env";
 
-export function createLoggerOption(env: RelayEnv): FastifyServerOptions["logger"] {
+// NonNullable because `exactOptionalPropertyTypes` treats an explicit
+// `undefined` as a distinct value the server options do not accept; this
+// helper always returns a concrete logger setting.
+export function createLoggerOption(
+  env: RelayEnv
+): NonNullable<FastifyServerOptions["logger"]> {
   if (env.zeroLogMode) {
     return false;
   }

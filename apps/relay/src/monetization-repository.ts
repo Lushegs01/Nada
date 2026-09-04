@@ -222,10 +222,9 @@ class MemoryMonetizationRepository implements MonetizationRepository {
     return this.subscriptions.get(pubkeyHash) ?? freeSnapshot(pubkeyHash);
   }
 
-  async redeemReferral(
-    _pubkeyHash: PubkeyHash,
-    _referralCode: string
-  ): Promise<string> {
+  // The in-memory repository has nowhere to record a redemption, so the
+  // arguments are deliberately unused; the signature still has to match.
+  async redeemReferral(): Promise<string> {
     return "pro-retention-preview";
   }
 

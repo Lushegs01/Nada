@@ -44,7 +44,7 @@ export async function registerUploadRoutes(
   env: RelayEnv,
   mediaStore: MediaStore = createMediaStore(env)
 ): Promise<void> {
-  await (app as any).register(fastifyMultipart, {
+  await app.register(fastifyMultipart, {
     limits: {
       fileSize: env.mediaMaxBytes + 1024 * 1024
     }

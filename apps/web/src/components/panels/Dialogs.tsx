@@ -1,6 +1,6 @@
 "use client";
 import type { PendingChatAction } from "@/utils/dashboard-types";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Trash2, Archive } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect } from "react";

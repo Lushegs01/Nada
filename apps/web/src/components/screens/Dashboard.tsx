@@ -1,8 +1,7 @@
 "use client";
-/* eslint-disable */
 import "../chat/chat.css";
 import dynamic from "next/dynamic";
-import { type ChatPrefRecord, getGlobalSetting, nadaDb, directChatId, isBlocked, isMuted, setGlobalSetting, getChatPref, loadMessagesForChat, markChatAsRead, setChatPref } from "@/lib/db";
+import { getGlobalSetting, nadaDb, directChatId, isBlocked, isMuted, setGlobalSetting, getChatPref, loadMessagesForChat, markChatAsRead, setChatPref } from "@/lib/db";
 import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/lib/invite";
 import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload } from "@/lib/media-message";
 import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib/media-upload";
@@ -11,15 +10,15 @@ import { encryptDirectBody, isKeyForIdentity, sealKeyForMembers } from "@/lib/me
 import { whispersRelayConfigured, queryWhisperFeed, FEED_UNCHANGED, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote } from "@/lib/whispers";
 import type { CallMode, LocalCallSession } from "@/lib/webrtc";
 import { createLocalCallSession } from "@/lib/webrtc";
-import { useDashboardStore } from "@/stores/useDashboardStore";
+import { dashboardActions, useDashboardStore } from "@/stores/useDashboardStore";
 import { useCallStore } from "@/stores/useCallStore";
 import { useIdentityStore } from "@/stores/useIdentityStore";
 import { useSocketStore } from "@/stores/useSocketStore";
-import { parseCommunityRecords, parseWhisperEchoes, parseWhisperNotifications, seedWhisperEchoes, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, persistIncomingStatuses, type RelayStatusRow, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, extractMentions, statusCommentChatId, defaultCommunityChannels, defaultCommunityTopics, dataUrlSize, matchesSearch } from "@/utils/helpers";
+import { parseCommunityRecords, parseWhisperEchoes, parseWhisperNotifications, seedWhisperEchoes, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, persistIncomingStatuses, type RelayStatusRow, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, extractMentions, statusCommentChatId, dataUrlSize, matchesSearch } from "@/utils/helpers";
 import { encryptGroupMessage, createGroupSenderKey } from "@nada/crypto";
 import type { IdentityRecord, ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
 import type { MessageEnvelope, ReplyToMessage, GroupMessageEnvelope, PollData, MediaAttachment, GroupInvitePayload } from "@nada/types";
-import { cn, GroupOrb, IdentityOrb } from "@nada/ui";
+import { cn, IdentityOrb } from "@nada/ui";
 import Dexie from "dexie";
 import { motion, AnimatePresence } from "framer-motion";
 import { Ghost, Bell, X } from "lucide-react";
@@ -46,7 +45,49 @@ import { WhispersFeed, type WhisperThreadMeta } from "./WhispersFeed";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { ProfilePage } from "./ProfilePage";
 import { StatusView, StatusCreateSheet, StatusViewerSheet } from "./StatusView";
-import { type NotificationSettings, DEFAULT_NOTIFICATION_SETTINGS, type Panel, type GlobalSearchResult, type PendingChatAction, type ReportTarget, type CommunityRecord, type WhisperEcho, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type CommunityDraft, type GroupDeletePayload } from "@/utils/dashboard-types";
+import { type NotificationSettings, type GlobalSearchResult, type ReportTarget, type WhisperEcho, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type GroupDeletePayload } from "@/utils/dashboard-types";
+
+// Store actions are stable for the life of the store, so they are bound once
+// here rather than subscribed to per render. See dashboardActions.
+const setChatPrefState = dashboardActions.setChatPref;
+const {
+  setActiveTab,
+  setAllStatuses,
+  setBlurShieldActive,
+  setBlurShieldRevealed,
+  setChats,
+  setCommunities,
+  setContacts,
+  setDisappearingTimer,
+  setDisplayName,
+  setEditingMessageId,
+  setFocusedEchoId,
+  setForwardMessageId,
+  setGhostMode,
+  setGlobalSearchResults,
+  setInAppNotification,
+  setMessageSearchQuery,
+  setMessages,
+  setMood,
+  setNotificationSettings,
+  setPanel,
+  setPendingChatAction,
+  setPendingReportTarget,
+  setReplyToId,
+  setSafetyReports,
+  setSearchQuery,
+  setSelectedContactHash,
+  setSelectedGroupId,
+  setSelectedStatusSenderHash,
+  setShowArchivedChats,
+  setShowGhostModal,
+  setShowMoodModal,
+  setShowOnboarding,
+  setUploadStatus,
+  setWhisperNotifications,
+  setWhisperUnreadCount,
+  setWhispers,
+} = dashboardActions;
 
 export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const searchParams = useSearchParams();
@@ -73,11 +114,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const processedReactions = useRef<Set<string>>(new Set());
     const processedDeletions = useRef<Set<string>>(new Set());
     const ghostMode = useDashboardStore((s) => s.ghostMode);
-    const setGhostMode = useDashboardStore((s) => s.setGhostMode);
     const mood = useDashboardStore((s) => s.mood);
-    const setMood = useDashboardStore((s) => s.setMood);
     const notificationSettings = useDashboardStore((s) => s.notificationSettings);
-    const setNotificationSettings = useDashboardStore((s) => s.setNotificationSettings);
     useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
@@ -95,35 +133,20 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     };
     }, [ghostMode]);
     const chats = useDashboardStore((s) => s.chats);
-    const setChats = useDashboardStore((s) => s.setChats);
     const contacts = useDashboardStore((s) => s.contacts);
-    const setContacts = useDashboardStore((s) => s.setContacts);
     const disappearingTimer = useDashboardStore((s) => s.disappearingTimer);
-    const setDisappearingTimer = useDashboardStore((s) => s.setDisappearingTimer);
     const displayName = useDashboardStore((s) => s.displayName);
-    const setDisplayName = useDashboardStore((s) => s.setDisplayName);
     const editingMessageId = useDashboardStore((s) => s.editingMessageId);
-    const setEditingMessageId = useDashboardStore((s) => s.setEditingMessageId);
     const messageSearchQuery = useDashboardStore((s) => s.messageSearchQuery);
-    const setMessageSearchQuery = useDashboardStore((s) => s.setMessageSearchQuery);
     const messages = useDashboardStore((s) => s.messages);
-    const setMessages = useDashboardStore((s) => s.setMessages);
     const panel = useDashboardStore((s) => s.panel);
-    const setPanel = useDashboardStore((s) => s.setPanel);
     const replyToId = useDashboardStore((s) => s.replyToId);
-    const setReplyToId = useDashboardStore((s) => s.setReplyToId);
     const searchQuery = useDashboardStore((s) => s.searchQuery);
-    const setSearchQuery = useDashboardStore((s) => s.setSearchQuery);
     const globalSearchResults = useDashboardStore((s) => s.globalSearchResults);
-    const setGlobalSearchResults = useDashboardStore((s) => s.setGlobalSearchResults);
     const selectedContactHash = useDashboardStore((s) => s.selectedContactHash);
-    const setSelectedContactHash = useDashboardStore((s) => s.setSelectedContactHash);
     const selectedGroupId = useDashboardStore((s) => s.selectedGroupId);
-    const setSelectedGroupId = useDashboardStore((s) => s.setSelectedGroupId);
     const uploadStatus = useDashboardStore((s) => s.uploadStatus);
-    const setUploadStatus = useDashboardStore((s) => s.setUploadStatus);
     const chatPref = useDashboardStore((s) => s.chatPref);
-    const setChatPrefState = useDashboardStore((s) => s.setChatPref);
     const [archivedChatIds, setArchivedChatIds] = useState<Set<string>>(
             () => new Set()
           );
@@ -131,23 +154,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             () => new Set()
           );
     const showArchivedChats = useDashboardStore((s) => s.showArchivedChats);
-    const setShowArchivedChats = useDashboardStore((s) => s.setShowArchivedChats);
     const pendingChatAction = useDashboardStore((s) => s.pendingChatAction);
-    const setPendingChatAction = useDashboardStore((s) => s.setPendingChatAction);
     const blurShieldActive = useDashboardStore((s) => s.blurShieldActive);
-    const setBlurShieldActive = useDashboardStore((s) => s.setBlurShieldActive);
     const blurShieldRevealed = useDashboardStore((s) => s.blurShieldRevealed);
-    const setBlurShieldRevealed = useDashboardStore((s) => s.setBlurShieldRevealed);
     const showGhostModal = useDashboardStore((s) => s.showGhostModal);
-    const setShowGhostModal = useDashboardStore((s) => s.setShowGhostModal);
     const showMoodModal = useDashboardStore((s) => s.showMoodModal);
-    const setShowMoodModal = useDashboardStore((s) => s.setShowMoodModal);
     const forwardMessageId = useDashboardStore((s) => s.forwardMessageId);
-    const setForwardMessageId = useDashboardStore((s) => s.setForwardMessageId);
     const pendingReportTarget = useDashboardStore((s) => s.pendingReportTarget);
-    const setPendingReportTarget = useDashboardStore((s) => s.setPendingReportTarget);
     const inAppNotification = useDashboardStore((s) => s.inAppNotification);
-    const setInAppNotification = useDashboardStore((s) => s.setInAppNotification);
     useEffect(() => {
     if (!showGhostModal && !showMoodModal && !forwardMessageId) return;
     const handleEscape = (e: KeyboardEvent) => {
@@ -160,17 +174,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     return () => window.removeEventListener("keydown", handleEscape);
     }, [showGhostModal, showMoodModal, forwardMessageId]);
     const allStatuses = useDashboardStore((s) => s.allStatuses);
-    const setAllStatuses = useDashboardStore((s) => s.setAllStatuses);
-    const communities = useDashboardStore((s) => s.communities);
-    const setCommunities = useDashboardStore((s) => s.setCommunities);
     const whispers = useDashboardStore((s) => s.whispers);
-    const setWhispers = useDashboardStore((s) => s.setWhispers);
     const whisperNotifications = useDashboardStore((s) => s.whisperNotifications);
-    const setWhisperNotifications = useDashboardStore((s) => s.setWhisperNotifications);
     const whisperUnreadCount = useDashboardStore((s) => s.whisperUnreadCount);
-    const setWhisperUnreadCount = useDashboardStore((s) => s.setWhisperUnreadCount);
     const focusedEchoId = useDashboardStore((s) => s.focusedEchoId);
-    const setFocusedEchoId = useDashboardStore((s) => s.setFocusedEchoId);
     // Per-echo thread paging state (lazy loading + "show older reflections").
     const [whisperThreadMeta, setWhisperThreadMeta] = useState<Record<string, WhisperThreadMeta>>({});
     const [whisperFeedHasMore, setWhisperFeedHasMore] = useState(false);
@@ -181,11 +188,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const [profileTarget, setProfileTarget] = useState<{ hash: string; name: string } | null>(null);
     const lastWhisperAlertAt = useRef(0);
     const safetyReports = useDashboardStore((s) => s.safetyReports);
-    const setSafetyReports = useDashboardStore((s) => s.setSafetyReports);
     const showOnboarding = useDashboardStore((s) => s.showOnboarding);
-    const setShowOnboarding = useDashboardStore((s) => s.setShowOnboarding);
     const selectedStatusSenderHash = useDashboardStore((s) => s.selectedStatusSenderHash);
-    const setSelectedStatusSenderHash = useDashboardStore((s) => s.setSelectedStatusSenderHash);
     useEffect(() => {
     let active = true;
     void Promise.all([
@@ -342,7 +346,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             });
             setWhisperFeedHasMore(echoes.length >= 100);
             setWhisperFeedSyncing(false);
-          }, [identity.pubkeyHash, setWhispers]);
+          }, [identity.pubkeyHash]);
     useEffect(() => {
     if (!selectedStatusSenderHash) return;
     if (
@@ -538,7 +542,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             } finally {
               setNotificationsLoading(false);
             }
-          }, [identity.pubkeyHash, setWhisperNotifications, setWhisperUnreadCount, showNotification]);
+          }, [identity.pubkeyHash, showNotification]);
     useEffect(() => {
     if (!whispersRelayConfigured()) {
       setWhisperFeedSyncing(false);
@@ -558,7 +562,6 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     }, [syncWhispersFromRelay, syncWhisperNotifications]);
     const [activeFilter] = useState("all");
     const activeTab = useDashboardStore((s) => s.activeTab);
-    const setActiveTab = useDashboardStore((s) => s.setActiveTab);
     const [lastMessages, setLastMessages] = useState<Record<string, { body: string; ts: number }>>({});
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
     const processedGroupIncoming = useRef<Set<string>>(new Set());
@@ -1909,7 +1912,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     return () => {
       isSubscribed = false;
     };
-    }, [relayStatus, identity, chats, sendEnvelope, sendGroupEnvelope]);
+    }, [relayStatus, identity, chats, buildGroupKeyDistribution, sendEnvelope, sendGroupEnvelope]);
     const retryOutboundMessage = async (message: MessageRecord): Promise<void> => {
             if (message.direction !== "outbound") return;
 
@@ -2526,7 +2529,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             const sorted = [...next].sort((a, b) => b.createdAt - a.createdAt);
             setWhispers(sorted);
             await setGlobalSetting(WHISPERS_SETTING_KEY, JSON.stringify(sorted));
-          }, [setWhispers]);
+          }, []);
     const updateWhisper = useCallback((
             echoId: string,
             updater: (echo: WhisperEcho) => WhisperEcho
@@ -2686,7 +2689,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 [echoId]: { hasMore: page.hasMore, loaded: true, loading: false }
               }));
             });
-          }, [identity.pubkeyHash, setWhispers]);
+          }, [identity.pubkeyHash]);
     // Feed pagination: fetch Echoes older than the oldest one on screen.
     const loadMoreWhisperFeed = useCallback((): void => {
             if (!whispersRelayConfigured() || whispers.length === 0) return;
@@ -2702,7 +2705,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 return [...current, ...older.filter((echo) => !known.has(echo.id))];
               });
             });
-          }, [identity.pubkeyHash, setWhispers, whispers]);
+          }, [identity.pubkeyHash, whispers]);
     // Like / unlike a single reflection inside a thread.
     const toggleReflectionLike = (echoId: string, reflection: WhisperReflection): void => {
             const nextOn = !reflection.likedByMe;
@@ -2822,7 +2825,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             });
             setWhisperThreadMeta((current) => {
               if (!(echoId in current)) return current;
-              const { [echoId]: _removed, ...rest } = current;
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars -- object rest is how a key is dropped
+              const { [echoId]: _dropped, ...rest } = current;
               return rest;
             });
             showToast("Echo deleted.");
@@ -2841,7 +2845,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             setSelectedContactHash(null);
             setSelectedGroupId(null);
             setActiveTab("profile");
-          }, [setActiveTab]);
+          }, []);
     // ── Whisper notifications (Alerts tab) ─────────────────────────────────
     const markAllWhisperNotificationsRead = useCallback((): void => {
             setWhisperNotifications((current) => {
@@ -2856,7 +2860,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             if (whispersRelayConfigured()) {
               void markWhisperNotificationsReadRemote(identity.pubkeyHash);
             }
-          }, [identity.pubkeyHash, setWhisperNotifications, setWhisperUnreadCount]);
+          }, [identity.pubkeyHash]);
     // Deep-link a notification to its target: follows open the actor's ghost
     // profile; everything else lands on the Echo with its thread expanded.
     const openWhisperNotification = useCallback((notification: WhisperNotification): void => {
@@ -2883,7 +2887,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               // The Echo fell outside the loaded window — refresh, then focus.
               void syncWhispersFromRelay().then(() => setFocusedEchoId(echoId));
             }
-          }, [identity.pubkeyHash, openWhisperProfile, setActiveTab, setFocusedEchoId, setWhisperNotifications, setWhisperUnreadCount, syncWhispersFromRelay, whispers]);
+          }, [identity.pubkeyHash, openWhisperProfile, syncWhispersFromRelay, whispers]);
     // ── Ghost profiles ──────────────────────────────────────────────────────
     // The ProfilePage screen fetches its own data; the Dashboard only routes
     // to it and provides the cross-app actions (message, block, report).
@@ -2902,7 +2906,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             } else {
               void syncWhispersFromRelay().then(() => setFocusedEchoId(echoId));
             }
-          }, [setActiveTab, setFocusedEchoId, setWhispers, syncWhispersFromRelay, whispers]);
+          }, [syncWhispersFromRelay, whispers]);
     // "Message" from a profile: create (or reuse) the contact with their
     // relay-verified pubkey and drop straight into the direct chat. The chat
     // id is deterministic, so an existing conversation is always reused.
@@ -2945,7 +2949,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             setSelectedContactHash(contact.pubkeyHash);
             setMessageSearchQuery("");
             setActiveTab("chats");
-          }, [setActiveTab, setContacts, showToast]);
+          }, [showToast]);
     // Block state for the open profile — backed by the direct chat's local
     // preference record, same mechanism the chat screen uses.
     const [profileBlocked, setProfileBlocked] = useState(false);
@@ -2974,14 +2978,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               current.chatId === chatId ? { ...current, blockedPubkeyHashes } : current
             );
             showToast(block ? "Ghost blocked." : "Ghost unblocked.");
-          }, [identity.pubkeyHash, setChatPrefState, showToast]);
+          }, [identity.pubkeyHash, showToast]);
     const reportGhost = useCallback((profile: WhisperProfile): void => {
             setPendingReportTarget({
               id: profile.pubkeyHash,
               title: profile.displayName || "Ghost",
               type: "user"
             });
-          }, [setPendingReportTarget]);
+          }, []);
     // Shared profile links (…/?ghost=<hash>) deep-link straight to the page.
     const ghostParam = searchParams.get("ghost") ?? "";
     useEffect(() => {
