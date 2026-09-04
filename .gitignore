@@ -11,3 +11,10 @@ test-results
 tsconfig.tsbuildinfo
 .turbo
 .nada-media/
+
+# Serwist build output. `next build` writes this (swDest: "public/sw.js") and
+# mints a fresh Next build id every time, so the committed copy went stale the
+# moment anyone built and left the tree dirty on every build afterwards.
+# Nothing reads it from git: the service worker is disabled in development, and
+# CI and Render both regenerate it from src/sw.ts during the build.
+apps/web/public/sw.js
