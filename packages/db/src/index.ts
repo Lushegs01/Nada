@@ -254,6 +254,12 @@ delete from subscriptions a
 create unique index if not exists subscriptions_stripe_subscription_idx
   on subscriptions(stripe_subscription_id);
 
+-- Stripe does not guarantee webhook ordering: a "subscription.updated" can be
+-- delivered after the "subscription.deleted" that superseded it, and applying
+-- it would resurrect a cancelled plan. Recording the event's own timestamp
+-- lets a write reject an event older than the one already applied.
+alter table subscriptions add column if not exists last_event_at bigint not null default 0;
+
 -- A referral code may be redeemed once per identity. Same de-duplication
 -- reason as above.
 delete from referral_redemptions a

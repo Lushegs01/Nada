@@ -26,7 +26,8 @@ const {
   createGroupSenderKey,
   createSeedPhrase,
   decryptGroupMessage,
-  encryptGroupMessage
+  encryptGroupMessage,
+  sealContentKey
 } = await import("@nada/crypto");
 const {
   decryptDirectBody,
@@ -207,6 +208,59 @@ describe("shared content keys", () => {
     });
     await expect(
       openKeyForSelf({ envelopes, identity: asRecord(carol) })
+    ).resolves.toBeNull();
+  });
+});
+
+describe("legacy and unknown bodies", () => {
+  it("renders a plaintext body from an older client rather than dropping it", async () => {
+    // Call logs used to go out as raw JSON. Returning null for these silently
+    // lost the message; it is shown, and reported as unencrypted.
+    const raw = JSON.stringify({ callId: "abc", mode: "voice", status: "ended" });
+    await expect(
+      decryptDirectBody({ ciphertext: raw, identity: asRecord(bob) })
+    ).resolves.toEqual({ body: raw, encrypted: false });
+  });
+
+  it("never downgrades a failed sealed envelope to a legacy read", async () => {
+    useIdentityStore.getState().setUnlocked({
+      pubkey: alice.pubkey,
+      pubkeyHash: alice.pubkeyHash,
+      privateKey: alice.privateKey
+    });
+    addContact(bob);
+    const sealed = await encryptDirectBody({
+      body: "secret",
+      recipientPubkeyHash: bob.pubkeyHash,
+      identity: asRecord(alice)
+    });
+
+    // Alice cannot open her own sealed message to Bob. It must fail closed,
+    // not fall through to the permissive legacy branch.
+    await expect(
+      decryptDirectBody({ ciphertext: sealed.ciphertext, identity: asRecord(alice) })
+    ).resolves.toBeNull();
+  });
+});
+
+describe("group admission", () => {
+  it("only treats a sealed key as evidence of deliberate inclusion", async () => {
+    const stranger = await createAnonymousIdentity(createSeedPhrase());
+    const senderKey = await createGroupSenderKey();
+
+    // A stranger fanning a group envelope at someone produces no envelope
+    // addressed to them, so there is no key to open and nothing to admit them
+    // to. The relay holds no group membership, so this is the only check.
+    const envelopes = await sealContentKey(senderKey, [
+      { pubkeyHash: stranger.pubkeyHash, publicKey: stranger.pubkey }
+    ]);
+    useIdentityStore.getState().setUnlocked({
+      pubkey: bob.pubkey,
+      pubkeyHash: bob.pubkeyHash,
+      privateKey: bob.privateKey
+    });
+    await expect(
+      openKeyForSelf({ envelopes, identity: asRecord(bob) })
     ).resolves.toBeNull();
   });
 });

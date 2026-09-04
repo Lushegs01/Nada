@@ -185,9 +185,27 @@ export async function openDecryptedMedia(media: MediaAttachment): Promise<string
     return media.url;
   }
 
-  const response = await fetch(media.url);
+  // Downloads are authenticated: the relay checks that this identity is a party
+  // to the object before serving it. The id alone is no longer a credential.
+  const mediaId = media.id ?? media.url.split("/").pop() ?? "";
+  const proof = await useIdentityStore
+    .getState()
+    .signProof("media-download", mediaId);
+  if (!proof) {
+    throw new Error("Unlock your identity to open this attachment.");
+  }
+
+  const response = await fetch(media.url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ proof })
+  });
   if (!response.ok) {
-    throw new Error("Media is unavailable.");
+    throw new Error(
+      response.status === 404
+        ? "This attachment is no longer available."
+        : "Media is unavailable."
+    );
   }
 
   const encryptedBytes = new Uint8Array(await response.arrayBuffer());

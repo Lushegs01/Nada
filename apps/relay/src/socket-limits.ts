@@ -13,8 +13,15 @@ import type { WebSocket } from "ws";
 
 /** Largest frame the relay will accept. Envelopes are JSON, not media. */
 export const MAX_SOCKET_PAYLOAD_BYTES = 512 * 1024;
-/** Envelopes per identity per window before the relay pushes back. */
-export const SOCKET_MESSAGE_LIMIT = 240;
+/**
+ * Fan-out units per socket per window before the relay pushes back.
+ *
+ * Counted in deliveries, not envelopes: one group message addressed to 512
+ * recipients is 512 units, not one. Without that weighting the ceiling was
+ * 240 envelopes x 512 recipients = ~123,000 deliveries a minute from a single
+ * socket, which is an amplifier rather than a limit.
+ */
+export const SOCKET_MESSAGE_LIMIT = 2_400;
 export const SOCKET_MESSAGE_WINDOW_MS = 60_000;
 /** Simultaneous sockets one identity may hold on a single instance. */
 export const MAX_SOCKETS_PER_IDENTITY = 8;
@@ -40,14 +47,19 @@ export class SocketMessageLimiter {
     private readonly windowMs: number = SOCKET_MESSAGE_WINDOW_MS
   ) {}
 
-  /** Returns false once the socket has exceeded its budget for this window. */
-  allow(socket: object, now: number = Date.now()): boolean {
+  /**
+   * Charges `cost` fan-out units to the socket and reports whether it stayed
+   * within budget. `cost` is the number of deliveries the envelope will
+   * produce, so a group message is charged for every recipient it names.
+   */
+  allow(socket: object, cost = 1, now: number = Date.now()): boolean {
+    const charge = Math.max(1, cost);
     const bucket = this.buckets.get(socket);
     if (!bucket || now - bucket.windowStartedAt >= this.windowMs) {
-      this.buckets.set(socket, { count: 1, windowStartedAt: now });
-      return true;
+      this.buckets.set(socket, { count: charge, windowStartedAt: now });
+      return charge <= this.limit;
     }
-    bucket.count += 1;
+    bucket.count += charge;
     return bucket.count <= this.limit;
   }
 

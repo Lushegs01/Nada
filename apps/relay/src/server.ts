@@ -304,7 +304,8 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
         queue,
         bus,
         app,
-        env
+        env,
+        socketLimiter
       );
     });
 
@@ -364,7 +365,8 @@ async function handleSocketMessage(
   queue: RelayQueue,
   bus: PresenceBus,
   app: FastifyInstance,
-  env: RelayEnv
+  env: RelayEnv,
+  socketLimiter: SocketMessageLimiter
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -501,6 +503,18 @@ async function handleSocketMessage(
   }
 
   if ("type" in result.data && result.data.type === "group-message") {
+    // A group message costs one fan-out unit per recipient. The cheap
+    // per-envelope check at the socket boundary cannot see that, so the real
+    // charge lands here, once the recipient list is known and validated.
+    if (!socketLimiter.allow(socket, result.data.recipients.length)) {
+      sendSocketError(
+        socket,
+        "rate_limited",
+        "Group fan-out budget exceeded; slow down."
+      );
+      socket.close(1013, "Rate limited");
+      return;
+    }
     if (!env.allowDevPlaintext && result.data.devPlaintext !== undefined) {
       delete (result.data as { devPlaintext?: unknown }).devPlaintext;
     }

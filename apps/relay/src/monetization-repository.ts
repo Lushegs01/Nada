@@ -22,6 +22,13 @@ export interface SubscriptionWrite {
   status: SubscriptionState;
   stripeCustomerId: string;
   stripeSubscriptionId: string;
+  /**
+   * Stripe's own `created` timestamp for the event carrying this state, in ms.
+   * Writes are applied only when this is at least as recent as the last event
+   * already applied to the row — Stripe does not order its deliveries, and an
+   * out-of-order "updated" would otherwise undo a "deleted".
+   */
+  eventAt: number;
 }
 
 export interface MonetizationRepository {
@@ -159,18 +166,23 @@ class PostgresMonetizationRepository implements MonetizationRepository {
     // call — so each webhook delivery inserted another row and the table grew
     // one row per retry, with `order by updated_at desc limit 1` papering over
     // the mess at read time.
+    // `where excluded.last_event_at >= subscriptions.last_event_at` is what
+    // makes delivery order irrelevant: a stale event finds a newer row and its
+    // update is skipped rather than applied.
     await this.client.query(
       `insert into subscriptions
        (id, pubkey_hash, stripe_customer_id, stripe_subscription_id, plan,
-        status, current_period_end, created_at, updated_at)
-       values ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0), now(), now())
+        status, current_period_end, last_event_at, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0), $8, now(), now())
        on conflict (stripe_subscription_id) do update set
         pubkey_hash = excluded.pubkey_hash,
         stripe_customer_id = excluded.stripe_customer_id,
         plan = excluded.plan,
         status = excluded.status,
         current_period_end = excluded.current_period_end,
-        updated_at = now()`,
+        last_event_at = excluded.last_event_at,
+        updated_at = now()
+       where excluded.last_event_at >= subscriptions.last_event_at`,
       [
         randomUUID(),
         write.pubkeyHash,
@@ -178,7 +190,8 @@ class PostgresMonetizationRepository implements MonetizationRepository {
         write.stripeSubscriptionId,
         write.plan,
         write.status,
-        write.currentPeriodEnd
+        write.currentPeriodEnd,
+        write.eventAt
       ]
     );
   }
@@ -204,7 +217,10 @@ class PostgresMonetizationRepository implements MonetizationRepository {
 }
 
 class MemoryMonetizationRepository implements MonetizationRepository {
-  private readonly subscriptions = new Map<PubkeyHash, SubscriptionSnapshot>();
+  private readonly subscriptions = new Map<
+    PubkeyHash,
+    SubscriptionSnapshot & { eventAt: number }
+  >();
   private readonly processedStripeEvents = new Set<string>();
 
   async close(): Promise<void> {
@@ -231,8 +247,11 @@ class MemoryMonetizationRepository implements MonetizationRepository {
   async storeCapabilityToken(): Promise<void> {}
 
   async upsertSubscription(write: SubscriptionWrite): Promise<void> {
+    const existing = this.subscriptions.get(write.pubkeyHash);
+    if (existing && existing.eventAt > write.eventAt) return;
     this.subscriptions.set(write.pubkeyHash, {
       currentPeriodEnd: write.currentPeriodEnd,
+      eventAt: write.eventAt,
       plan: write.plan,
       pubkeyHash: write.pubkeyHash,
       status: write.status

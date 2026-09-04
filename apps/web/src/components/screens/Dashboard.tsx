@@ -1657,14 +1657,20 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               direction: "outbound",
               kind: "call",
               body,
-              encryptedPayload: body,
+              // PENDING_ENCRYPTED_PAYLOAD rather than the body: the outbox flush
+              // resends `encryptedPayload` verbatim, so storing plaintext here
+              // would have put it back on the wire in the clear on every retry.
+              encryptedPayload: PENDING_ENCRYPTED_PAYLOAD,
               status: "local",
               createdAt: timestamp
             };
             await nadaDb.messages.put(record);
             setMessages((current) => [...current, record]);
 
-            // Broadcast call log to peer if it's a direct chat
+            // Broadcast call log to peer if it's a direct chat. This is
+            // encrypted like any other message: the payload names the call, its
+            // mode, whether it was missed or declined, and how long it lasted —
+            // precisely the metadata a privacy product must not hand its relay.
             if (selectedContact) {
               sendEnvelope({
                 type: "message",
@@ -1672,11 +1678,12 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 recipient: selectedContact.pubkeyHash,
                 sender: identity.pubkeyHash,
                 timestamp,
-                ciphertext: body,
-                messageKind: "call"
+                ciphertext: await encryptDirect(body, selectedContact.pubkeyHash),
+                messageKind: "call",
+                senderPublicKey: identity.pubkey
               });
             }
-          }, [selectedChatId, selectedContact, selectedGroup, identity.pubkeyHash, sendEnvelope]);
+          }, [selectedChatId, selectedContact, selectedGroup, identity.pubkey, identity.pubkeyHash, encryptDirect, sendEnvelope]);
     const clearCallRingTimeout = useCallback((): void => {
             if (callRingTimeoutRef.current) {
               window.clearTimeout(callRingTimeoutRef.current);

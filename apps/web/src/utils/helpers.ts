@@ -1015,6 +1015,19 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
     }
 
     if (!existingChat) {
+      // Being added to a group NADA has never seen. The relay holds no group
+      // membership — it fans out to whatever recipient list a sender supplies —
+      // so without a check here any identity could inject a chat into anyone's
+      // app, with a member list of its own choosing that the UI would then
+      // display as fact.
+      //
+      // A sender key sealed to this identity is the evidence of deliberate
+      // inclusion: it is addressed to us specifically, and without it every
+      // message in the group is undecryptable anyway, so the chat would be an
+      // empty shell. Messages that fail this are dropped rather than shown.
+      if (!senderKey) {
+        continue;
+      }
       const now = Date.now();
       await nadaDb.chats.put({
         id: envelope.groupId,

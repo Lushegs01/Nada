@@ -165,12 +165,13 @@ export async function encryptDirectBody(args: {
 /**
  * Opens an inbound direct-message body.
  *
- * Accepts both wire formats on purpose: a user's existing history and any peer
+ * Accepts every wire format on purpose: a user's existing history and any peer
  * still on an older client produce legacy payloads, and refusing those would
- * blank out conversations rather than protect them. A payload that *claims* to
- * be sealed and fails verification is never silently downgraded — it surfaces
- * as undecryptable, because a forged message shown as authentic is worse than
- * one that fails to render.
+ * blank out conversations rather than protect them.
+ *
+ * The one payload never accepted is one that *claims* to be sealed and fails
+ * verification. That is never downgraded to a legacy read — a forged message
+ * shown as authentic is worse than one that fails to render.
  */
 export async function decryptDirectBody(args: {
   ciphertext: string;
@@ -202,7 +203,12 @@ export async function decryptDirectBody(args: {
       encrypted: false
     };
   } catch {
-    return null;
+    // Not sealed and not base64 — an older client that put the body on the
+    // wire as-is. Returning null here dropped those messages on the floor
+    // rather than showing them, which is a worse outcome than rendering a
+    // payload the relay could already read. It is still reported as
+    // unencrypted, so nothing claims protection it does not have.
+    return { body: args.ciphertext, encrypted: false };
   }
 }
 
