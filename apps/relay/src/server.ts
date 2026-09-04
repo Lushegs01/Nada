@@ -44,6 +44,7 @@ import {
   trySend
 } from "./socket-limits";
 import { registerPushRoutes } from "./push-routes";
+import { TtlCache } from "./ttl-cache";
 import { registerStatusRoutes } from "./status-routes";
 import { registerTurnRoutes } from "./turn-routes";
 import { registerUploadRoutes } from "./upload-routes";
@@ -72,6 +73,8 @@ interface SessionRegistry {
 }
 
 const HANDSHAKE_TIMEOUT_MS = 30_000;
+/** How long a registered-user count may be served from cache. */
+const STATS_CACHE_TTL_MS = 30_000;
 
 interface PushPayload {
   title: string;
@@ -193,18 +196,25 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     });
   });
 
+  // `count(*)` on Postgres is a sequential scan. This endpoint is public and
+  // uncredentialed, so without a cache anyone could hold the database down by
+  // polling it — the cost grows with the user table, which is exactly backwards.
+  // The TTL also collapses concurrent callers onto one query.
+  const statsCache = new TtlCache<number | null>(STATS_CACHE_TTL_MS, 1);
+
   app.get("/stats", async () => {
-    let totalRegisteredUsers: number | null = null;
-    if (db) {
+    const totalRegisteredUsers = await statsCache.resolve("users", async () => {
+      if (!db) return null;
       try {
         const result = await db.query<{ count: string }>(
           "select count(*) as count from users"
         );
-        totalRegisteredUsers = Number(result.rows[0]?.count ?? 0);
+        return Number(result.rows[0]?.count ?? 0);
       } catch {
-        // DB unavailable — return null rather than crashing
+        // DB unavailable — report null rather than failing the endpoint.
+        return null;
       }
-    }
+    });
 
     return {
       uniqueUsersOnline: sessions.socketsByPubkeyHash.size,

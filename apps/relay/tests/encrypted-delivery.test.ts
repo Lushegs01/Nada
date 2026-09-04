@@ -242,7 +242,7 @@ describe("encrypted delivery through the relay", () => {
         recipientPubkeyHash: bob.pubkeyHash,
         recipientPublicKey: bob.pubkey,
         recipientPrivateKey: bob.privateKey
-      }).then((result) => result.body)
+      }).then((opened: { body: string }) => opened.body)
     ).resolves.toBe("sent while you were away");
   });
 

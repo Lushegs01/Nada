@@ -505,6 +505,64 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             notificationSettings.vibration,
             playNotificationTone
           ]);
+    /**
+     * Bridges the service worker to the running app.
+     *
+     * Two events arrive here. A push delivered while a NADA window is focused
+     * is handed over rather than shown as an OS notification — the worker used
+     * to drop it entirely, so an event that arrived at the wrong moment was one
+     * the user never learned about. And a notification tap on an already-open
+     * tab only focuses that tab, which leaves the user on whatever screen they
+     * were last on; the worker now says which conversation was tapped so the
+     * app can actually open it.
+     */
+    const openChatByChatId = useCallback((chatId: string | null): void => {
+            if (!chatId) return;
+            setActiveTab("chats");
+            const group = chats.find((chat) => chat.id === chatId);
+            if (group) {
+              setSelectedContactHash(null);
+              setSelectedGroupId(group.id);
+              return;
+            }
+            // Push payloads label a direct chat with the sender's hash, not the
+            // composite chat id, so accept either.
+            const contact = contacts.find(
+              (item) =>
+                item.pubkeyHash === chatId ||
+                directChatId(identity.pubkeyHash, item.pubkeyHash) === chatId
+            );
+            if (contact) {
+              setSelectedGroupId(null);
+              setSelectedContactHash(contact.pubkeyHash);
+            }
+          }, [chats, contacts, identity.pubkeyHash]);
+    useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+      return;
+    }
+    const handleWorkerMessage = (event: MessageEvent): void => {
+      const data = event.data as
+        | { type?: string; chatId?: string | null; title?: string; body?: string }
+        | undefined;
+      if (!data?.type) return;
+      if (data.type === "NADA_PUSH") {
+        showNotification(
+          data.title ?? "NADA",
+          data.body ?? "You have a new private update.",
+          data.chatId ?? "status"
+        );
+        return;
+      }
+      if (data.type === "NADA_NOTIFICATION_CLICK") {
+        openChatByChatId(data.chatId ?? null);
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", handleWorkerMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", handleWorkerMessage);
+    };
+    }, [openChatByChatId, showNotification]);
     // Notification inbox sync: authoritative read/unread state lives on the
     // relay; new arrivals surface as in-app alerts through the same
     // notification pipeline chats use (tones, preview privacy, vibration).

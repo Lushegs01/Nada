@@ -5,7 +5,8 @@
     "outDir": "dist",
     "paths": {
       "@nada/db": ["../../packages/db/src"],
-      "@nada/types": ["../../packages/types/src"]
+      "@nada/types": ["../../packages/types/src"],
+      "@nada/crypto": ["../../packages/crypto/src"]
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],
