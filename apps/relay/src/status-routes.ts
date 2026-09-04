@@ -1,26 +1,15 @@
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
 
 import {
-  PubkeyHashSchema,
   StatusDeleteRequestSchema,
-  StatusPublishRequestSchema
+  StatusPublishRequestSchema,
+  StatusQueryRequestSchema
 } from "@nada/types";
 
 import type { RelayDb } from "./db";
 import type { RelayEnv } from "./env";
 import { verifyIdentityProof } from "./identity-proof";
 import { createStatusRepository } from "./status-repository";
-
-// Query is reads-only (anyone can fetch ciphertext for a set of pubkey hashes
-// they already know — the payload itself is end-to-end encrypted), so no proof
-// is required here.
-const StatusQuerySchema = z.object({
-  limit: z.number().int().min(1).max(200).optional(),
-  senderPubkeyHashes: z.array(PubkeyHashSchema).min(1).max(256),
-  since: z.number().int().positive().optional(),
-  viewerPubkeyHash: PubkeyHashSchema
-});
 
 export async function registerStatusRoutes(
   app: FastifyInstance,
@@ -66,6 +55,9 @@ export async function registerStatusRoutes(
       ciphertext: result.data.ciphertext,
       ...(devPlaintext ? { devPlaintext } : {}),
       id: result.data.id,
+      ...(result.data.keyEnvelopes
+        ? { keyEnvelopes: result.data.keyEnvelopes }
+        : {}),
       senderPubkeyHash: result.data.sender,
       timestamp: result.data.timestamp
     });
@@ -97,8 +89,16 @@ export async function registerStatusRoutes(
     return reply.send({ success: true });
   });
 
+  // Reading statuses requires proving control of the viewing identity.
+  //
+  // This used to be unauthenticated, taking the viewer's identity as a
+  // client-asserted field. Pubkey hashes are published on the Whispers feed,
+  // so anyone could enumerate authors and ask for their statuses — and did not
+  // even need to, since the caller chose which senders to read. The proof
+  // makes the viewer real, and the per-viewer sealed key means the relay can
+  // only ever hand out the audience copy addressed to that verified identity.
   app.post("/api/v1/statuses/query", async (request, reply) => {
-    const result = StatusQuerySchema.safeParse(request.body);
+    const result = StatusQueryRequestSchema.safeParse(request.body);
     if (!result.success) {
       return reply.code(400).send({
         code: "invalid_status_query",
@@ -106,21 +106,39 @@ export async function registerStatusRoutes(
       });
     }
 
+    const verification = verifyIdentityProof(result.data.proof, {
+      context: "status-query",
+      binding: result.data.viewerPubkeyHash
+    });
+    if (
+      !verification.ok ||
+      verification.pubkeyHash !== result.data.viewerPubkeyHash
+    ) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+
     const statuses = await repository.listStatuses(
       Array.from(new Set(result.data.senderPubkeyHashes)),
       result.data.since ?? Date.now() - 24 * 60 * 60 * 1000,
-      result.data.limit ?? 100
+      result.data.limit ?? 100,
+      verification.pubkeyHash
     );
 
     return reply.send({
       statuses: statuses.map((status) => ({
         type: "message",
         id: status.id,
-        recipient: result.data.viewerPubkeyHash,
+        recipient: verification.pubkeyHash,
         sender: status.senderPubkeyHash,
         timestamp: status.timestamp,
         ciphertext: status.ciphertext,
         messageKind: "status",
+        // Only the copy addressed to this verified viewer, never anyone else's.
+        ...(status.sealedKey ? { statusKeyEnvelope: status.sealedKey } : {}),
         // Strip stored devPlaintext on the way out unless explicitly enabled.
         ...(allowDevPlaintext && status.devPlaintext
           ? { devPlaintext: status.devPlaintext }

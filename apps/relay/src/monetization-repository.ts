@@ -27,6 +27,13 @@ export interface SubscriptionWrite {
 export interface MonetizationRepository {
   close: () => Promise<void>;
   getSubscription: (pubkeyHash: PubkeyHash) => Promise<SubscriptionSnapshot>;
+  /**
+   * Records a Stripe event id and reports whether this process is the one that
+   * claimed it. Stripe retries every non-2xx delivery and can deliver the same
+   * event more than once even on success, so the handler must be able to tell
+   * a first delivery from a replay before it writes anything.
+   */
+  claimStripeEvent: (eventId: string, eventType: string) => Promise<boolean>;
   redeemReferral: (
     pubkeyHash: PubkeyHash,
     referralCode: string
@@ -69,6 +76,18 @@ class PostgresMonetizationRepository implements MonetizationRepository {
   // The shared pool is owned and closed by the relay server.
   async close(): Promise<void> {}
 
+  async claimStripeEvent(eventId: string, eventType: string): Promise<boolean> {
+    // The primary key does the arbitration: exactly one caller inserts a row,
+    // every replay sees `do nothing` and a zero row count.
+    const result = await this.client.query(
+      `insert into stripe_events (event_id, event_type, processed_at)
+       values ($1, $2, now())
+       on conflict (event_id) do nothing`,
+      [eventId, eventType]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async getSubscription(pubkeyHash: PubkeyHash): Promise<SubscriptionSnapshot> {
     const result = await this.client.query<{
       current_period_end: Date | null;
@@ -101,10 +120,13 @@ class PostgresMonetizationRepository implements MonetizationRepository {
   ): Promise<string> {
     const reward = "pro-retention-preview";
     await this.ensureUser(pubkeyHash, "free", "none", null);
+    // One redemption per (identity, code): a retried request must not stack
+    // rewards, and the unique index makes that true even under concurrency.
     await this.client.query(
       `insert into referral_redemptions
        (id, pubkey_hash, referral_code, reward, created_at)
-       values ($1, $2, $3, $4, now())`,
+       values ($1, $2, $3, $4, now())
+       on conflict (pubkey_hash, referral_code) do nothing`,
       [randomUUID(), pubkeyHash, referralCode, reward]
     );
     return reward;
@@ -132,12 +154,19 @@ class PostgresMonetizationRepository implements MonetizationRepository {
       write.status,
       write.stripeCustomerId
     );
+    // Keyed on the Stripe subscription id, not on a freshly generated uuid.
+    // The old `on conflict (id)` could never fire — `id` was random on every
+    // call — so each webhook delivery inserted another row and the table grew
+    // one row per retry, with `order by updated_at desc limit 1` papering over
+    // the mess at read time.
     await this.client.query(
       `insert into subscriptions
        (id, pubkey_hash, stripe_customer_id, stripe_subscription_id, plan,
         status, current_period_end, created_at, updated_at)
        values ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0), now(), now())
-       on conflict (id) do update set
+       on conflict (stripe_subscription_id) do update set
+        pubkey_hash = excluded.pubkey_hash,
+        stripe_customer_id = excluded.stripe_customer_id,
         plan = excluded.plan,
         status = excluded.status,
         current_period_end = excluded.current_period_end,
@@ -176,19 +205,26 @@ class PostgresMonetizationRepository implements MonetizationRepository {
 
 class MemoryMonetizationRepository implements MonetizationRepository {
   private readonly subscriptions = new Map<PubkeyHash, SubscriptionSnapshot>();
+  private readonly processedStripeEvents = new Set<string>();
 
   async close(): Promise<void> {
     this.subscriptions.clear();
+    this.processedStripeEvents.clear();
+  }
+
+  async claimStripeEvent(eventId: string): Promise<boolean> {
+    if (this.processedStripeEvents.has(eventId)) return false;
+    this.processedStripeEvents.add(eventId);
+    return true;
   }
 
   async getSubscription(pubkeyHash: PubkeyHash): Promise<SubscriptionSnapshot> {
     return this.subscriptions.get(pubkeyHash) ?? freeSnapshot(pubkeyHash);
   }
 
-  async redeemReferral(
-    _pubkeyHash: PubkeyHash,
-    _referralCode: string
-  ): Promise<string> {
+  // The in-memory repository has nowhere to record a redemption, so the
+  // arguments are deliberately unused; the signature still has to match.
+  async redeemReferral(): Promise<string> {
     return "pro-retention-preview";
   }
 

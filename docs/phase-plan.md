@@ -45,3 +45,29 @@
 - Launch route at `/launch`.
 - GitHub Actions CI for install, typecheck, tests, and build.
 - Production deployment guide and security hardening checklist.
+
+## Hardening pass
+
+- Real message encryption wired through every send and receive path; the mock
+  base64 codec is gone from the application.
+- Public-key integrity: verified before use and before storage, learned from
+  signed payloads, never overwritten by an unverifiable value.
+- Group and status content keys sealed per recipient.
+- Status reads authenticated; per-viewer key envelopes.
+- Relay: socket heartbeat, frame and rate ceilings, per-identity connection cap,
+  graceful shutdown, dependency-aware `/ready`.
+- Offline queue made crash-safe (claim, settle, restore) rather than
+  delete-on-drain.
+- Stripe webhooks made idempotent; referral redemptions made unique.
+- Media uploads authenticated and given a retention window.
+- Lint restored across the monorepo and enforced in CI; store actions bound once
+  at module scope so `react-hooks/exhaustive-deps` can run.
+- Client memory bounded; reconnect backoff jittered.
+
+## Next
+
+1. Signal sessions or MLS for forward secrecy.
+2. Group key rotation on membership change.
+3. Proof-gated media downloads.
+4. CSP nonces to drop `unsafe-inline`.
+5. Load testing at institution scale.

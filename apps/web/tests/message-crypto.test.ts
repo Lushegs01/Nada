@@ -1,0 +1,212 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { ContactRecord } from "@nada/db";
+
+// Dexie needs a real IndexedDB, which this suite does not: the behaviour under
+// test is key handling, so the contacts table is stood up in memory.
+const contacts = new Map<string, ContactRecord>();
+
+vi.mock("@/lib/db", () => ({
+  nadaDb: {
+    contacts: {
+      get: async (id: string) => contacts.get(id),
+      put: async (record: ContactRecord) => {
+        contacts.set(record.pubkeyHash, record);
+      },
+      update: async (id: string, patch: Partial<ContactRecord>) => {
+        const existing = contacts.get(id);
+        if (existing) contacts.set(id, { ...existing, ...patch });
+      }
+    }
+  }
+}));
+
+const {
+  createAnonymousIdentity,
+  createGroupSenderKey,
+  createSeedPhrase,
+  decryptGroupMessage,
+  encryptGroupMessage
+} = await import("@nada/crypto");
+const {
+  decryptDirectBody,
+  encryptDirectBody,
+  isKeyForIdentity,
+  learnPeerPublicKey,
+  openKeyForSelf,
+  resolveRecipientKey,
+  sealKeyForMembers
+} = await import("@/lib/message-crypto");
+const { useIdentityStore } = await import("@/stores/useIdentityStore");
+
+type Identity = Awaited<ReturnType<typeof createAnonymousIdentity>>;
+
+function asRecord(identity: Identity) {
+  return {
+    pubkey: identity.pubkey,
+    pubkeyHash: identity.pubkeyHash,
+    localPrivateKey: identity.privateKey
+  };
+}
+
+function addContact(identity: Identity, publicKey = identity.pubkey): void {
+  contacts.set(identity.pubkeyHash, {
+    id: identity.pubkeyHash,
+    pubkeyHash: identity.pubkeyHash,
+    publicKey,
+    localDisplayName: "Peer",
+    addedAt: Date.now(),
+    trustStatus: "unverified"
+  });
+}
+
+let alice: Identity;
+let bob: Identity;
+
+beforeEach(async () => {
+  contacts.clear();
+  useIdentityStore.getState().setUnlocked(null);
+  alice = await createAnonymousIdentity(createSeedPhrase());
+  bob = await createAnonymousIdentity(createSeedPhrase());
+});
+
+describe("public key integrity", () => {
+  it("only accepts a key that hashes to the identity claiming it", async () => {
+    await expect(isKeyForIdentity(alice.pubkey, alice.pubkeyHash)).resolves.toBe(true);
+    // The exact corruption the old inbound path wrote: the hash as the key.
+    await expect(isKeyForIdentity(alice.pubkeyHash, alice.pubkeyHash)).resolves.toBe(false);
+    await expect(isKeyForIdentity(bob.pubkey, alice.pubkeyHash)).resolves.toBe(false);
+    await expect(isKeyForIdentity(undefined, alice.pubkeyHash)).resolves.toBe(false);
+  });
+
+  it("refuses to resolve or learn an unverifiable key", async () => {
+    addContact(alice, alice.pubkeyHash);
+    await expect(resolveRecipientKey(alice.pubkeyHash)).resolves.toBeNull();
+
+    await expect(learnPeerPublicKey(alice.pubkeyHash, bob.pubkey)).resolves.toBe(false);
+    expect(contacts.get(alice.pubkeyHash)?.publicKey).toBe(alice.pubkeyHash);
+
+    await expect(learnPeerPublicKey(alice.pubkeyHash, alice.pubkey)).resolves.toBe(true);
+    expect(contacts.get(alice.pubkeyHash)?.publicKey).toBe(alice.pubkey);
+    await expect(resolveRecipientKey(alice.pubkeyHash)).resolves.toBe(alice.pubkey);
+  });
+});
+
+describe("direct message bodies", () => {
+  it("seals a body the recipient can open and a third party cannot", async () => {
+    useIdentityStore.getState().setUnlocked({
+      pubkey: alice.pubkey,
+      pubkeyHash: alice.pubkeyHash,
+      privateKey: alice.privateKey
+    });
+    addContact(bob);
+
+    const sent = await encryptDirectBody({
+      body: "the reading room, 8pm",
+      recipientPubkeyHash: bob.pubkeyHash,
+      identity: asRecord(alice)
+    });
+    expect(sent.encrypted).toBe(true);
+    expect(sent.ciphertext).not.toContain("reading room");
+
+    // Bob reads it. His own unlocked identity takes over from Alice's.
+    useIdentityStore.getState().setUnlocked({
+      pubkey: bob.pubkey,
+      pubkeyHash: bob.pubkeyHash,
+      privateKey: bob.privateKey
+    });
+    const opened = await decryptDirectBody({
+      ciphertext: sent.ciphertext,
+      identity: asRecord(bob)
+    });
+    expect(opened).toEqual({
+      body: "the reading room, 8pm",
+      encrypted: true,
+      senderPublicKey: alice.pubkey
+    });
+
+    // A third identity holds a valid key of its own and still cannot read it.
+    const eve = await createAnonymousIdentity(createSeedPhrase());
+    useIdentityStore.getState().setUnlocked({
+      pubkey: eve.pubkey,
+      pubkeyHash: eve.pubkeyHash,
+      privateKey: eve.privateKey
+    });
+    await expect(
+      decryptDirectBody({ ciphertext: sent.ciphertext, identity: asRecord(eve) })
+    ).resolves.toBeNull();
+  });
+
+  it("reports honestly when no key is available instead of implying secrecy", async () => {
+    useIdentityStore.getState().setUnlocked({
+      pubkey: alice.pubkey,
+      pubkeyHash: alice.pubkeyHash,
+      privateKey: alice.privateKey
+    });
+    // Bob is known only by a corrupted key, so nothing can be sealed to him.
+    addContact(bob, bob.pubkeyHash);
+
+    const sent = await encryptDirectBody({
+      body: "hello",
+      recipientPubkeyHash: bob.pubkeyHash,
+      identity: asRecord(alice)
+    });
+    expect(sent.encrypted).toBe(false);
+
+    const opened = await decryptDirectBody({
+      ciphertext: sent.ciphertext,
+      identity: asRecord(bob)
+    });
+    expect(opened).toEqual({ body: "hello", encrypted: false });
+  });
+
+  it("still reads legacy bodies written before sealing existed", async () => {
+    const legacy = Buffer.from("older history").toString("base64");
+    await expect(
+      decryptDirectBody({ ciphertext: legacy, identity: asRecord(bob) })
+    ).resolves.toEqual({ body: "older history", encrypted: false });
+  });
+});
+
+describe("shared content keys", () => {
+  it("seals a group key to reachable members and names the rest", async () => {
+    const carol = await createAnonymousIdentity(createSeedPhrase());
+    addContact(bob);
+    addContact(carol, carol.pubkeyHash);
+
+    const senderKey = await createGroupSenderKey();
+    const { envelopes, unreachable } = await sealKeyForMembers(senderKey, [
+      bob.pubkeyHash,
+      carol.pubkeyHash,
+      "never-seen"
+    ]);
+
+    expect(envelopes.map((envelope) => envelope.recipient)).toEqual([bob.pubkeyHash]);
+    expect(unreachable).toEqual([carol.pubkeyHash, "never-seen"]);
+    // The group key itself must never appear on the wire.
+    expect(JSON.stringify(envelopes)).not.toContain(senderKey);
+
+    useIdentityStore.getState().setUnlocked({
+      pubkey: bob.pubkey,
+      pubkeyHash: bob.pubkeyHash,
+      privateKey: bob.privateKey
+    });
+    const recovered = await openKeyForSelf({ envelopes, identity: asRecord(bob) });
+    expect(recovered).toBe(senderKey);
+
+    const ciphertext = await encryptGroupMessage("group business", recovered!);
+    await expect(decryptGroupMessage(ciphertext, recovered!)).resolves.toBe(
+      "group business"
+    );
+
+    // Carol was never sealed to, so she has no envelope to open.
+    useIdentityStore.getState().setUnlocked({
+      pubkey: carol.pubkey,
+      pubkeyHash: carol.pubkeyHash,
+      privateKey: carol.privateKey
+    });
+    await expect(
+      openKeyForSelf({ envelopes, identity: asRecord(carol) })
+    ).resolves.toBeNull();
+  });
+});

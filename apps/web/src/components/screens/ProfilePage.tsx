@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable */
 // Full-page ghost profile — the central hub for a user's identity and
 // activity. Self-fetching: give it a target (hash + fallback name) and it
 // loads the profile card, timelines and social graph from the relay, falling

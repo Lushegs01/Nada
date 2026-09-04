@@ -1,3 +1,9 @@
+import type {
+  FastifyRateLimitOptions,
+  FastifyRateLimitStore,
+  FastifyRateLimitStoreCtor
+} from "@fastify/rate-limit";
+import type { RouteOptions } from "fastify";
 import type { FastifyRequest } from "fastify";
 
 import type { RelayEnv } from "./env";
@@ -105,16 +111,17 @@ const INCR_SCRIPT = `
   return {current, ttl}
 `;
 
-interface StoreParams {
-  timeWindow: number;
-}
+/** Fallback window when the plugin constructs a store without one. */
+const DEFAULT_WINDOW_MS = 60_000;
 
-interface StoreResult {
-  current: number;
-  ttl: number;
+function toMilliseconds(window: number | string | undefined): number {
+  if (typeof window === "number") return window;
+  if (typeof window === "string") {
+    const parsed = Number(window);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return DEFAULT_WINDOW_MS;
 }
-
-type IncrCallback = (error: Error | null, result: StoreResult | null) => void;
 
 /**
  * Builds a `@fastify/rate-limit` store class backed by shared Redis, so limits
@@ -124,18 +131,26 @@ type IncrCallback = (error: Error | null, result: StoreResult | null) => void;
 export function createRedisRateLimitStore(
   redis: RateLimitRedis,
   namespace = "nada-rate-limit:"
-): new (params: StoreParams) => {
-  incr: (key: string, cb: IncrCallback) => void;
-  child: (routeParams: StoreParams) => unknown;
-} {
-  return class RedisRateLimitStore {
+): FastifyRateLimitStoreCtor {
+  return class RedisRateLimitStore implements FastifyRateLimitStore {
     private readonly timeWindow: number;
 
-    constructor(params: StoreParams) {
-      this.timeWindow = params.timeWindow;
+    // The plugin declares `FastifyRateLimitOptions` as an empty interface but
+    // passes the resolved options through at runtime, so the window is read
+    // from a widened view of the same object rather than assumed.
+    constructor(options: FastifyRateLimitOptions) {
+      this.timeWindow = toMilliseconds(
+        (options as { timeWindow?: number | string }).timeWindow
+      );
     }
 
-    incr(key: string, cb: IncrCallback): void {
+    incr(
+      key: string,
+      callback: (
+        error: Error | null,
+        result?: { current: number; ttl: number }
+      ) => void
+    ): void {
       redis
         .eval(INCR_SCRIPT, {
           keys: [`${namespace}${key}`],
@@ -143,17 +158,21 @@ export function createRedisRateLimitStore(
         })
         .then((raw) => {
           const [current, ttl] = raw as [number, number];
-          cb(null, { current: Number(current), ttl: Number(ttl) });
+          callback(null, { current: Number(current), ttl: Number(ttl) });
         })
         .catch((error: Error) => {
-          cb(error, null);
+          callback(error);
         });
     }
 
-    child(routeParams: StoreParams): unknown {
+    child(
+      routeOptions: RouteOptions & { path: string; prefix: string }
+    ): FastifyRateLimitStore {
+      const routeWindow = (routeOptions as { timeWindow?: number | string })
+        .timeWindow;
       return new RedisRateLimitStore({
-        timeWindow: routeParams.timeWindow ?? this.timeWindow
-      });
+        timeWindow: routeWindow ?? this.timeWindow
+      } as FastifyRateLimitOptions);
     }
   };
 }

@@ -318,11 +318,47 @@ export async function createWhisperRepository(
   return repo;
 }
 
+// Shapes of the raw rows the hydration queries return. Postgres hands bigints
+// back as strings, so every timestamp column is widened accordingly and passed
+// through Number() at the boundary.
+type SqlTimestamp = number | string;
+
+interface ReflectionRow {
+  id: string;
+  echo_id: string;
+  author_pubkey_hash: string;
+  author_name: string;
+  body: string;
+  created_at_ms: SqlTimestamp;
+  parent_id: string | null;
+  root_id: string | null;
+  reply_to_name: string | null;
+  deleted_at_ms: SqlTimestamp | null;
+}
+
+interface EchoRow {
+  id: string;
+  author_pubkey_hash: string;
+  author_name: string;
+  body: string;
+  created_at_ms: SqlTimestamp;
+  ripple_of_id: string | null;
+  ripple_of_author_name: string | null;
+  ripple_of_body: string | null;
+  ripple_of_created_at_ms: SqlTimestamp | null;
+}
+
+/** Aggregate row of the form `{ echo_id, n }` produced by the count queries. */
+interface CountRow {
+  echo_id: string;
+  n: number | string;
+}
+
 interface SharedHydration {
-  previewRows: any[];
-  reactionRows: any[];
-  reflectionRows: any[];
-  rippleRows: any[];
+  previewRows: ReflectionRow[];
+  reactionRows: CountRow[];
+  reflectionRows: CountRow[];
+  rippleRows: CountRow[];
 }
 
 // Short enough that a stale count is never visible for longer than a fraction
@@ -631,7 +667,7 @@ class PostgresWhisperRepository implements WhisperRepository {
   // Hydrate raw reflection rows with like counts, viewer likes and direct
   // reply counts using three batched queries — never one query per row.
   private async hydrateReflections(
-    rows: any[],
+    rows: ReflectionRow[],
     viewerPubkeyHash: string
   ): Promise<WhisperReflectionView[]> {
     if (rows.length === 0) return [];
@@ -710,7 +746,7 @@ class PostgresWhisperRepository implements WhisperRepository {
              order by created_at_ms asc`,
             [rootIds]
           )
-        : Promise.resolve({ rows: [] as any[] }),
+        : Promise.resolve({ rows: [] as ReflectionRow[] }),
       this.client.query(
         `select count(*)::int as n from whisper_reflections
          where echo_id = $1 and deleted_at_ms is null`,
@@ -769,7 +805,7 @@ class PostgresWhisperRepository implements WhisperRepository {
   // viewer flags and reply previews come from six batched queries keyed by the
   // whole id set — never one query per Echo.
   private async hydrateEchoRows(
-    echoRows: any[],
+    echoRows: EchoRow[],
     viewerPubkeyHash: string
   ): Promise<WhisperEchoView[]> {
     const echoIds = echoRows.map((row) => row.id as string);
@@ -835,7 +871,7 @@ class PostgresWhisperRepository implements WhisperRepository {
     ]);
 
     const previewRows = { rows: shared.previewRows };
-    const countMap = (rows: Array<{ echo_id: string; n: number }>): Map<string, number> =>
+    const countMap = (rows: CountRow[]): Map<string, number> =>
       new Map(rows.map((row) => [row.echo_id, Number(row.n)]));
     const echoCounts = countMap(shared.reactionRows);
     const rippleCountMap = countMap(shared.rippleRows);
@@ -867,12 +903,16 @@ class PostgresWhisperRepository implements WhisperRepository {
       reflections: previewByEcho.get(row.id) ?? [],
       rippleCount: rippleCountMap.get(row.id) ?? 0,
       rippledByViewer: viewerRippled.has(row.id),
+      // Ripple columns are written together or not at all, but they are
+      // individually nullable in the schema, so each is defaulted rather than
+      // asserted — a half-written ripple renders as an empty quote instead of
+      // crashing the feed.
       ...(row.ripple_of_id
         ? {
             rippleOf: {
-              authorName: row.ripple_of_author_name,
-              body: row.ripple_of_body,
-              createdAt: Number(row.ripple_of_created_at_ms),
+              authorName: row.ripple_of_author_name ?? "",
+              body: row.ripple_of_body ?? "",
+              createdAt: Number(row.ripple_of_created_at_ms ?? 0),
               id: row.ripple_of_id
             }
           }

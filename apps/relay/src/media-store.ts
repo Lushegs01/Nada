@@ -21,6 +21,8 @@ export interface StoredMediaMetadata {
   recipientPubkeyHash: string;
   senderPubkeyHash: string;
   size: number;
+  /** Epoch ms after which the relay refuses to serve the object. */
+  expiresAt: number;
 }
 
 export interface StoredMediaObject {

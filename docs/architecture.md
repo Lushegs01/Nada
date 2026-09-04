@@ -54,54 +54,89 @@ The PWA constructs relay URLs only from `NEXT_PUBLIC_RELAY_URL`. The relay reads
 `PORT` and `ALLOWED_ORIGIN` from environment variables. PWA manifest paths are
 relative, and service-worker support must not depend on a fixed deployment host.
 
-## Phase 1 Security Boundary
+## Message Encryption
 
-`ciphertext` is required on every message envelope. In development, the client
-also sends `devPlaintext` for the two-tab demo.
-
-```ts
-// ⚠️ MVP_ONLY — replace before production
-```
-
-Phase 2 replaces mock encryption with Signal protocol WASM, X3DH, Double
-Ratchet, and sealed-sender envelopes.
-
-## Phase 2 Additions
-
-The relay now accepts a production envelope shape:
+Direct messages are sealed to the recipient's X25519 key, derived from their
+long-term Ed25519 identity key, and signed inside the sealed box:
 
 ```json
-{
-  "version": 1,
-  "recipient": "pubkey_hash",
-  "sealedSenderEnvelope": "base64",
-  "capabilityToken": "optional_signed_token"
-}
+{ "v": 2, "alg": "sealedbox-ed25519", "ct": "<base64 crypto_box_seal>" }
 ```
 
-Offline production envelopes are queued through Redis when `REDIS_URL` is
-provided. Without Redis, the relay uses an in-memory queue for local development
-only. File attachments are encrypted client-side with AES-GCM before any blind
-upload request is made.
+The sealed payload carries the body, the sender's public key, a timestamp and a
+detached Ed25519 signature over `nada-dm:v2:<recipient hash>:<ts>:<body>`. Two
+properties follow from that binding:
 
-## Phase 3 Additions
+- The recipient learns who wrote the message *cryptographically*, rather than
+  trusting the `sender` field the relay routes on.
+- A captured ciphertext cannot be re-addressed to a third party or replayed into
+  a different conversation: the recipient hash is inside the signature.
 
-Groups are represented as local chat records with member public-key hashes and a
-group sender-key package. The Phase 3 group sender-key implementation is a
-libsodium symmetric encryption scaffold:
+Group messages and status updates use one symmetric content key
+(XSalsa20-Poly1305) per group epoch or per status, distributed as one sealed
+copy per member. The relay stores those sealed copies opaquely and can open
+none of them. For statuses the relay hands a caller only the copy addressed to
+their *verified* identity, so a read requires an identity proof.
 
-```ts
-// ⚠️ MVP_ONLY — replace before production
-```
+`senderPublicKey` on an envelope is how a recipient who has never seen an invite
+link learns the key to encrypt a reply with. The relay rejects any envelope
+whose `senderPublicKey` does not hash to the identity that socket proved it
+controls, and the client re-derives the hash itself rather than trusting that
+check.
 
-Production group messaging still requires audited Signal Sender Keys or MLS,
-group membership change handling, key rotation, and metadata review.
+### What this does not provide
 
-Advanced message state is local-first: replies, mentions, edits, unsend, and
-disappearing timers are stored in IndexedDB and rendered from local records.
-Relay group messages are fan-out envelopes with recipient hashes; the relay does
-not inspect plaintext.
+- **No forward secrecy.** There is no ratchet. Whoever later obtains an
+  identity private key can decrypt every ciphertext ever sent to it. Signal
+  session support remains behind the adapter boundary in `@nada/crypto`.
+- **No metadata protection.** The relay sees sender, recipient and timing,
+  because it routes on them.
+- **No automatic group key rotation.** A removed member keeps the sender key
+  they already hold until the group rotates. Group invite links still carry the
+  group key, so the link is the group credential.
+- **Legacy bodies.** Messages written before this format, and peers on older
+  clients, produce base64-encoded bodies. Those are still readable so history
+  does not blank out, but they are marked unencrypted in the send path and the
+  user is told once per conversation when a key is unavailable.
 
-Calls use browser WebRTC APIs for media capture and peer-connection scaffolding.
-Insertable Streams support is detected, but production calling still needs TURN
-and/or SFU architecture, abuse controls, and IP metadata mitigations.
+## Real-Time Delivery
+
+Sockets complete a server-issued challenge/response before any envelope is
+accepted; the signed nonce is single-use per connection. After that:
+
+- A 30s heartbeat reaps half-open sockets. Without it a dead TCP connection
+  keeps holding presence and every message routed to it is reported delivered
+  and lost.
+- Frames are capped at 512 KiB, envelopes at 240/minute per socket, and sockets
+  at 8 per identity.
+- The offline queue hands envelopes to a reconnecting client without destroying
+  them: they sit in an in-flight list until the writes actually land. A socket
+  that drops mid-replay, or an instance that dies holding a backlog, replays on
+  the next connection instead of losing it. Delivery is at-least-once; clients
+  deduplicate by envelope id.
+- SIGTERM closes every socket with a close frame and drains Postgres and Redis
+  before exit, so a deploy does not sever connections mid-flight.
+
+## Health, Readiness and Observability
+
+`/health` is liveness only — it answers from the process and deliberately does
+not touch Postgres or Redis, because a load balancer must not kill every
+instance over a shared-dependency blip. `/ready` probes each dependency with a
+2s timeout and answers 503 when one is down; it is the endpoint for uptime
+monitoring and post-deploy verification. `/stats` reports socket counts.
+
+## Idempotency
+
+Stripe retries every non-2xx webhook delivery and can redeliver on success, so
+events are claimed by id in `stripe_events` before any work happens, and
+subscriptions are keyed on the Stripe subscription id. Referral redemptions are
+unique per (identity, code). Whisper notifications are deduplicated by
+(recipient, actor, kind, target).
+
+## Calls
+
+Calls use browser WebRTC APIs for media capture and peer connections. TURN
+credentials are issued by the relay only after a signed identity proof, and
+`TURN_SHARED_SECRET` produces per-user time-limited credentials rather than one
+static pair shared by every caller. Insertable Streams support is detected but
+production calling still needs an SFU plan and IP-metadata mitigations.

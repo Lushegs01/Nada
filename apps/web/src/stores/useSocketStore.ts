@@ -10,7 +10,6 @@ import {
   type DeliveryStatus,
   type GroupMessageEnvelope,
   type MessageEnvelope,
-  type ProductionEnvelope,
   type PubkeyHash,
   type ReactionEnvelope,
   type TypingEnvelope
@@ -42,7 +41,6 @@ interface SocketState {
   deliveries: Record<string, ReliableDeliveryStatus>;
   groupIncoming: GroupMessageEnvelope[];
   incoming: MessageEnvelope[];
-  sealedIncoming: ProductionEnvelope[];
   /** Map of chatId -> sender pubkeyHash for active typing indicators */
   typingIndicators: Record<string, string>;
   /** Incoming reactions from the relay [chatId:messageId:emoji:sender, ...] deduplicated via a set in useEffect */
@@ -70,7 +68,61 @@ interface SocketState {
   sendDeletion: (envelope: DeletionEnvelope) => boolean;
   sendDelivery: (envelope: ReliableDeliveryEnvelope) => boolean;
   setGhostMode: (enabled: boolean) => void;
+  /**
+   * Drops events a consumer has finished with. Without this the buffers only
+   * ever grew, and every consumer had to keep its own unbounded set of ids it
+   * had already seen just to avoid reprocessing them.
+   */
+  acknowledge: (buffer: SocketBuffer, ids: string[]) => void;
 }
+
+/**
+ * Ceiling on each inbound buffer.
+ *
+ * These arrays are a hand-off between the socket and the components that
+ * persist their contents; consumers acknowledge what they have stored, which
+ * is what normally empties them. The cap is the backstop: a PWA is meant to
+ * stay installed for weeks, and before this every envelope, reaction and
+ * delivery receipt a session ever saw stayed in memory for its whole life.
+ * Evicting the oldest is the right failure mode — an envelope old enough to
+ * be evicted has either been persisted already or is long superseded.
+ */
+export const MAX_BUFFERED_EVENTS = 500;
+/** Delivery receipts are keyed by message id and equally unbounded. */
+export const MAX_TRACKED_DELIVERIES = 1000;
+
+export function appendBounded<T>(buffer: T[], item: T): T[] {
+  const next = [...buffer, item];
+  return next.length > MAX_BUFFERED_EVENTS
+    ? next.slice(next.length - MAX_BUFFERED_EVENTS)
+    : next;
+}
+
+export function trackDelivery(
+  deliveries: Record<string, ReliableDeliveryStatus>,
+  id: string,
+  status: ReliableDeliveryStatus
+): Record<string, ReliableDeliveryStatus> {
+  const next = { ...deliveries, [id]: status };
+  const keys = Object.keys(next);
+  if (keys.length <= MAX_TRACKED_DELIVERIES) {
+    return next;
+  }
+  // Object key order is insertion order for string keys, so the oldest
+  // receipts are at the front.
+  for (const stale of keys.slice(0, keys.length - MAX_TRACKED_DELIVERIES)) {
+    delete next[stale];
+  }
+  return next;
+}
+
+/** Buffers a consumer can acknowledge once it has persisted their contents. */
+export type SocketBuffer =
+  | "incoming"
+  | "groupIncoming"
+  | "callSignals"
+  | "incomingReactions"
+  | "incomingDeletions";
 
 let reconnectTimer: number | null = null;
 
@@ -81,7 +133,13 @@ export const useSocketStore = create<SocketState>((set, get) => {
       return;
     }
 
-    const delay = Math.min(30000, 1000 * 2 ** state.reconnectAttempt);
+    // Full jitter over the backoff window. A relay deploy or restart drops
+    // every socket at the same instant; with a deterministic 1s/2s/4s ladder
+    // the whole population reconnects in lockstep and re-DDoSes the instance
+    // that just came back. Randomising within the window spreads the retry
+    // across it, which is what lets the fleet recover instead of thrashing.
+    const ceiling = Math.min(30000, 1000 * 2 ** state.reconnectAttempt);
+    const delay = 500 + Math.random() * ceiling;
     if (reconnectTimer) {
       window.clearTimeout(reconnectTimer);
     }
@@ -109,7 +167,6 @@ export const useSocketStore = create<SocketState>((set, get) => {
     lastError: null,
     reconnectAttempt: 0,
     registeredIdentity: null,
-    sealedIncoming: [],
     shouldReconnect: false,
     socket: null,
     status: "idle",
@@ -215,21 +272,21 @@ export const useSocketStore = create<SocketState>((set, get) => {
           case "message": {
             const envelope = result.data.envelope;
             set((state) => ({
-              incoming: [...state.incoming, envelope]
+              incoming: appendBounded(state.incoming, envelope)
             }));
             break;
           }
           case "group-message": {
             const envelope = result.data.envelope;
             set((state) => ({
-              groupIncoming: [...state.groupIncoming, envelope]
+              groupIncoming: appendBounded(state.groupIncoming, envelope)
             }));
             break;
           }
           case "call-signal": {
             const envelope = result.data.envelope;
             set((state) => ({
-              callSignals: [...state.callSignals, envelope]
+              callSignals: appendBounded(state.callSignals, envelope)
             }));
             break;
           }
@@ -265,31 +322,21 @@ export const useSocketStore = create<SocketState>((set, get) => {
           case "reaction": {
             const envelope = result.data.envelope;
             set((state) => ({
-              incomingReactions: [...state.incomingReactions, envelope]
+              incomingReactions: appendBounded(state.incomingReactions, envelope)
             }));
             break;
           }
           case "deletion": {
             const envelope = result.data.envelope;
             set((state) => ({
-              incomingDeletions: [...state.incomingDeletions, envelope]
-            }));
-            break;
-          }
-          case "sealed-message": {
-            const envelope = result.data.envelope;
-            set((state) => ({
-              sealedIncoming: [...state.sealedIncoming, envelope]
+              incomingDeletions: appendBounded(state.incomingDeletions, envelope)
             }));
             break;
           }
           case "delivery": {
             const { id, status } = result.data;
             set((state) => ({
-              deliveries: {
-                ...state.deliveries,
-                [id]: status
-              }
+              deliveries: trackDelivery(state.deliveries, id, status)
             }));
             break;
           }
@@ -390,6 +437,15 @@ export const useSocketStore = create<SocketState>((set, get) => {
     },
     setGhostMode: (enabled) => {
       set({ ghostMode: enabled });
+    },
+    acknowledge: (buffer, ids) => {
+      if (ids.length === 0) return;
+      const done = new Set(ids);
+      set((state) => ({
+        [buffer]: (state[buffer] as { id: string }[]).filter(
+          (event) => !done.has(event.id)
+        )
+      }) as Partial<SocketState>);
     }
   };
 });

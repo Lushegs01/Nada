@@ -17,6 +17,9 @@ const EXPECTED_AUDIENCE = "nada";
 const CLOCK_TOLERANCE_SECONDS = 30;
 const MAX_TOKEN_LIFETIME_SECONDS = 120;
 const MIN_PRODUCTION_SECRET_BYTES = 32;
+// Control characters are exactly what this guard is looking for in untrusted
+// CampOS claim strings, so the rule that flags them in a pattern is inverted here.
+// eslint-disable-next-line no-control-regex
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 
 export interface CamposClaims {

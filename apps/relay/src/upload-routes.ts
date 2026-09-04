@@ -3,14 +3,10 @@ import type { FastifyInstance } from "fastify";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
-import {
-  BlindUploadRequestSchema,
-  PubkeyHashSchema,
-  type BlindUploadResponse,
-  type MediaUploadResponse
-} from "@nada/types";
+import { PubkeyHashSchema, type MediaUploadResponse } from "@nada/types";
 
 import type { RelayEnv } from "./env";
+import { verifyIdentityProof, type IdentityProof } from "./identity-proof";
 import {
   createMediaStore,
   type MediaStore,
@@ -48,30 +44,10 @@ export async function registerUploadRoutes(
   env: RelayEnv,
   mediaStore: MediaStore = createMediaStore(env)
 ): Promise<void> {
-  await (app as any).register(fastifyMultipart, {
+  await app.register(fastifyMultipart, {
     limits: {
       fileSize: env.mediaMaxBytes + 1024 * 1024
     }
-  });
-
-  app.post("/api/v1/upload/request", async (request, reply) => {
-    const result = BlindUploadRequestSchema.safeParse(request.body);
-    if (!result.success) {
-      return reply.code(400).send({
-        code: "invalid_upload_request",
-        message: "Invalid upload request."
-      });
-    }
-
-    const response: BlindUploadResponse = {
-      uploadId: randomUUID(),
-      contentHash: result.data.contentHash,
-      expiresAt: Date.now() + 15 * 60 * 1000,
-      uploadUrl: null,
-      storage: "client-encrypted-blind-upload-mvp"
-    };
-
-    return reply.send(response);
   });
 
   app.post("/api/media/upload", async (request, reply) => {
@@ -125,6 +101,30 @@ export async function registerUploadRoutes(
       });
     }
 
+    // Uploads must prove who is uploading. Without this the route was open
+    // object storage: anyone could POST up to the size limit, as fast as the
+    // per-IP limiter allowed, with no identity attached and no way to attribute
+    // or revoke the traffic. The proof is bound to the claimed sender so it
+    // cannot be lifted from one identity's request and reused for another.
+    const proof = parseProofField(fields["proof"]);
+    if (!proof) {
+      return reply.code(400).send({
+        code: "missing_proof",
+        message: "Media upload requires an identity proof."
+      });
+    }
+    const verification = verifyIdentityProof(proof, {
+      context: "media-upload",
+      binding: senderResult.data
+    });
+    if (!verification.ok || verification.pubkeyHash !== senderResult.data) {
+      return reply.code(401).send({
+        code: "unauthorized",
+        message: "Identity proof failed verification.",
+        reason: verification.reason
+      });
+    }
+
     const chatId = fields["chatId"]?.slice(0, 256);
     const originalName = sanitizeFileName(fields["originalName"] || uploadFilename || "media.bin");
     const mimeType = normalizeMime(fields["mimeType"]);
@@ -155,17 +155,20 @@ export async function registerUploadRoutes(
     const id = randomUUID();
     const fileName = `${id}.bin`;
 
+    const createdAt = Date.now();
+    const expiresAt = createdAt + env.mediaTtlSeconds * 1000;
     const metadata: StoredMediaMetadata = {
       chatId,
       contentHash,
-      createdAt: Date.now(),
+      createdAt,
+      expiresAt,
       encryptedSize: fileBuffer.length,
       fileName,
       id,
       mimeType,
       originalName,
       recipientPubkeyHash: recipientResult.data,
-      senderPubkeyHash: senderResult.data,
+      senderPubkeyHash: verification.pubkeyHash,
       size
     };
 
@@ -181,7 +184,7 @@ export async function registerUploadRoutes(
       encryptedSize: fileBuffer.length,
       contentHash,
       createdAt: metadata.createdAt,
-      expiresAt: null
+      expiresAt
     };
 
     return reply.code(201).send(response);
@@ -204,8 +207,18 @@ export async function registerUploadRoutes(
       });
     }
 
+    // Retention is enforced on read as well as by the bucket lifecycle rule:
+    // a lifecycle rule runs on its own schedule, so without this an object
+    // stays served for hours or days past the retention window it promised.
+    if (stored.metadata.expiresAt && stored.metadata.expiresAt <= Date.now()) {
+      return reply.code(404).send({
+        code: "media_expired",
+        message: "Media has passed its retention window."
+      });
+    }
+
     return reply
-      .header("cache-control", "private, max-age=31536000, immutable")
+      .header("cache-control", "private, max-age=86400, immutable")
       .header(
         "content-disposition",
         `attachment; filename="${stored.metadata.fileName}"`
@@ -215,12 +228,34 @@ export async function registerUploadRoutes(
       .send(stored.body);
   });
 
-  app.get("/api/v1/download/:contentHash", async (_request, reply) =>
-    reply.code(404).send({
-      code: "blind_download_not_configured",
-      message: "Use /api/media/:id for encrypted media uploaded through this relay."
-    })
-  );
+}
+
+/**
+ * Parses the `proof` form field of a multipart upload.
+ *
+ * Uploads carry their identity proof as a JSON field rather than a header so
+ * it travels with the same request the file does; a malformed value is simply
+ * "no proof" and the route rejects it.
+ */
+function parseProofField(raw: string | undefined): IdentityProof | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const value = parsed as Record<string, unknown>;
+  if (
+    typeof value["pubkey"] !== "string" ||
+    typeof value["pubkeyHash"] !== "string" ||
+    typeof value["signature"] !== "string" ||
+    typeof value["timestamp"] !== "number"
+  ) {
+    return null;
+  }
+  return value as unknown as IdentityProof;
 }
 
 function sanitizeFileName(fileName: string): string {

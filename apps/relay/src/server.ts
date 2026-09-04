@@ -1,8 +1,11 @@
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
-import fastify, { type FastifyInstance } from "fastify";
-import { randomBytes, randomUUID } from "node:crypto";
+import fastify, {
+  type FastifyInstance,
+  type FastifyServerOptions
+} from "fastify";
+import { randomBytes } from "node:crypto";
 import type { WebSocket } from "ws";
 
 import {
@@ -11,7 +14,6 @@ import {
   type DeletionEnvelope,
   type GroupMessageEnvelope,
   type MessageEnvelope,
-  type ProductionEnvelope,
   type PubkeyHash,
   type ReactionEnvelope,
   type TypingEnvelope
@@ -19,7 +21,7 @@ import {
 
 import { createRelayDb, ensureRelaySchema } from "./db";
 import type { RelayEnv } from "./env";
-import { verifyIdentityProof } from "./identity-proof";
+import { derivePubkeyHash, verifyIdentityProof } from "./identity-proof";
 import { createLoggerOption } from "./logger";
 import { registerMonetizationRoutes } from "./monetization-routes";
 import { isOriginAllowed } from "./origin";
@@ -33,7 +35,15 @@ import {
   resolveRateLimitMax
 } from "./rate-limit";
 import { createRelayRedis } from "./redis";
+import {
+  HEARTBEAT_INTERVAL_MS,
+  MAX_SOCKET_PAYLOAD_BYTES,
+  MAX_SOCKETS_PER_IDENTITY,
+  SocketMessageLimiter,
+  trySend
+} from "./socket-limits";
 import { registerPushRoutes } from "./push-routes";
+import { TtlCache } from "./ttl-cache";
 import { registerStatusRoutes } from "./status-routes";
 import { registerTurnRoutes } from "./turn-routes";
 import { registerUploadRoutes } from "./upload-routes";
@@ -51,9 +61,19 @@ interface SessionRegistry {
   pubkeyHashBySocket: Map<ClientSocket, PubkeyHash>;
   /** Sockets that have opened but not yet completed register handshake. */
   pendingHandshakes: Map<ClientSocket, PendingHandshake>;
+  /**
+   * Sockets that have answered the most recent heartbeat. A TCP connection can
+   * die without a close frame (laptop lid, dropped mobile radio, silent NAT
+   * timeout); the socket then stays "open" forever, holds presence, and every
+   * message routed to it is reported delivered and lost. The heartbeat sweep
+   * is what turns those back into honest offline queueing.
+   */
+  alive: Set<ClientSocket>;
 }
 
 const HANDSHAKE_TIMEOUT_MS = 30_000;
+/** How long a registered-user count may be served from cache. */
+const STATS_CACHE_TTL_MS = 30_000;
 
 interface PushPayload {
   title: string;
@@ -65,10 +85,13 @@ interface PushPayload {
 }
 
 export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance> {
-  const app = fastify({
-    logger: createLoggerOption(env) as any,
+  // Typed explicitly: the logger option is a wide union, and inline it makes
+  // TypeScript pick the HTTP/2 `fastify()` overload instead of the default one.
+  const serverOptions: FastifyServerOptions = {
+    logger: createLoggerOption(env),
     trustProxy: true
-  });
+  };
+  const app = fastify(serverOptions);
 
   // One shared Redis connection pair backs the offline queue, the rate-limit
   // store, and the cross-instance delivery bus.
@@ -79,8 +102,10 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
   const sessions: SessionRegistry = {
     socketsByPubkeyHash: new Map(),
     pubkeyHashBySocket: new Map(),
-    pendingHandshakes: new Map()
+    pendingHandshakes: new Map(),
+    alive: new Set()
   };
+  const socketLimiter = new SocketMessageLimiter();
 
   // One pooled Postgres handle shared by every repository and by the stats
   // endpoint. The schema is applied once here rather than once per repository.
@@ -89,19 +114,19 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     await ensureRelaySchema(db);
   }
 
-  await (app as any).register(cors, {
-    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  await app.register(cors, {
+    origin: (origin, callback) => {
       callback(null, isOriginAllowed(origin, env.allowedOrigin));
     }
   });
-  await (app as any).register(rateLimit, {
+  await app.register(rateLimit, {
     // preHandler (rather than the default onRequest) so the parsed body is
     // available to the key generator — that is where a request's NADA identity
     // lives. Body-size limits still cap what gets parsed.
     hook: "preHandler",
     keyGenerator: buildRateLimitKey,
     max: (_request: unknown, key: string) => resolveRateLimitMax(env, key),
-    allowList: (request: any) => isRateLimitAllowListed(request),
+    allowList: (request) => isRateLimitAllowListed(request),
     // Shared counters across instances; without this each instance keeps its
     // own tally and N instances silently permit N times the limit.
     ...(redis ? { store: createRedisRateLimitStore(redis.command) } : {}),
@@ -109,13 +134,18 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     skipOnError: true,
     timeWindow: "1 minute"
   });
-  await (app as any).register(websocket);
-  await registerMonetizationRoutes(app as any, env, db);
-  await registerPushRoutes(app as any, env, db);
-  await registerStatusRoutes(app as any, env, db);
-  await registerTurnRoutes(app as any, env);
-  await registerUploadRoutes(app as any, env, mediaStore);
-  await registerWhisperRoutes(app as any, env, db);
+  await app.register(websocket, {
+    // Envelopes are JSON; media goes through the upload routes. Without a
+    // ceiling, `ws` defaults to 100 MiB per frame and one client can pin the
+    // instance's memory with a single message.
+    options: { maxPayload: MAX_SOCKET_PAYLOAD_BYTES }
+  });
+  await registerMonetizationRoutes(app, env, db);
+  await registerPushRoutes(app, env, db);
+  await registerStatusRoutes(app, env, db);
+  await registerTurnRoutes(app, env);
+  await registerUploadRoutes(app, env, mediaStore);
+  await registerWhisperRoutes(app, env, db);
 
   app.addHook("onClose", async () => {
     await queue.close();
@@ -124,10 +154,9 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     await db?.close();
   });
 
-  // Reports which durable backends are actually wired up. Each of these
-  // silently falls back to a single-instance/ephemeral mode when its config is
-  // missing, so a deploy that quietly lost REDIS_URL or its bucket
-  // credentials would otherwise look healthy right up until data goes missing.
+  // Liveness: is this process running and able to answer? Deliberately does
+  // not touch Postgres or Redis — a load balancer must not kill every instance
+  // because a shared dependency blipped. Dependency state lives on /ready.
   app.get("/health", async () => ({
     ok: true,
     service: "nada-relay",
@@ -141,18 +170,50 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     }
   }));
 
+  // Readiness: can this instance actually serve traffic *right now*? It probes
+  // every dependency it would use and answers 503 when one is down, so a
+  // deploy that lost its database or its Redis is visible immediately instead
+  // of at the moment user data goes missing. `/health` reporting configuration
+  // was never enough: a configured-but-unreachable Postgres looked identical
+  // to a healthy one.
+  app.get("/ready", async (_request, reply) => {
+    const [database, cache] = await Promise.all([
+      probeDependency("postgres", db ? () => db.query("select 1") : null),
+      probeDependency("redis", redis ? () => redis.command.ping() : null)
+    ]);
+    const dependencies = { database, cache };
+    const ready = database.status !== "down" && cache.status !== "down";
+    return reply.code(ready ? 200 : 503).send({
+      ready,
+      service: "nada-relay",
+      dependencies,
+      sockets: {
+        connections: sessions.pubkeyHashBySocket.size,
+        identities: sessions.socketsByPubkeyHash.size,
+        pendingHandshakes: sessions.pendingHandshakes.size
+      }
+    });
+  });
+
+  // `count(*)` on Postgres is a sequential scan. This endpoint is public and
+  // uncredentialed, so without a cache anyone could hold the database down by
+  // polling it — the cost grows with the user table, which is exactly backwards.
+  // The TTL also collapses concurrent callers onto one query.
+  const statsCache = new TtlCache<number | null>(STATS_CACHE_TTL_MS, 1);
+
   app.get("/stats", async () => {
-    let totalRegisteredUsers: number | null = null;
-    if (db) {
+    const totalRegisteredUsers = await statsCache.resolve("users", async () => {
+      if (!db) return null;
       try {
         const result = await db.query<{ count: string }>(
           "select count(*) as count from users"
         );
-        totalRegisteredUsers = Number(result.rows[0]?.count ?? 0);
+        return Number(result.rows[0]?.count ?? 0);
       } catch {
-        // DB unavailable — return null rather than crashing
+        // DB unavailable — report null rather than failing the endpoint.
+        return null;
       }
-    }
+    });
 
     return {
       uniqueUsersOnline: sessions.socketsByPubkeyHash.size,
@@ -161,6 +222,41 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
       totalRegisteredUsers,
       timestamp: new Date().toISOString()
     };
+  });
+
+  // Reaps sockets that stopped answering. Anything that has not responded to
+  // the previous ping is terminated rather than closed politely: a half-open
+  // socket will never complete a close handshake, and leaving it registered
+  // makes the relay claim a recipient is online while every message routed to
+  // them is dropped on the floor.
+  const heartbeat = setInterval(() => {
+    for (const socket of sessions.pubkeyHashBySocket.keys()) {
+      if (!sessions.alive.has(socket)) {
+        socket.terminate();
+        continue;
+      }
+      sessions.alive.delete(socket);
+      try {
+        socket.ping();
+      } catch {
+        socket.terminate();
+      }
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+  // Never hold the event loop open just to run the sweep.
+  heartbeat.unref?.();
+
+  app.addHook("onClose", async () => {
+    clearInterval(heartbeat);
+    // Tell every client the instance is going away so they reconnect against
+    // a healthy one instead of waiting for a TCP timeout.
+    for (const socket of sessions.pubkeyHashBySocket.keys()) {
+      try {
+        socket.close(1001, "Relay shutting down");
+      } catch {
+        // Already gone.
+      }
+    }
   });
 
   app.get("/ws", { websocket: true }, (connection, request) => {
@@ -175,22 +271,39 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
       nonce,
       issuedAt: Date.now()
     });
-    connection.socket.send(JSON.stringify({ type: "challenge", nonce }));
+    sessions.alive.add(connection.socket);
+    trySend(connection.socket, JSON.stringify({ type: "challenge", nonce }));
 
     const handshakeTimer = setTimeout(() => {
       if (sessions.pendingHandshakes.has(connection.socket)) {
         connection.socket.close(1008, "Handshake timeout");
       }
     }, HANDSHAKE_TIMEOUT_MS);
+    handshakeTimer.unref?.();
+
+    connection.socket.on("pong", () => {
+      sessions.alive.add(connection.socket);
+    });
 
     connection.socket.on("message", (raw) => {
+      // Any inbound traffic proves the peer is alive, so it counts as a pong.
+      sessions.alive.add(connection.socket);
+      if (!socketLimiter.allow(connection.socket)) {
+        sendSocketError(
+          connection.socket,
+          "rate_limited",
+          "Too many envelopes; slow down."
+        );
+        connection.socket.close(1013, "Rate limited");
+        return;
+      }
       void handleSocketMessage(
         connection.socket,
         raw.toString(),
         sessions,
         queue,
         bus,
-        app as any,
+        app,
         env
       );
     });
@@ -198,6 +311,8 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     const teardown = () => {
       clearTimeout(handshakeTimer);
       sessions.pendingHandshakes.delete(connection.socket);
+      sessions.alive.delete(connection.socket);
+      socketLimiter.release(connection.socket);
       void unregisterSocket(connection.socket, sessions, bus).catch((error) => {
         app.log.error({ err: error }, "Failed to release socket presence");
       });
@@ -207,7 +322,39 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
     connection.socket.on("error", teardown);
   });
 
-  return app as any;
+  return app;
+}
+
+type DependencyStatus = "ok" | "down" | "not-configured";
+
+/**
+ * Probes one dependency without letting a hung backend hang the probe itself:
+ * a readiness check that blocks forever is indistinguishable from an instance
+ * that is wedged, and is exactly what a load balancer must be able to tell
+ * apart.
+ */
+async function probeDependency(
+  name: string,
+  probe: (() => Promise<unknown>) | null
+): Promise<{ name: string; status: DependencyStatus; error?: string }> {
+  if (!probe) {
+    return { name, status: "not-configured" };
+  }
+  try {
+    await Promise.race([
+      probe(),
+      new Promise((_resolve, rejectProbe) =>
+        setTimeout(() => rejectProbe(new Error("probe timed out")), 2_000).unref?.()
+      )
+    ]);
+    return { name, status: "ok" };
+  } catch (error) {
+    return {
+      name,
+      status: "down",
+      error: error instanceof Error ? error.message : "unknown error"
+    };
+  }
 }
 
 async function handleSocketMessage(
@@ -216,7 +363,7 @@ async function handleSocketMessage(
   sessions: SessionRegistry,
   queue: RelayQueue,
   bus: PresenceBus,
-  app: any,
+  app: FastifyInstance,
   env: RelayEnv
 ): Promise<void> {
   let parsed: unknown;
@@ -266,11 +413,26 @@ async function handleSocketMessage(
     }
 
     sessions.pendingHandshakes.delete(socket);
+    const existingSockets =
+      sessions.socketsByPubkeyHash.get(verification.pubkeyHash)?.size ?? 0;
+    if (existingSockets >= MAX_SOCKETS_PER_IDENTITY) {
+      // One identity opening unbounded sockets is a memory and fan-out
+      // amplifier for every other user on the instance. Real multi-device use
+      // is a handful of connections, so refuse rather than degrade.
+      sendSocketError(
+        socket,
+        "too_many_connections",
+        "This identity already has the maximum number of open connections."
+      );
+      socket.close(1008, "Too many connections");
+      return;
+    }
     await registerSocket(socket, verification.pubkeyHash, sessions, bus);
-    socket.send(
+    trySend(
+      socket,
       JSON.stringify({ type: "registered", pubkeyHash: verification.pubkeyHash })
     );
-    await drainQueuedMessages(verification.pubkeyHash, socket, queue);
+    await drainQueuedMessages(verification.pubkeyHash, socket, queue, app);
     return;
   }
 
@@ -300,6 +462,29 @@ async function handleSocketMessage(
       "Envelope sender does not match the authenticated identity."
     );
     return;
+  }
+
+  // `senderPublicKey` is how a recipient learns the key to encrypt a reply
+  // with, so a wrong one silently reroutes the whole conversation to an
+  // attacker. It is cheap to check here and the check is absolute: the key
+  // must hash to the identity this socket already proved it controls.
+  // (Recipients re-derive the hash themselves too; this stops the bad
+  // envelope from ever being stored or fanned out.)
+  if ("senderPublicKey" in result.data && result.data.senderPublicKey !== undefined) {
+    let derived: string;
+    try {
+      derived = derivePubkeyHash(result.data.senderPublicKey);
+    } catch {
+      derived = "";
+    }
+    if (derived !== authenticatedPubkeyHash) {
+      sendSocketError(
+        socket,
+        "sender_public_key_mismatch",
+        "Envelope sender public key does not match the authenticated identity."
+      );
+      return;
+    }
   }
 
   if ("type" in result.data && result.data.type === "message") {
@@ -344,12 +529,7 @@ async function handleSocketMessage(
   }
 
   if ("type" in result.data && result.data.type === "delivery") {
-    await routeDelivery(result.data as any, sessions, bus);
-    return;
-  }
-
-  if ("version" in result.data) {
-    await routeProductionEnvelope(result.data, socket, sessions, queue, bus, app);
+    await routeDelivery(result.data, sessions, bus);
     return;
   }
 
@@ -373,7 +553,7 @@ async function registerSocket(
   await bus.track(pubkeyHash, (payload) => {
     sessions.socketsByPubkeyHash
       .get(pubkeyHash)
-      ?.forEach((target) => target.send(payload));
+      ?.forEach((target) => trySend(target, payload));
   });
 }
 
@@ -413,8 +593,15 @@ async function deliverToRecipient(
   bus: PresenceBus
 ): Promise<boolean> {
   const local = sessions.socketsByPubkeyHash.get(recipient);
-  const deliveredLocally = Boolean(local && local.size > 0);
-  local?.forEach((socket) => socket.send(serialized));
+  // Count only sockets the payload was genuinely written to. Treating a
+  // closing socket as a delivery is how a message gets acknowledged to the
+  // sender and then never queued for the recipient.
+  let deliveredLocally = false;
+  local?.forEach((socket) => {
+    if (trySend(socket, serialized)) {
+      deliveredLocally = true;
+    }
+  });
 
   const remoteReceivers = await bus.publish(recipient, serialized);
   return deliveredLocally || remoteReceivers > 0;
@@ -604,51 +791,46 @@ async function routeDeletion(
   );
 }
 
-async function routeProductionEnvelope(
-  envelope: ProductionEnvelope,
-  senderSocket: ClientSocket,
-  sessions: SessionRegistry,
-  queue: RelayQueue,
-  bus: PresenceBus,
-  app: FastifyInstance
-): Promise<void> {
-  const serialized = JSON.stringify({ type: "sealed-message", envelope });
-  const delivered = await deliverToRecipient(
-    envelope.recipient,
-    serialized,
-    sessions,
-    bus
-  );
-
-  if (!delivered) {
-    await queue.enqueue(envelope.recipient, serialized);
-    senderSocket.send(
-      JSON.stringify({
-        type: "delivery",
-        id: randomUUID(),
-        status: "queued"
-      })
-    );
-  }
-
-  queuePush(app, envelope.recipient, {
-    title: "New encrypted message",
-    body: "You received a private NADA message.",
-    chatId: envelope.recipient,
-    kind: "encrypted",
-    tag: `sealed:${envelope.recipient}`
-  });
-}
-
+/**
+ * Replays a reconnecting client's offline backlog.
+ *
+ * The queue hands the envelopes over without destroying them; only envelopes
+ * this function actually wrote to the socket are settled. Anything left — the
+ * socket died mid-replay, or the whole instance did — goes back to the head of
+ * the queue and is redelivered on the next connection. Previously the drain
+ * deleted the queue up-front, so a socket that dropped during replay took the
+ * user's entire offline backlog with it.
+ */
 async function drainQueuedMessages(
   pubkeyHash: PubkeyHash,
   socket: ClientSocket,
-  queue: RelayQueue
+  queue: RelayQueue,
+  app: FastifyInstance
 ): Promise<void> {
   const messages = await queue.drain(pubkeyHash);
-  messages.forEach((message) => {
-    socket.send(message);
-  });
+  if (messages.length === 0) {
+    return;
+  }
+
+  let delivered = 0;
+  for (const message of messages) {
+    if (!trySend(socket, message)) {
+      break;
+    }
+    delivered += 1;
+  }
+
+  try {
+    if (delivered === messages.length) {
+      await queue.settle(pubkeyHash);
+    } else {
+      await queue.restore(pubkeyHash, messages.slice(delivered));
+    }
+  } catch (error) {
+    // The envelopes stay parked in the in-flight list and are recovered by the
+    // next drain, so this is a logged degradation rather than data loss.
+    app.log.error({ err: error }, "Failed to settle offline queue after replay");
+  }
 }
 
 function sendSocketError(
@@ -656,7 +838,7 @@ function sendSocketError(
   code: string,
   message: string
 ): void {
-  socket.send(JSON.stringify({ type: "error", code, message }));
+  trySend(socket, JSON.stringify({ type: "error", code, message }));
 }
 
 function buildDirectPushPayload(envelope: MessageEnvelope): PushPayload {
@@ -715,5 +897,5 @@ function queuePush(
   pubkeyHash: string,
   payload: PushPayload
 ): void {
-  void (app as any).sendPushNotification?.(pubkeyHash, JSON.stringify(payload));
+  void app.sendPushNotification?.(pubkeyHash, JSON.stringify(payload));
 }

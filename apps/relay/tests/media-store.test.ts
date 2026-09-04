@@ -36,6 +36,7 @@ function metadata(id: string): StoredMediaMetadata {
     chatId: "chat-1",
     contentHash: "abc123",
     createdAt: 1_700_000_000_000,
+    expiresAt: 1_700_000_000_000 + 2_592_000_000,
     encryptedSize: 4,
     fileName: `${id}.bin`,
     id,

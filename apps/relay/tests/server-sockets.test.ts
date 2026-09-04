@@ -25,6 +25,7 @@ function testEnv(): RelayEnv {
     mediaS3Region: "auto",
     mediaS3SecretAccessKey: undefined,
     mediaStorageDir: ".nada-media-test",
+    mediaTtlSeconds: 2_592_000,
     nodeEnv: "test",
     port: 0,
     rateLimitIdentityMax: 240,
@@ -285,6 +286,125 @@ describe("relay socket routing", () => {
     const onLaptop = await waitFor(laptop.messages, (m) => m.type === "message");
     expect(onPhone.envelope.ciphertext).toBe("multi-device");
     expect(onLaptop.envelope.ciphertext).toBe("multi-device");
+  });
+
+  it("refuses an envelope whose sender public key is not the authenticated one", async () => {
+    const url = await startServer();
+    const alice = newIdentity();
+    const bob = newIdentity();
+    const mallory = newIdentity();
+
+    const a = await connectRegistered(url, alice);
+    openSockets.push(a.socket);
+
+    // The sender field is honest; only the advertised key is swapped. A
+    // recipient learns their reply key from this field, so an unchecked value
+    // would let an attacker redirect the whole conversation to themselves.
+    a.socket.send(
+      JSON.stringify({
+        type: "message",
+        id: "66666666-6666-4666-8666-666666666666",
+        sender: alice.pubkeyHash,
+        senderPublicKey: mallory.pubkey,
+        recipient: bob.pubkeyHash,
+        ciphertext: "key-substitution",
+        timestamp: Date.now()
+      })
+    );
+
+    const error = await waitFor(a.messages, (m) => m.type === "error");
+    expect(error.code).toBe("sender_public_key_mismatch");
+  });
+
+  it("forwards an envelope whose sender public key matches", async () => {
+    const url = await startServer();
+    const alice = newIdentity();
+    const bob = newIdentity();
+
+    const a = await connectRegistered(url, alice);
+    const b = await connectRegistered(url, bob);
+    openSockets.push(a.socket, b.socket);
+
+    a.socket.send(
+      JSON.stringify({
+        type: "message",
+        id: "77777777-7777-4777-8777-777777777777",
+        sender: alice.pubkeyHash,
+        senderPublicKey: alice.pubkey,
+        recipient: bob.pubkeyHash,
+        ciphertext: "sealed",
+        timestamp: Date.now()
+      })
+    );
+
+    const delivered = await waitFor(b.messages, (m) => m.type === "message");
+    expect(delivered.envelope.senderPublicKey).toBe(alice.pubkey);
+  });
+
+  it("caps how many sockets one identity may hold open", async () => {
+    const url = await startServer();
+    const alice = newIdentity();
+
+    // MAX_SOCKETS_PER_IDENTITY connections are fine; the next one is refused,
+    // because unbounded sockets from one identity is a memory and fan-out
+    // amplifier against everyone else on the instance.
+    for (let index = 0; index < 8; index += 1) {
+      const session = await connectRegistered(url, alice);
+      openSockets.push(session.socket);
+    }
+
+    const socket = new WebSocket(url, { origin: ORIGIN });
+    openSockets.push(socket);
+    const error = await new Promise<any>((resolve, reject) => {
+      socket.on("error", reject);
+      socket.on("message", (raw) => {
+        const parsed = JSON.parse(raw.toString());
+        if (parsed.type === "challenge") {
+          const timestamp = Date.now();
+          const message = buildSignedMessage(
+            "ws-register",
+            timestamp,
+            alice.pubkeyHash,
+            parsed.nonce
+          );
+          socket.send(
+            JSON.stringify({
+              type: "register",
+              pubkey: alice.pubkey,
+              pubkeyHash: alice.pubkeyHash,
+              nonce: parsed.nonce,
+              signature: sign(
+                null,
+                Buffer.from(message, "utf8"),
+                alice.privateKey
+              ).toString("base64"),
+              timestamp
+            })
+          );
+          return;
+        }
+        if (parsed.type === "error") resolve(parsed);
+      });
+    });
+
+    expect(error.code).toBe("too_many_connections");
+  });
+
+  it("separates liveness from dependency readiness", async () => {
+    await startServer();
+
+    // Nothing is configured in this environment, so readiness must not claim a
+    // dependency is healthy — it reports "not-configured" and stays ready,
+    // which is the honest answer for a single-instance dev relay.
+    const ready = await app!.inject({ method: "GET", url: "/ready" });
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json()).toMatchObject({
+      ready: true,
+      dependencies: {
+        database: { status: "not-configured" },
+        cache: { status: "not-configured" }
+      }
+    });
   });
 
   it("reports which durable backends are configured", async () => {

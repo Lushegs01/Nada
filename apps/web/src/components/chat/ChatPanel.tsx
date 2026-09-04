@@ -7,8 +7,8 @@ import type { ContactRecord, MessageRecord } from "@nada/db";
 import type { PollData, PollOption } from "@nada/types";
 import { IconButton, IdentityOrb, Avatar, cn } from "@nada/ui";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
-import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, Check, CheckCheck, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed, Image as ImageIcon, Lock, ChevronLeft, Waves } from "lucide-react";
-import { useRef, useState, useEffect, useCallback, useMemo } from "react";
+import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed, Image as ImageIcon, Lock, ChevronLeft, Waves } from "lucide-react";
+import { type ComponentProps, useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { type VirtuosoHandle, Virtuoso } from "react-virtuoso";
 import { MessageContextAction } from "../panels/Dialogs";
 import { isVoiceNoteMessage, VoiceRecorderBar, VoiceNoteBubble, parseVoiceNoteBody, isInlineImageMessage, parseInlineFileMessage, isInlineFileMessage } from "../VoiceNote";
@@ -47,7 +47,18 @@ function AnimatedDoubleCheckmark({ className, size = 14, strokeWidth = 2.6 }: { 
   );
 }
 
-function SwipeableMessageWrapper({ children, message, onReply, shouldAnimateIn, ...props }: { children: React.ReactNode; message: any; onReply: (msg: any) => void; shouldAnimateIn: boolean; [key: string]: any }) {
+function SwipeableMessageWrapper({
+  children,
+  message,
+  onReply,
+  shouldAnimateIn,
+  ...props
+}: {
+  children: React.ReactNode;
+  message: MessageRecord;
+  onReply: (message: MessageRecord) => void;
+  shouldAnimateIn: boolean;
+} & Omit<ComponentProps<typeof motion.div>, "children" | "onDrag" | "onDragEnd" | "onDragStart" | "onAnimationStart" | "style" | "ref">) {
   const x = useMotionValue(0);
   const isOutbound = message.direction === "outbound";
   const replyOpacity = useTransform(x, isOutbound ? [0, -64] : [0, 64], [0, 1]);
@@ -1900,11 +1911,11 @@ export function ChatPanel({
                 message={message}
                 onReply={onReply}
                 shouldAnimateIn={shouldAnimateIn}
-                onContextMenu={(e: any) => {
+                onContextMenu={(e) => {
                   e.preventDefault();
                   openMessageContextMenu(message, { x: e.clientX, y: e.clientY });
                 }}
-                onPointerDown={(e: any) => {
+                onPointerDown={(e) => {
                   if (e.pointerType === "mouse") return;
                   if (longPressTimer.current) clearTimeout(longPressTimer.current);
                   const point = { x: e.clientX, y: e.clientY };

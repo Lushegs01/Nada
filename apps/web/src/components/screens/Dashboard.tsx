@@ -1,24 +1,24 @@
 "use client";
-/* eslint-disable */
 import "../chat/chat.css";
 import dynamic from "next/dynamic";
-import { type ChatPrefRecord, getGlobalSetting, nadaDb, directChatId, isBlocked, isMuted, setGlobalSetting, getChatPref, loadMessagesForChat, markChatAsRead, setChatPref } from "@/lib/db";
+import { getGlobalSetting, nadaDb, directChatId, isBlocked, isMuted, setGlobalSetting, getChatPref, loadMessagesForChat, markChatAsRead, setChatPref } from "@/lib/db";
 import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/lib/invite";
 import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload } from "@/lib/media-message";
 import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib/media-upload";
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
+import { encryptDirectBody, isKeyForIdentity, sealKeyForMembers } from "@/lib/message-crypto";
 import { whispersRelayConfigured, queryWhisperFeed, FEED_UNCHANGED, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote } from "@/lib/whispers";
 import type { CallMode, LocalCallSession } from "@/lib/webrtc";
 import { createLocalCallSession } from "@/lib/webrtc";
-import { useDashboardStore } from "@/stores/useDashboardStore";
+import { dashboardActions, useDashboardStore } from "@/stores/useDashboardStore";
 import { useCallStore } from "@/stores/useCallStore";
 import { useIdentityStore } from "@/stores/useIdentityStore";
 import { useSocketStore } from "@/stores/useSocketStore";
-import { parseCommunityRecords, parseWhisperEchoes, parseWhisperNotifications, seedWhisperEchoes, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, extractMentions, statusCommentChatId, defaultCommunityChannels, defaultCommunityTopics, dataUrlSize, matchesSearch } from "@/utils/helpers";
-import { encryptGroupMessage, mockEncryptMessage, createGroupSenderKey } from "@nada/crypto";
+import { parseCommunityRecords, parseWhisperEchoes, parseWhisperNotifications, seedWhisperEchoes, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, persistIncomingStatuses, type RelayStatusRow, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, extractMentions, statusCommentChatId, dataUrlSize, matchesSearch } from "@/utils/helpers";
+import { encryptGroupMessage, createGroupSenderKey } from "@nada/crypto";
 import type { IdentityRecord, ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
 import type { MessageEnvelope, ReplyToMessage, GroupMessageEnvelope, PollData, MediaAttachment, GroupInvitePayload } from "@nada/types";
-import { cn, GroupOrb, IdentityOrb } from "@nada/ui";
+import { cn, IdentityOrb } from "@nada/ui";
 import Dexie from "dexie";
 import { motion, AnimatePresence } from "framer-motion";
 import { Ghost, Bell, X } from "lucide-react";
@@ -45,7 +45,49 @@ import { WhispersFeed, type WhisperThreadMeta } from "./WhispersFeed";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { ProfilePage } from "./ProfilePage";
 import { StatusView, StatusCreateSheet, StatusViewerSheet } from "./StatusView";
-import { type NotificationSettings, DEFAULT_NOTIFICATION_SETTINGS, type Panel, type GlobalSearchResult, type PendingChatAction, type ReportTarget, type CommunityRecord, type WhisperEcho, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type CommunityDraft, type GroupDeletePayload } from "@/utils/dashboard-types";
+import { type NotificationSettings, type GlobalSearchResult, type ReportTarget, type WhisperEcho, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type GroupDeletePayload } from "@/utils/dashboard-types";
+
+// Store actions are stable for the life of the store, so they are bound once
+// here rather than subscribed to per render. See dashboardActions.
+const setChatPrefState = dashboardActions.setChatPref;
+const {
+  setActiveTab,
+  setAllStatuses,
+  setBlurShieldActive,
+  setBlurShieldRevealed,
+  setChats,
+  setCommunities,
+  setContacts,
+  setDisappearingTimer,
+  setDisplayName,
+  setEditingMessageId,
+  setFocusedEchoId,
+  setForwardMessageId,
+  setGhostMode,
+  setGlobalSearchResults,
+  setInAppNotification,
+  setMessageSearchQuery,
+  setMessages,
+  setMood,
+  setNotificationSettings,
+  setPanel,
+  setPendingChatAction,
+  setPendingReportTarget,
+  setReplyToId,
+  setSafetyReports,
+  setSearchQuery,
+  setSelectedContactHash,
+  setSelectedGroupId,
+  setSelectedStatusSenderHash,
+  setShowArchivedChats,
+  setShowGhostModal,
+  setShowMoodModal,
+  setShowOnboarding,
+  setUploadStatus,
+  setWhisperNotifications,
+  setWhisperUnreadCount,
+  setWhispers,
+} = dashboardActions;
 
 export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Element {
     const searchParams = useSearchParams();
@@ -69,14 +111,12 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const incomingDeletions = useSocketStore((state) => state.incomingDeletions);
     const sendReaction = useSocketStore((state) => state.sendReaction);
     const setSocketGhostMode = useSocketStore((state) => state.setGhostMode);
+    const acknowledgeSocketBuffer = useSocketStore((state) => state.acknowledge);
     const processedReactions = useRef<Set<string>>(new Set());
     const processedDeletions = useRef<Set<string>>(new Set());
     const ghostMode = useDashboardStore((s) => s.ghostMode);
-    const setGhostMode = useDashboardStore((s) => s.setGhostMode);
     const mood = useDashboardStore((s) => s.mood);
-    const setMood = useDashboardStore((s) => s.setMood);
     const notificationSettings = useDashboardStore((s) => s.notificationSettings);
-    const setNotificationSettings = useDashboardStore((s) => s.setNotificationSettings);
     useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
@@ -94,35 +134,20 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     };
     }, [ghostMode]);
     const chats = useDashboardStore((s) => s.chats);
-    const setChats = useDashboardStore((s) => s.setChats);
     const contacts = useDashboardStore((s) => s.contacts);
-    const setContacts = useDashboardStore((s) => s.setContacts);
     const disappearingTimer = useDashboardStore((s) => s.disappearingTimer);
-    const setDisappearingTimer = useDashboardStore((s) => s.setDisappearingTimer);
     const displayName = useDashboardStore((s) => s.displayName);
-    const setDisplayName = useDashboardStore((s) => s.setDisplayName);
     const editingMessageId = useDashboardStore((s) => s.editingMessageId);
-    const setEditingMessageId = useDashboardStore((s) => s.setEditingMessageId);
     const messageSearchQuery = useDashboardStore((s) => s.messageSearchQuery);
-    const setMessageSearchQuery = useDashboardStore((s) => s.setMessageSearchQuery);
     const messages = useDashboardStore((s) => s.messages);
-    const setMessages = useDashboardStore((s) => s.setMessages);
     const panel = useDashboardStore((s) => s.panel);
-    const setPanel = useDashboardStore((s) => s.setPanel);
     const replyToId = useDashboardStore((s) => s.replyToId);
-    const setReplyToId = useDashboardStore((s) => s.setReplyToId);
     const searchQuery = useDashboardStore((s) => s.searchQuery);
-    const setSearchQuery = useDashboardStore((s) => s.setSearchQuery);
     const globalSearchResults = useDashboardStore((s) => s.globalSearchResults);
-    const setGlobalSearchResults = useDashboardStore((s) => s.setGlobalSearchResults);
     const selectedContactHash = useDashboardStore((s) => s.selectedContactHash);
-    const setSelectedContactHash = useDashboardStore((s) => s.setSelectedContactHash);
     const selectedGroupId = useDashboardStore((s) => s.selectedGroupId);
-    const setSelectedGroupId = useDashboardStore((s) => s.setSelectedGroupId);
     const uploadStatus = useDashboardStore((s) => s.uploadStatus);
-    const setUploadStatus = useDashboardStore((s) => s.setUploadStatus);
     const chatPref = useDashboardStore((s) => s.chatPref);
-    const setChatPrefState = useDashboardStore((s) => s.setChatPref);
     const [archivedChatIds, setArchivedChatIds] = useState<Set<string>>(
             () => new Set()
           );
@@ -130,23 +155,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             () => new Set()
           );
     const showArchivedChats = useDashboardStore((s) => s.showArchivedChats);
-    const setShowArchivedChats = useDashboardStore((s) => s.setShowArchivedChats);
     const pendingChatAction = useDashboardStore((s) => s.pendingChatAction);
-    const setPendingChatAction = useDashboardStore((s) => s.setPendingChatAction);
     const blurShieldActive = useDashboardStore((s) => s.blurShieldActive);
-    const setBlurShieldActive = useDashboardStore((s) => s.setBlurShieldActive);
     const blurShieldRevealed = useDashboardStore((s) => s.blurShieldRevealed);
-    const setBlurShieldRevealed = useDashboardStore((s) => s.setBlurShieldRevealed);
     const showGhostModal = useDashboardStore((s) => s.showGhostModal);
-    const setShowGhostModal = useDashboardStore((s) => s.setShowGhostModal);
     const showMoodModal = useDashboardStore((s) => s.showMoodModal);
-    const setShowMoodModal = useDashboardStore((s) => s.setShowMoodModal);
     const forwardMessageId = useDashboardStore((s) => s.forwardMessageId);
-    const setForwardMessageId = useDashboardStore((s) => s.setForwardMessageId);
     const pendingReportTarget = useDashboardStore((s) => s.pendingReportTarget);
-    const setPendingReportTarget = useDashboardStore((s) => s.setPendingReportTarget);
     const inAppNotification = useDashboardStore((s) => s.inAppNotification);
-    const setInAppNotification = useDashboardStore((s) => s.setInAppNotification);
     useEffect(() => {
     if (!showGhostModal && !showMoodModal && !forwardMessageId) return;
     const handleEscape = (e: KeyboardEvent) => {
@@ -159,17 +175,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     return () => window.removeEventListener("keydown", handleEscape);
     }, [showGhostModal, showMoodModal, forwardMessageId]);
     const allStatuses = useDashboardStore((s) => s.allStatuses);
-    const setAllStatuses = useDashboardStore((s) => s.setAllStatuses);
-    const communities = useDashboardStore((s) => s.communities);
-    const setCommunities = useDashboardStore((s) => s.setCommunities);
     const whispers = useDashboardStore((s) => s.whispers);
-    const setWhispers = useDashboardStore((s) => s.setWhispers);
     const whisperNotifications = useDashboardStore((s) => s.whisperNotifications);
-    const setWhisperNotifications = useDashboardStore((s) => s.setWhisperNotifications);
     const whisperUnreadCount = useDashboardStore((s) => s.whisperUnreadCount);
-    const setWhisperUnreadCount = useDashboardStore((s) => s.setWhisperUnreadCount);
     const focusedEchoId = useDashboardStore((s) => s.focusedEchoId);
-    const setFocusedEchoId = useDashboardStore((s) => s.setFocusedEchoId);
     // Per-echo thread paging state (lazy loading + "show older reflections").
     const [whisperThreadMeta, setWhisperThreadMeta] = useState<Record<string, WhisperThreadMeta>>({});
     const [whisperFeedHasMore, setWhisperFeedHasMore] = useState(false);
@@ -180,11 +189,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const [profileTarget, setProfileTarget] = useState<{ hash: string; name: string } | null>(null);
     const lastWhisperAlertAt = useRef(0);
     const safetyReports = useDashboardStore((s) => s.safetyReports);
-    const setSafetyReports = useDashboardStore((s) => s.setSafetyReports);
     const showOnboarding = useDashboardStore((s) => s.showOnboarding);
-    const setShowOnboarding = useDashboardStore((s) => s.setShowOnboarding);
     const selectedStatusSenderHash = useDashboardStore((s) => s.selectedStatusSenderHash);
-    const setSelectedStatusSenderHash = useDashboardStore((s) => s.setSelectedStatusSenderHash);
     useEffect(() => {
     let active = true;
     void Promise.all([
@@ -265,6 +271,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             if (!relayBaseUrl) return;
 
             try {
+              // Reading statuses is authenticated: the relay returns only the
+              // status-key envelope sealed to this verified identity, so a
+              // caller cannot pull down statuses that were never shared with
+              // them by naming someone else's pubkey hash.
+              const proof = await useIdentityStore
+                .getState()
+                .signProof("status-query", identity.pubkeyHash);
+              if (!proof) return;
               const response = await fetch(new URL("/api/v1/statuses/query", relayBaseUrl), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -272,18 +286,17 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                   limit: 120,
                   senderPubkeyHashes: statusPeerHashes,
                   since: Date.now() - 24 * 60 * 60 * 1000,
-                  viewerPubkeyHash: identity.pubkeyHash
+                  viewerPubkeyHash: identity.pubkeyHash,
+                  proof
                 })
               });
               if (!response.ok) return;
-              const data = (await response.json()) as { statuses?: MessageEnvelope[] };
-              const envelopes = (data.statuses ?? []).filter(
-                (envelope) =>
-                  envelope.messageKind === "status" &&
-                  statusPeerHashes.includes(envelope.sender)
+              const data = (await response.json()) as { statuses?: RelayStatusRow[] };
+              const rows = (data.statuses ?? []).filter((row) =>
+                statusPeerHashes.includes(row.sender)
               );
-              if (envelopes.length === 0) return;
-              await persistIncomingMessages(identity, envelopes);
+              if (rows.length === 0) return;
+              await persistIncomingStatuses(identity, rows);
               await loadStatuses();
             } catch {
               // Status relay sync is best-effort; direct socket delivery still works.
@@ -334,7 +347,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             });
             setWhisperFeedHasMore(echoes.length >= 100);
             setWhisperFeedSyncing(false);
-          }, [identity.pubkeyHash, setWhispers]);
+          }, [identity.pubkeyHash]);
     useEffect(() => {
     if (!selectedStatusSenderHash) return;
     if (
@@ -492,6 +505,64 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             notificationSettings.vibration,
             playNotificationTone
           ]);
+    /**
+     * Bridges the service worker to the running app.
+     *
+     * Two events arrive here. A push delivered while a NADA window is focused
+     * is handed over rather than shown as an OS notification — the worker used
+     * to drop it entirely, so an event that arrived at the wrong moment was one
+     * the user never learned about. And a notification tap on an already-open
+     * tab only focuses that tab, which leaves the user on whatever screen they
+     * were last on; the worker now says which conversation was tapped so the
+     * app can actually open it.
+     */
+    const openChatByChatId = useCallback((chatId: string | null): void => {
+            if (!chatId) return;
+            setActiveTab("chats");
+            const group = chats.find((chat) => chat.id === chatId);
+            if (group) {
+              setSelectedContactHash(null);
+              setSelectedGroupId(group.id);
+              return;
+            }
+            // Push payloads label a direct chat with the sender's hash, not the
+            // composite chat id, so accept either.
+            const contact = contacts.find(
+              (item) =>
+                item.pubkeyHash === chatId ||
+                directChatId(identity.pubkeyHash, item.pubkeyHash) === chatId
+            );
+            if (contact) {
+              setSelectedGroupId(null);
+              setSelectedContactHash(contact.pubkeyHash);
+            }
+          }, [chats, contacts, identity.pubkeyHash]);
+    useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+      return;
+    }
+    const handleWorkerMessage = (event: MessageEvent): void => {
+      const data = event.data as
+        | { type?: string; chatId?: string | null; title?: string; body?: string }
+        | undefined;
+      if (!data?.type) return;
+      if (data.type === "NADA_PUSH") {
+        showNotification(
+          data.title ?? "NADA",
+          data.body ?? "You have a new private update.",
+          data.chatId ?? "status"
+        );
+        return;
+      }
+      if (data.type === "NADA_NOTIFICATION_CLICK") {
+        openChatByChatId(data.chatId ?? null);
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", handleWorkerMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", handleWorkerMessage);
+    };
+    }, [openChatByChatId, showNotification]);
     // Notification inbox sync: authoritative read/unread state lives on the
     // relay; new arrivals surface as in-app alerts through the same
     // notification pipeline chats use (tones, preview privacy, vibration).
@@ -530,7 +601,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             } finally {
               setNotificationsLoading(false);
             }
-          }, [identity.pubkeyHash, setWhisperNotifications, setWhisperUnreadCount, showNotification]);
+          }, [identity.pubkeyHash, showNotification]);
     useEffect(() => {
     if (!whispersRelayConfigured()) {
       setWhisperFeedSyncing(false);
@@ -550,7 +621,6 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     }, [syncWhispersFromRelay, syncWhisperNotifications]);
     const [activeFilter] = useState("all");
     const activeTab = useDashboardStore((s) => s.activeTab);
-    const setActiveTab = useDashboardStore((s) => s.setActiveTab);
     const [lastMessages, setLastMessages] = useState<Record<string, { body: string; ts: number }>>({});
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
     const processedGroupIncoming = useRef<Set<string>>(new Set());
@@ -833,6 +903,69 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             setDashboardToast(msg);
             setTimeout(() => setDashboardToast(null), 2500);
           }, []);
+    // Peers we have already warned about, so a conversation without a usable
+    // identity key produces one honest notice rather than one per message.
+    const unencryptedWarned = useRef<Set<string>>(new Set());
+    /**
+     * Encrypts one direct-message body for one recipient.
+     *
+     * Every direct send in this file goes through here. When NADA holds no
+     * verified identity key for the recipient the body can only be encoded,
+     * and the user is told once — the alternative, staying quiet, is what let
+     * "private messaging" mean base64 over the wire.
+     */
+    const encryptDirect = useCallback(async (
+            body: string,
+            recipientPubkeyHash: string
+          ): Promise<string> => {
+            const result = await encryptDirectBody({
+              body,
+              recipientPubkeyHash,
+              identity
+            });
+            if (!result.encrypted && !unencryptedWarned.current.has(recipientPubkeyHash)) {
+              unencryptedWarned.current.add(recipientPubkeyHash);
+              showToast(
+                "Sent without encryption — share an invite link with this contact to enable it."
+              );
+            }
+            return result.ciphertext;
+          }, [identity, showToast]);
+    /**
+     * Seals a group's sender key to each member, so the key reaches the group
+     * without also reaching the relay. Members whose identity key is unknown
+     * fall back to the legacy plaintext package, which is the only way to
+     * reach a peer NADA has never exchanged keys with — and the user is told
+     * that it happened.
+     */
+    const buildGroupKeyDistribution = useCallback(async (
+            group: ChatRecord
+          ): Promise<{
+            keyEnvelopes?: { recipient: string; sealedKey: string }[];
+            senderKeyPackage?: string;
+          }> => {
+            if (!group.groupSenderKey) return {};
+            const members = group.memberPubkeyHashes.filter(
+              (member) => member !== identity.pubkeyHash
+            );
+            const { envelopes, unreachable } = await sealKeyForMembers(
+              group.groupSenderKey,
+              members
+            );
+            if (unreachable.length > 0 && !unencryptedWarned.current.has(group.id)) {
+              unencryptedWarned.current.add(group.id);
+              showToast(
+                `${unreachable.length} member(s) have no identity key yet — the group key is sent in the clear for them.`
+              );
+            }
+            return {
+              ...(envelopes.length > 0 ? { keyEnvelopes: envelopes } : {}),
+              // Only when at least one member cannot be sealed to.
+              ...(unreachable.length > 0
+                ? { senderKeyPackage: group.groupSenderKey }
+                : {})
+            };
+          }, [identity.pubkeyHash, showToast]);
     const saveNotificationSettings = useCallback(async (
             nextSettings: NotificationSettings
           ): Promise<void> => {
@@ -1026,6 +1159,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           body: ""
         });
       }
+      acknowledgeSocketBuffer("incomingDeletions", newDeletions.map((d) => d.id));
       if (!active) return;
       const messageRecords = selectedChatId ? await loadMessagesForChat(selectedChatId) : [];
       setMessages((current) =>
@@ -1039,7 +1173,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     })();
 
     return () => { active = false; };
-    }, [incomingDeletions, selectedChatId]);
+    }, [acknowledgeSocketBuffer, incomingDeletions, selectedChatId]);
     useEffect(() => {
     const newReactions = incomingReactions.filter(
       (r) => !processedReactions.current.has(r.id)
@@ -1073,9 +1207,11 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           );
         }
       })
+    ).then(() =>
+      acknowledgeSocketBuffer("incomingReactions", newReactions.map((r) => r.id))
     );
     return () => { active = false; };
-    }, [incomingReactions]);
+    }, [acknowledgeSocketBuffer, incomingReactions]);
     useEffect(() => {
     if (contacts.length === 0 && chats.length === 0) return;
     let active = true;
@@ -1382,6 +1518,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
 
     let active = true;
     void persistIncomingMessages(identity, newEnvelopes).then(async () => {
+      acknowledgeSocketBuffer(
+        "incoming",
+        newEnvelopes.map((envelope) => envelope.id)
+      );
       newEnvelopes.forEach((envelope) => {
         processedIncoming.current.add(envelope.id);
         sendDelivery({
@@ -1439,7 +1579,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     });
     void loadStatuses();
     return () => { active = false; };
-    }, [identity, incoming, loadStatuses, selectedChatId, sendDelivery, showNotification]);
+    }, [acknowledgeSocketBuffer, identity, incoming, loadStatuses, selectedChatId, sendDelivery, showNotification]);
     useEffect(() => {
     const newGroupEnvelopes = groupIncoming.filter(
       (envelope) =>
@@ -1816,7 +1956,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           ...(msg.replyToId ? { replyToId: msg.replyToId } : {}),
           ...(msg.mentions && msg.mentions.length > 0 ? { mentions: msg.mentions } : {}),
           ...(msg.expiresAt ? { expiresAt: msg.expiresAt } : {}),
-          ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
+          senderPublicKey: identity.pubkey,
+          ...(await buildGroupKeyDistribution(group)),
           ...devPlaintextFor(msg.body)
         };
         
@@ -1837,7 +1978,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     return () => {
       isSubscribed = false;
     };
-    }, [relayStatus, identity, chats, sendEnvelope, sendGroupEnvelope]);
+    }, [relayStatus, identity, chats, buildGroupKeyDistribution, sendEnvelope, sendGroupEnvelope]);
     const retryOutboundMessage = async (message: MessageRecord): Promise<void> => {
             if (message.direction !== "outbound") return;
 
@@ -1863,7 +2004,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               try {
                 ciphertext = group?.groupSenderKey
                   ? JSON.stringify(await encryptGroupMessage(message.body, group.groupSenderKey))
-                  : await mockEncryptMessage(message.body);
+                  : await encryptDirect(message.body, message.recipientPubkeyHash);
                 await nadaDb.messages.update(message.id, { encryptedPayload: ciphertext });
               } catch {
                 await nadaDb.messages.update(message.id, { status: "failed" });
@@ -1896,7 +2037,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ...(message.replyToId ? { replyToId: message.replyToId } : {}),
                 ...(message.mentions?.length ? { mentions: message.mentions } : {}),
                 ...(message.expiresAt ? { expiresAt: message.expiresAt } : {}),
-                ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
+                ...(await buildGroupKeyDistribution(group)),
+                senderPublicKey: identity.pubkey,
                 ...devPlaintextFor(message.body)
               });
             } else if (contact) {
@@ -1908,6 +2050,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp: message.createdAt,
                 ciphertext,
                 messageKind,
+                senderPublicKey: identity.pubkey,
                 ...(message.replyTo ? { replyTo: message.replyTo } : {}),
                 ...devPlaintextFor(message.body)
               });
@@ -1954,9 +2097,11 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ...(existingMessage?.replyTo ? { replyTo: existingMessage.replyTo } : {})
               });
               const editedBody = encodeMessagePayload(editedPayload);
+              const editRecipient =
+                selectedContact?.pubkeyHash ?? identity.pubkeyHash;
               const encryptedPayload = selectedGroup?.groupSenderKey
                 ? JSON.stringify(await encryptGroupMessage(editedBody, selectedGroup.groupSenderKey))
-                : await mockEncryptMessage(editedBody);
+                : await encryptDirect(editedBody, editRecipient);
               await nadaDb.messages.update(editingMessageId, {
                 body: editedBody,
                 editedAt,
@@ -2037,7 +2182,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 ? JSON.stringify(
                     await encryptGroupMessage(body, activeGroup.groupSenderKey)
                   )
-                : await mockEncryptMessage(body);
+                : await encryptDirect(
+                    body,
+                    activeContact?.pubkeyHash ?? identity.pubkeyHash
+                  );
             } catch {
               setMessages((current) =>
                 current.map((message) =>
@@ -2065,7 +2213,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind: "text" as const,
-                ...(activeGroup.groupSenderKey ? { senderKeyPackage: activeGroup.groupSenderKey } : {}),
+                ...(await buildGroupKeyDistribution(activeGroup)),
+                senderPublicKey: identity.pubkey,
                 ...(replyToId ? { replyToId } : {}),
                 ...(replySnapshot ? { replyTo: replySnapshot } : {}),
                 ...(mentions.length > 0 ? { mentions } : {}),
@@ -2083,9 +2232,9 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind: "text" as const,
+                senderPublicKey: identity.pubkey,
                 ...(replySnapshot ? { replyTo: replySnapshot } : {})
               };
-              // ⚠️ MVP_ONLY — replace before production
               const envelope: MessageEnvelope = { ...baseEnvelope, ...devPlaintextFor(body) };
               sent = sendEnvelope(envelope);
             }
@@ -2141,7 +2290,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             const body = encodeMessagePayload(payload);
             const ciphertext = selectedGroup?.groupSenderKey
               ? JSON.stringify(await encryptGroupMessage(body, selectedGroup.groupSenderKey))
-              : await mockEncryptMessage(body);
+              : await encryptDirect(
+                  body,
+                  selectedContact?.pubkeyHash ?? identity.pubkeyHash
+                );
             const statusFallback = selectedGroup ? "local" : "queued";
             let sent = false;
 
@@ -2151,14 +2303,16 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 type: "group-message" as const,
                 id, groupId: selectedGroup.id, recipients, sender: identity.pubkeyHash,
                 timestamp, ciphertext, messageKind: "poll" as const,
-                ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {})
+                senderPublicKey: identity.pubkey,
+                ...(await buildGroupKeyDistribution(selectedGroup))
               };
               const groupEnvelope: GroupMessageEnvelope = { ...baseEnvelope, ...devPlaintextFor(body) };
               sent = sendGroupEnvelope(groupEnvelope);
             } else if (selectedContact) {
               const baseEnvelope = {
                 type: "message" as const, id, recipient: selectedContact.pubkeyHash, sender: identity.pubkeyHash,
-                timestamp, ciphertext, messageKind: "poll" as const
+                timestamp, ciphertext, messageKind: "poll" as const,
+                senderPublicKey: identity.pubkey
               };
               const envelope: MessageEnvelope = { ...baseEnvelope, ...devPlaintextFor(body) };
               sent = sendEnvelope(envelope);
@@ -2188,7 +2342,24 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               : buildTextPayload({ text });
             
             const body = encodeMessagePayload({ ...payload, type: "status" as const });
-            const ciphertext = await mockEncryptMessage(body);
+            // A status is one payload read by many people, so it is encrypted
+            // once under a fresh content key and that key is sealed to each
+            // viewer the author chose. The relay stores the ciphertext and the
+            // sealed keys side by side and can open neither.
+            const statusKey = await createGroupSenderKey();
+            const audience = Array.from(
+              new Set([...statusPeerHashes, identity.pubkeyHash])
+            );
+            const { envelopes: statusKeyEnvelopes, unreachable } =
+              await sealKeyForMembers(statusKey, audience);
+            if (unreachable.length > 0) {
+              showToast(
+                `${unreachable.length} contact(s) have no identity key yet and will not see this status.`
+              );
+            }
+            const ciphertext = JSON.stringify(
+              await encryptGroupMessage(body, statusKey)
+            );
             
             const record: MessageRecord = {
               id,
@@ -2225,6 +2396,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                       sender: identity.pubkeyHash,
                       timestamp,
                       ciphertext,
+                      keyEnvelopes: statusKeyEnvelopes,
                       ...devPlaintextFor(body),
                       proof
                     })
@@ -2233,18 +2405,24 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 .catch(() => {});
             }
             
-            statusPeerHashes.forEach((recipientHash) => {
-              sendEnvelope({
-                type: "message",
-                id,
-                recipient: recipientHash,
-                sender: identity.pubkeyHash,
-                timestamp,
-                ciphertext,
-                messageKind: "status",
-                ...devPlaintextFor(body)
-              });
-            });
+            // The live socket copy is sealed per recipient: the relay-stored
+            // copy is only a fallback for contacts who were offline, and both
+            // paths have to be equally unreadable to the relay.
+            await Promise.all(
+              statusPeerHashes.map(async (recipientHash) => {
+                sendEnvelope({
+                  type: "message",
+                  id,
+                  recipient: recipientHash,
+                  sender: identity.pubkeyHash,
+                  timestamp,
+                  ciphertext: await encryptDirect(body, recipientHash),
+                  messageKind: "status",
+                  senderPublicKey: identity.pubkey,
+                  ...devPlaintextFor(body)
+                });
+              })
+            );
             
             showToast("Status posted!");
           };
@@ -2265,7 +2443,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               version: 1
             };
             const body = JSON.stringify(payload);
-            const ciphertext = await mockEncryptMessage(body);
+            const ciphertext = await encryptDirect(body, status.senderPubkeyHash);
             const record: MessageRecord = {
               id,
               chatId: statusCommentChatId(status.id),
@@ -2289,6 +2467,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind: "system",
+                senderPublicKey: identity.pubkey,
                 ...devPlaintextFor(body)
               });
             }
@@ -2311,7 +2490,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               version: 1
             };
             const body = JSON.stringify(payload);
-            const ciphertext = await mockEncryptMessage(body);
+            const ciphertext = await encryptDirect(body, status.senderPubkeyHash);
             const record: MessageRecord = {
               id,
               chatId: statusCommentChatId(status.id),
@@ -2335,6 +2514,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind: "system",
+                senderPublicKey: identity.pubkey,
                 ...devPlaintextFor(body)
               });
             }
@@ -2353,7 +2533,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               version: 1
             };
             const body = JSON.stringify(payload);
-            const ciphertext = await mockEncryptMessage(body);
+            // Broadcast the tombstone to the same audience that saw the status.
             const timestamp = Date.now();
 
             await nadaDb.messages.delete(status.id);
@@ -2391,18 +2571,21 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 .catch(() => {});
             }
 
-            statusPeerHashes.forEach((recipientHash) => {
-              sendEnvelope({
-                type: "message",
-                id: crypto.randomUUID(),
-                recipient: recipientHash,
-                sender: identity.pubkeyHash,
-                timestamp,
-                ciphertext,
-                messageKind: "system",
-                ...devPlaintextFor(body)
-              });
-            });
+            await Promise.all(
+              statusPeerHashes.map(async (recipientHash) => {
+                sendEnvelope({
+                  type: "message",
+                  id: crypto.randomUUID(),
+                  recipient: recipientHash,
+                  sender: identity.pubkeyHash,
+                  timestamp,
+                  ciphertext: await encryptDirect(body, recipientHash),
+                  messageKind: "system",
+                  senderPublicKey: identity.pubkey,
+                  ...devPlaintextFor(body)
+                });
+              })
+            );
             showToast("Status deleted.");
           };
     // ── Whispers feed actions ──────────────────────────────────────────────
@@ -2412,7 +2595,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             const sorted = [...next].sort((a, b) => b.createdAt - a.createdAt);
             setWhispers(sorted);
             await setGlobalSetting(WHISPERS_SETTING_KEY, JSON.stringify(sorted));
-          }, [setWhispers]);
+          }, []);
     const updateWhisper = useCallback((
             echoId: string,
             updater: (echo: WhisperEcho) => WhisperEcho
@@ -2572,7 +2755,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 [echoId]: { hasMore: page.hasMore, loaded: true, loading: false }
               }));
             });
-          }, [identity.pubkeyHash, setWhispers]);
+          }, [identity.pubkeyHash]);
     // Feed pagination: fetch Echoes older than the oldest one on screen.
     const loadMoreWhisperFeed = useCallback((): void => {
             if (!whispersRelayConfigured() || whispers.length === 0) return;
@@ -2588,7 +2771,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 return [...current, ...older.filter((echo) => !known.has(echo.id))];
               });
             });
-          }, [identity.pubkeyHash, setWhispers, whispers]);
+          }, [identity.pubkeyHash, whispers]);
     // Like / unlike a single reflection inside a thread.
     const toggleReflectionLike = (echoId: string, reflection: WhisperReflection): void => {
             const nextOn = !reflection.likedByMe;
@@ -2708,7 +2891,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             });
             setWhisperThreadMeta((current) => {
               if (!(echoId in current)) return current;
-              const { [echoId]: _removed, ...rest } = current;
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars -- object rest is how a key is dropped
+              const { [echoId]: _dropped, ...rest } = current;
               return rest;
             });
             showToast("Echo deleted.");
@@ -2727,7 +2911,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             setSelectedContactHash(null);
             setSelectedGroupId(null);
             setActiveTab("profile");
-          }, [setActiveTab]);
+          }, []);
     // ── Whisper notifications (Alerts tab) ─────────────────────────────────
     const markAllWhisperNotificationsRead = useCallback((): void => {
             setWhisperNotifications((current) => {
@@ -2742,7 +2926,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             if (whispersRelayConfigured()) {
               void markWhisperNotificationsReadRemote(identity.pubkeyHash);
             }
-          }, [identity.pubkeyHash, setWhisperNotifications, setWhisperUnreadCount]);
+          }, [identity.pubkeyHash]);
     // Deep-link a notification to its target: follows open the actor's ghost
     // profile; everything else lands on the Echo with its thread expanded.
     const openWhisperNotification = useCallback((notification: WhisperNotification): void => {
@@ -2769,7 +2953,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               // The Echo fell outside the loaded window — refresh, then focus.
               void syncWhispersFromRelay().then(() => setFocusedEchoId(echoId));
             }
-          }, [identity.pubkeyHash, openWhisperProfile, setActiveTab, setFocusedEchoId, setWhisperNotifications, setWhisperUnreadCount, syncWhispersFromRelay, whispers]);
+          }, [identity.pubkeyHash, openWhisperProfile, syncWhispersFromRelay, whispers]);
     // ── Ghost profiles ──────────────────────────────────────────────────────
     // The ProfilePage screen fetches its own data; the Dashboard only routes
     // to it and provides the cross-app actions (message, block, report).
@@ -2788,7 +2972,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             } else {
               void syncWhispersFromRelay().then(() => setFocusedEchoId(echoId));
             }
-          }, [setActiveTab, setFocusedEchoId, setWhispers, syncWhispersFromRelay, whispers]);
+          }, [syncWhispersFromRelay, whispers]);
     // "Message" from a profile: create (or reuse) the contact with their
     // relay-verified pubkey and drop straight into the direct chat. The chat
     // id is deterministic, so an existing conversation is always reused.
@@ -2797,29 +2981,41 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               showToast("This ghost can't be messaged yet.");
               return;
             }
-            const existing = await nadaDb.contacts.get(profile.pubkeyHash);
-            const contact: ContactRecord = existing ?? {
-              id: profile.pubkeyHash,
-              pubkeyHash: profile.pubkeyHash,
-              publicKey: profile.pubkey,
-              localDisplayName:
-                profile.displayName || generateRandomUsername(profile.pubkeyHash),
-              addedAt: Date.now(),
-              trustStatus: "unverified"
-            };
-            if (!existing) {
-              await nadaDb.contacts.put(contact);
-              setContacts((current) =>
-                current.some((item) => item.pubkeyHash === contact.pubkeyHash)
-                  ? current
-                  : [contact, ...current]
-              );
+            // The relay captured this key from a verified identity proof, but
+            // the client re-derives the hash rather than taking the relay's
+            // word for it — the key decides who can read the conversation.
+            if (!(await isKeyForIdentity(profile.pubkey, profile.pubkeyHash))) {
+              showToast("This ghost's messaging key could not be verified.");
+              return;
             }
+            const existing = await nadaDb.contacts.get(profile.pubkeyHash);
+            const contact: ContactRecord = existing
+              ? { ...existing, publicKey: profile.pubkey }
+              : {
+                  id: profile.pubkeyHash,
+                  pubkeyHash: profile.pubkeyHash,
+                  publicKey: profile.pubkey,
+                  localDisplayName:
+                    profile.displayName || generateRandomUsername(profile.pubkeyHash),
+                  addedAt: Date.now(),
+                  trustStatus: "unverified"
+                };
+            // Written even when the contact already exists: an older record may
+            // carry a key corrupted by the previous inbound-message path, and
+            // that record is exactly the one that cannot be encrypted to.
+            await nadaDb.contacts.put(contact);
+            setContacts((current) =>
+              current.some((item) => item.pubkeyHash === contact.pubkeyHash)
+                ? current.map((item) =>
+                    item.pubkeyHash === contact.pubkeyHash ? contact : item
+                  )
+                : [contact, ...current]
+            );
             setSelectedGroupId(null);
             setSelectedContactHash(contact.pubkeyHash);
             setMessageSearchQuery("");
             setActiveTab("chats");
-          }, [setActiveTab, setContacts, showToast]);
+          }, [showToast]);
     // Block state for the open profile — backed by the direct chat's local
     // preference record, same mechanism the chat screen uses.
     const [profileBlocked, setProfileBlocked] = useState(false);
@@ -2848,14 +3044,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               current.chatId === chatId ? { ...current, blockedPubkeyHashes } : current
             );
             showToast(block ? "Ghost blocked." : "Ghost unblocked.");
-          }, [identity.pubkeyHash, setChatPrefState, showToast]);
+          }, [identity.pubkeyHash, showToast]);
     const reportGhost = useCallback((profile: WhisperProfile): void => {
             setPendingReportTarget({
               id: profile.pubkeyHash,
               title: profile.displayName || "Ghost",
               type: "user"
             });
-          }, [setPendingReportTarget]);
+          }, []);
     // Shared profile links (…/?ghost=<hash>) deep-link straight to the page.
     const ghostParam = searchParams.get("ghost") ?? "";
     useEffect(() => {
@@ -2940,7 +3136,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
 
             const ciphertext = selectedGroup?.groupSenderKey
               ? JSON.stringify(await encryptGroupMessage(body, selectedGroup.groupSenderKey))
-              : await mockEncryptMessage(body);
+              : await encryptDirect(
+                  body,
+                  selectedContact?.pubkeyHash ?? identity.pubkeyHash
+                );
 
             let sent = false;
             if (selectedGroup) {
@@ -2954,7 +3153,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind,
-                ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {}),
+                senderPublicKey: identity.pubkey,
+                ...(await buildGroupKeyDistribution(selectedGroup)),
                 ...devPlaintextFor(body),
                 ...(replyToId ? { replyToId } : {}),
                 ...(replySnapshot ? { replyTo: replySnapshot } : {}),
@@ -2969,6 +3169,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind,
+                senderPublicKey: identity.pubkey,
                 ...(replySnapshot ? { replyTo: replySnapshot } : {}),
                 ...devPlaintextFor(body)
               });
@@ -3068,7 +3269,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             // Encrypt the body the same way a text message is encrypted
             const ciphertext = selectedGroup?.groupSenderKey
               ? JSON.stringify(await encryptGroupMessage(structuredBody, selectedGroup.groupSenderKey))
-              : await mockEncryptMessage(structuredBody);
+              : await encryptDirect(
+                  structuredBody,
+                  selectedContact?.pubkeyHash ?? identity.pubkeyHash
+                );
 
             let sent = false;
             if (selectedGroup) {
@@ -3084,7 +3288,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind: "voice_note",
-                ...(selectedGroup.groupSenderKey ? { senderKeyPackage: selectedGroup.groupSenderKey } : {}),
+                senderPublicKey: identity.pubkey,
+                ...(await buildGroupKeyDistribution(selectedGroup)),
                 ...devPlaintextFor(structuredBody),
                 ...(replyToId ? { replyToId } : {}),
                 ...(replySnapshot ? { replyTo: replySnapshot } : {}),
@@ -3099,6 +3304,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind: "voice_note",
+                senderPublicKey: identity.pubkey,
                 ...(replySnapshot ? { replyTo: replySnapshot } : {}),
                 ...devPlaintextFor(structuredBody)
               });
@@ -3386,7 +3592,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind,
-                senderKeyPackage: targetGroup.groupSenderKey,
+                senderPublicKey: identity.pubkey,
+                ...(await buildGroupKeyDistribution(targetGroup)),
                 ...devPlaintextFor(bodyToForward)
               };
 
@@ -3411,7 +3618,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               const envelopeId = crypto.randomUUID();
               const timestamp = Date.now();
               const messageKind = messageKindFromRecord(original);
-              const ciphertext = await mockEncryptMessage(bodyToForward);
+              const ciphertext = await encryptDirect(
+                bodyToForward,
+                targetPeer.pubkeyHash
+              );
               const payload: MessageEnvelope = {
                 type: "message",
                 id: envelopeId,
@@ -3420,6 +3630,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ciphertext,
                 messageKind,
+                senderPublicKey: identity.pubkey,
                 ...devPlaintextFor(bodyToForward)
               };
               const record: MessageRecord = {
@@ -3562,7 +3773,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                   timestamp,
                   ciphertext,
                   messageKind: "system",
-                  ...(group.groupSenderKey ? { senderKeyPackage: group.groupSenderKey } : {}),
+                  senderPublicKey: identity.pubkey,
+                  ...(await buildGroupKeyDistribution(group)),
                   ...devPlaintextFor(body)
                 });
               }
@@ -3644,7 +3856,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               title: selectedGroup.title,
               ownerPubkeyHash: selectedGroup.ownerPubkeyHash ?? identity.pubkeyHash,
               memberPubkeyHashes: selectedGroup.memberPubkeyHashes,
-              // ⚠️ MVP_ONLY — replace before production
+              // The invite URL carries the group key, so the link itself is the
+              // group credential: anyone who obtains it can read messages sent
+              // after they join. Group messages on the wire no longer expose the
+              // key to the relay, but a shared link still admits its holder.
               senderKeyPackage: selectedGroup.groupSenderKey
             };
 

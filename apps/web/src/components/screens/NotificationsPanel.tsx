@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable */
 import type {
   WhisperNotification,
   WhisperNotificationKind

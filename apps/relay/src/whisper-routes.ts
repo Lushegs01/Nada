@@ -101,7 +101,7 @@ export async function registerWhisperRoutes(
   const notify = async (notification: WhisperNotificationInput): Promise<void> => {
     const created = await repository.addNotification(notification);
     if (!created) return;
-    void (app as any).sendPushNotification?.(
+    void app.sendPushNotification?.(
       notification.recipientPubkeyHash,
       JSON.stringify({
         title: "Whispers",
