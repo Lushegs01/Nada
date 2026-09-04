@@ -10,7 +10,6 @@ import {
   type DeliveryStatus,
   type GroupMessageEnvelope,
   type MessageEnvelope,
-  type ProductionEnvelope,
   type PubkeyHash,
   type ReactionEnvelope,
   type TypingEnvelope
@@ -42,7 +41,6 @@ interface SocketState {
   deliveries: Record<string, ReliableDeliveryStatus>;
   groupIncoming: GroupMessageEnvelope[];
   incoming: MessageEnvelope[];
-  sealedIncoming: ProductionEnvelope[];
   /** Map of chatId -> sender pubkeyHash for active typing indicators */
   typingIndicators: Record<string, string>;
   /** Incoming reactions from the relay [chatId:messageId:emoji:sender, ...] deduplicated via a set in useEffect */
@@ -122,7 +120,6 @@ export function trackDelivery(
 export type SocketBuffer =
   | "incoming"
   | "groupIncoming"
-  | "sealedIncoming"
   | "callSignals"
   | "incomingReactions"
   | "incomingDeletions";
@@ -170,7 +167,6 @@ export const useSocketStore = create<SocketState>((set, get) => {
     lastError: null,
     reconnectAttempt: 0,
     registeredIdentity: null,
-    sealedIncoming: [],
     shouldReconnect: false,
     socket: null,
     status: "idle",
@@ -334,13 +330,6 @@ export const useSocketStore = create<SocketState>((set, get) => {
             const envelope = result.data.envelope;
             set((state) => ({
               incomingDeletions: appendBounded(state.incomingDeletions, envelope)
-            }));
-            break;
-          }
-          case "sealed-message": {
-            const envelope = result.data.envelope;
-            set((state) => ({
-              sealedIncoming: appendBounded(state.sealedIncoming, envelope)
             }));
             break;
           }

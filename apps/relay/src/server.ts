@@ -5,7 +5,7 @@ import fastify, {
   type FastifyInstance,
   type FastifyServerOptions
 } from "fastify";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { WebSocket } from "ws";
 
 import {
@@ -14,7 +14,6 @@ import {
   type DeletionEnvelope,
   type GroupMessageEnvelope,
   type MessageEnvelope,
-  type ProductionEnvelope,
   type PubkeyHash,
   type ReactionEnvelope,
   type TypingEnvelope
@@ -534,11 +533,6 @@ async function handleSocketMessage(
     return;
   }
 
-  if ("version" in result.data) {
-    await routeProductionEnvelope(result.data, socket, sessions, queue, bus, app);
-    return;
-  }
-
   sendSocketError(socket, "invalid_envelope", "Invalid envelope.");
 }
 
@@ -795,43 +789,6 @@ async function routeDeletion(
     sessions,
     bus
   );
-}
-
-async function routeProductionEnvelope(
-  envelope: ProductionEnvelope,
-  senderSocket: ClientSocket,
-  sessions: SessionRegistry,
-  queue: RelayQueue,
-  bus: PresenceBus,
-  app: FastifyInstance
-): Promise<void> {
-  const serialized = JSON.stringify({ type: "sealed-message", envelope });
-  const delivered = await deliverToRecipient(
-    envelope.recipient,
-    serialized,
-    sessions,
-    bus
-  );
-
-  if (!delivered) {
-    await queue.enqueue(envelope.recipient, serialized);
-    trySend(
-      senderSocket,
-      JSON.stringify({
-        type: "delivery",
-        id: randomUUID(),
-        status: "queued"
-      })
-    );
-  }
-
-  queuePush(app, envelope.recipient, {
-    title: "New encrypted message",
-    body: "You received a private NADA message.",
-    chatId: envelope.recipient,
-    kind: "encrypted",
-    tag: `sealed:${envelope.recipient}`
-  });
 }
 
 /**

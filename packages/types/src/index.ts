@@ -152,13 +152,6 @@ export const CallSignalEnvelopeSchema = z.object({
   payload: z.string().min(1)
 });
 
-export const ProductionEnvelopeSchema = z.object({
-  version: z.literal(1),
-  recipient: PubkeyHashSchema,
-  sealedSenderEnvelope: z.string().min(1),
-  capabilityToken: z.string().min(1).optional()
-});
-
 export const RegisterEnvelopeSchema = z.object({
   type: z.literal("register"),
   pubkeyHash: PubkeyHashSchema,
@@ -225,7 +218,6 @@ export const ClientSocketEnvelopeSchema = z.union([
   TypingEnvelopeSchema,
   ReactionEnvelopeSchema,
   DeletionEnvelopeSchema,
-  ProductionEnvelopeSchema,
   z.object({
     type: z.literal("delivery"),
     id: UuidSchema,
@@ -263,10 +255,6 @@ export const ServerSocketEnvelopeSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("deletion"),
     envelope: DeletionEnvelopeSchema
-  }),
-  z.object({
-    type: z.literal("sealed-message"),
-    envelope: ProductionEnvelopeSchema
   }),
   z.object({
     type: z.literal("delivery"),
@@ -661,7 +649,6 @@ export type MessagePayload = z.infer<typeof MessagePayloadSchema>;
 export type MessageEnvelope = z.infer<typeof MessageEnvelopeSchema>;
 export type GroupMessageEnvelope = z.infer<typeof GroupMessageEnvelopeSchema>;
 export type CallSignalEnvelope = z.infer<typeof CallSignalEnvelopeSchema>;
-export type ProductionEnvelope = z.infer<typeof ProductionEnvelopeSchema>;
 export type RegisterEnvelope = z.infer<typeof RegisterEnvelopeSchema>;
 export type ChallengeEnvelope = z.infer<typeof ChallengeEnvelopeSchema>;
 export type TypingEnvelope = z.infer<typeof TypingEnvelopeSchema>;
