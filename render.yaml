@@ -5,7 +5,7 @@ services:
     # Free instances sleep after inactivity and cold-start on the next request,
     # which is not acceptable for a campus-scale deployment.
     plan: starter
-    buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter web build
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter web build
     startCommand: pnpm --filter web start
     envVars:
       - key: NEXT_PUBLIC_RELAY_URL
@@ -36,8 +36,15 @@ services:
     # connected to another. Raising this without REDIS_URL set would silently
     # break cross-instance delivery.
     numInstances: 2
+    # Deliberately the liveness probe, not /ready. Render restarts instances
+    # that fail this check, and /ready answers 503 whenever Postgres or Redis
+    # is unreachable — so pointing the platform at it would turn a transient
+    # dependency blip into a fleet-wide restart that drops every WebSocket.
+    # Point uptime monitoring and post-deploy verification at /ready instead:
+    # it is the endpoint that distinguishes "process is up" from "this instance
+    # can actually serve traffic".
     healthCheckPath: /health
-    buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter relay build
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter relay build
     startCommand: pnpm --filter relay start
     envVars:
       - key: ALLOWED_ORIGIN
@@ -68,6 +75,11 @@ services:
         value: "604800"
       - key: MEDIA_MAX_BYTES
         value: "26214400"
+      # Attachment retention. The relay refuses to serve an object past this
+      # age; set the bucket's lifecycle rule to the same window so the bytes
+      # are actually reclaimed rather than merely hidden.
+      - key: MEDIA_TTL_SECONDS
+        value: "2592000"
       # ── Media object storage (S3 or any S3-compatible provider, e.g. R2) ────
       # Required in production. Without a bucket the relay falls back to the
       # container filesystem, which is wiped on every deploy and is not shared

@@ -111,6 +111,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const incomingDeletions = useSocketStore((state) => state.incomingDeletions);
     const sendReaction = useSocketStore((state) => state.sendReaction);
     const setSocketGhostMode = useSocketStore((state) => state.setGhostMode);
+    const acknowledgeSocketBuffer = useSocketStore((state) => state.acknowledge);
     const processedReactions = useRef<Set<string>>(new Set());
     const processedDeletions = useRef<Set<string>>(new Set());
     const ghostMode = useDashboardStore((s) => s.ghostMode);
@@ -1100,6 +1101,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           body: ""
         });
       }
+      acknowledgeSocketBuffer("incomingDeletions", newDeletions.map((d) => d.id));
       if (!active) return;
       const messageRecords = selectedChatId ? await loadMessagesForChat(selectedChatId) : [];
       setMessages((current) =>
@@ -1113,7 +1115,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     })();
 
     return () => { active = false; };
-    }, [incomingDeletions, selectedChatId]);
+    }, [acknowledgeSocketBuffer, incomingDeletions, selectedChatId]);
     useEffect(() => {
     const newReactions = incomingReactions.filter(
       (r) => !processedReactions.current.has(r.id)
@@ -1147,9 +1149,11 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           );
         }
       })
+    ).then(() =>
+      acknowledgeSocketBuffer("incomingReactions", newReactions.map((r) => r.id))
     );
     return () => { active = false; };
-    }, [incomingReactions]);
+    }, [acknowledgeSocketBuffer, incomingReactions]);
     useEffect(() => {
     if (contacts.length === 0 && chats.length === 0) return;
     let active = true;
@@ -1456,6 +1460,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
 
     let active = true;
     void persistIncomingMessages(identity, newEnvelopes).then(async () => {
+      acknowledgeSocketBuffer(
+        "incoming",
+        newEnvelopes.map((envelope) => envelope.id)
+      );
       newEnvelopes.forEach((envelope) => {
         processedIncoming.current.add(envelope.id);
         sendDelivery({
@@ -1513,7 +1521,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     });
     void loadStatuses();
     return () => { active = false; };
-    }, [identity, incoming, loadStatuses, selectedChatId, sendDelivery, showNotification]);
+    }, [acknowledgeSocketBuffer, identity, incoming, loadStatuses, selectedChatId, sendDelivery, showNotification]);
     useEffect(() => {
     const newGroupEnvelopes = groupIncoming.filter(
       (envelope) =>
