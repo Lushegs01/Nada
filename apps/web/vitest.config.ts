@@ -15,6 +15,11 @@ export default defineConfig({
     }
   },
   test: {
-    exclude: ["tests/onboarding.spec.ts", "node_modules/**"]
+    // Playwright owns `*.spec.ts` (its config matches exactly that), Vitest
+    // owns `*.test.ts`. Naming individual files here meant every new browser
+    // spec had to remember to add itself, and the one that forgot died on
+    // "Cannot redefine property: Symbol($$jest-matchers-object)" — two test
+    // runners' expect() in one process.
+    exclude: ["**/*.spec.ts", "node_modules/**"]
   }
 });

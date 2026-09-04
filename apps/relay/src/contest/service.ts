@@ -127,6 +127,22 @@ export class ContestService {
     this.enqueue({ kind: "engagement", input });
   }
 
+  /**
+   * The awaited form of `emit`, for callers that need the event scored before
+   * they continue — the reconciliation flow, and tests that assert on the
+   * resulting ledger. Product code should use `emit`: an awaited scoring pass
+   * on the request path is exactly what this design exists to avoid.
+   */
+  async ingest(input: EngagementInput): Promise<void> {
+    this.metrics.eventReceived();
+    await this.processEngagement(input);
+  }
+
+  /** Runs one sweeper pass now: lifecycle advance plus orphaned PENDING rows. */
+  async sweep(): Promise<void> {
+    await this.processSweep();
+  }
+
   /** Reverses points tied to content that was deleted or an action undone. */
   reverse(input: ReversalInput): void {
     this.enqueue({ kind: "reversal", input });

@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  ContestEventType,
-  ContestQualification,
-  ContestRiskBand,
-  ContestRiskType,
-  ContestRules,
-  ContestScoreCategory,
-  ContestStatus
+import {
+  ContestRulesSchema,
+  type ContestEventType,
+  type ContestQualification,
+  type ContestRiskBand,
+  type ContestRiskType,
+  type ContestRules,
+  type ContestScoreCategory,
+  type ContestStatus
 } from "@nada/types";
 
 import type { Queryable, RelayDb } from "../db";
@@ -496,7 +497,14 @@ export class ContestRepository {
     }));
   }
 
-  /** Appends the next immutable rules version and points the contest at it. */
+  /**
+   * Appends the next immutable rules version and points the contest at it.
+   *
+   * Validated here as well as at the route: reading rules back applies the
+   * schema's defaults on failure, so an out-of-range ruleset that reached the
+   * table would silently score under the *default* rules while the operator
+   * believed theirs were live. Refusing the write is the only honest outcome.
+   */
   async addRuleVersion(
     contestId: string,
     rules: ContestRules,
@@ -504,6 +512,7 @@ export class ContestRepository {
     note: string,
     tx: Queryable
   ): Promise<number> {
+    const validated = ContestRulesSchema.parse(rules);
     const next = await tx.query<{ version: number }>(
       `select coalesce(max(version), 0) + 1 as version
          from contest_rule_versions where contest_id = $1`,
@@ -513,7 +522,7 @@ export class ContestRepository {
     await tx.query(
       `insert into contest_rule_versions (contest_id, version, rules, note, created_by, created_at)
        values ($1, $2, $3::jsonb, $4, $5, now())`,
-      [contestId, version, JSON.stringify(rules), note, createdBy]
+      [contestId, version, JSON.stringify(validated), note, createdBy]
     );
     await tx.query(
       "update contests set rules_version = $2, updated_at = now() where id = $1",

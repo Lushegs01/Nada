@@ -255,10 +255,14 @@ export async function scoreEvent(args: {
       };
     }
 
-    const afterRisk = Math.floor(
-      capResult.points * assessment.eventMultiplier * riskMultiplier(rules, band)
-    );
-    const points = Math.max(0, afterRisk);
+    // Rounded, not floored. A 25% new-identity discount on a 2-point reaction
+    // floors to nothing, which reads to the earner as "that engagement never
+    // happened" rather than "that engagement counted less" — and the earner
+    // did nothing wrong. An exactly-zero multiplier still means zero: that is
+    // the HIGH_RISK hold, and it must not round its way back to a point.
+    const multiplier = assessment.eventMultiplier * riskMultiplier(rules, band);
+    const points =
+      multiplier === 0 ? 0 : Math.max(0, Math.round(capResult.points * multiplier));
 
     if (points === 0) {
       metrics.eventRejected(capResult.reason ?? "reduced_to_zero");

@@ -248,17 +248,28 @@ export async function registerContestAdminRoutes(
     }
   );
 
+  /**
+   * Registers one lifecycle transition.
+   *
+   * `proofAction` is what the caller signs and is deliberately the URL's own
+   * verb — the thing a client can see. `auditAction` is the name the change is
+   * recorded under. Deriving the first from the second (lower-casing
+   * "CONTEST_FROZEN") would silently require callers to know the audit
+   * vocabulary, which is not part of the API.
+   */
   const transitionRoute = (
-    path: string,
+    proofAction: string,
     to: Parameters<typeof transitionContest>[0]["to"],
-    action: string
+    auditAction: string
   ): void => {
-    app.post<{ Params: AdminParams }>(path, async (request, reply) => {
+    app.post<{ Params: AdminParams }>(
+      `/api/v1/contests/admin/:contestId/${proofAction}`,
+      async (request, reply) => {
       const parsed = ContestTransitionRequestSchema.safeParse(request.body);
       if (!parsed.success || parsed.data.contestId !== request.params.contestId) {
         return reply.code(400).send({ code: "invalid_request", message: "Invalid request." });
       }
-      const auth = authorize(parsed.data, action.toLowerCase(), parsed.data.contestId);
+      const auth = authorize(parsed.data, proofAction, parsed.data.contestId);
       if (!auth.ok) {
         return reply.code(401).send({ code: auth.code, message: auth.message });
       }
@@ -267,7 +278,7 @@ export async function registerContestAdminRoutes(
         contestId: parsed.data.contestId,
         to,
         actorPubkeyHash: auth.pubkeyHash,
-        action,
+        action: auditAction,
         reason: parsed.data.reason
       });
       service.invalidateContests();
@@ -279,17 +290,14 @@ export async function registerContestAdminRoutes(
         "Contest status changed"
       );
       return reply.send({ contest: result.contest });
-    });
+      }
+    );
   };
 
-  transitionRoute(
-    "/api/v1/contests/admin/:contestId/publish",
-    "REGISTRATION_OPEN",
-    "CONTEST_PUBLISHED"
-  );
-  transitionRoute("/api/v1/contests/admin/:contestId/activate", "ACTIVE", "CONTEST_ACTIVATED");
-  transitionRoute("/api/v1/contests/admin/:contestId/freeze", "FROZEN", "CONTEST_FROZEN");
-  transitionRoute("/api/v1/contests/admin/:contestId/cancel", "CANCELLED", "CONTEST_CANCELLED");
+  transitionRoute("publish", "REGISTRATION_OPEN", "CONTEST_PUBLISHED");
+  transitionRoute("activate", "ACTIVE", "CONTEST_ACTIVATED");
+  transitionRoute("freeze", "FROZEN", "CONTEST_FROZEN");
+  transitionRoute("cancel", "CANCELLED", "CONTEST_CANCELLED");
 
   /**
    * Reconciliation: replay the window, then run the aggregate fraud sweep, then
@@ -449,12 +457,12 @@ export async function registerContestAdminRoutes(
   app.post<{ Params: AdminParams }>(
     "/api/v1/contests/admin/:contestId/participant",
     async (request, reply) => {
+      // The review schema minus the fields that describe a mutation: reading a
+      // participant's file is not a review action.
       const parsed = ContestParticipantReviewRequestSchema.omit({
         action: true,
         reason: true
-      })
-        .extend({})
-        .safeParse(request.body);
+      }).safeParse(request.body);
       if (!parsed.success || parsed.data.contestId !== request.params.contestId) {
         return reply.code(400).send({ code: "invalid_request", message: "Invalid request." });
       }
