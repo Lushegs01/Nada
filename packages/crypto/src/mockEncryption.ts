@@ -3,13 +3,18 @@ import { getSodium } from "./sodiumReady";
 export const SECURITY_STUB_WARNING =
   "⚠️ MVP_ONLY — replace before production";
 
-// ⚠️ MVP_ONLY — these functions are NOT encryption. They base64-encode the
-// plaintext and round-trip it. They exist because the production crypto
-// (Signal sender keys / MLS) is not yet wired through every call site.
+// ⚠️ These functions are NOT encryption. They base64-encode the plaintext and
+// round-trip it.
+//
+// Nothing in the application encrypts with them any more — direct messages go
+// through `directMessage.ts` and group/status payloads through
+// `groupSenderKey.ts`. They survive for one reason: decoding history and
+// messages from peers still on an older client, which would otherwise render
+// as garbage.
 //
 // Exports are prefixed with `__UNSAFE_` so every call site has to spell out
-// what it's doing, and a one-time warning fires in production so misuse
-// shows up in server/observability logs immediately.
+// what it's doing, and a one-time warning fires in production so a new *write*
+// path using them shows up in logs immediately.
 
 const warnOnceInProduction = ((): (() => void) => {
   let fired = false;
@@ -43,11 +48,3 @@ export async function __UNSAFE_mockDecryptMessage(ciphertext: string): Promise<s
   const bytes = sodium.from_base64(ciphertext, sodium.base64_variants.ORIGINAL);
   return sodium.to_string(bytes);
 }
-
-// Deprecated aliases kept temporarily so this rename can land without
-// touching every NadaApp.tsx call site in the same PR. New code MUST use the
-// `__UNSAFE_*` names. These aliases will be removed once Signal/MLS lands.
-/** @deprecated Use __UNSAFE_mockEncryptMessage. Not real encryption. */
-export const mockEncryptMessage = __UNSAFE_mockEncryptMessage;
-/** @deprecated Use __UNSAFE_mockDecryptMessage. Not real encryption. */
-export const mockDecryptMessage = __UNSAFE_mockDecryptMessage;
