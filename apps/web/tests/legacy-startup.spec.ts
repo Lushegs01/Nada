@@ -20,12 +20,20 @@ test.skip(
  * a returning user's phone actually holds.
  */
 
+/**
+ * Fixture key material, written to be obviously fake.
+ *
+ * Realistic base64 blobs here are indistinguishable from a real leaked key —
+ * to a secret scanner and to a person skimming the diff — and startup never
+ * parses these values, it only stores and reads them back. So they say what
+ * they are instead of looking like the thing they are standing in for.
+ */
 const LEGACY_IDENTITY = {
   id: "primary",
-  pubkey: "bGVnYWN5LXB1YmxpYy1rZXktZm9yLXRlc3RpbmctMDAwMDAwMDA=",
+  pubkey: "fixture-public-key-not-a-real-key",
   pubkeyHash: "c".repeat(64),
   encryptedPrivateKey: JSON.stringify({ version: 1, nonce: "n", salt: "s", ciphertext: "c" }),
-  localPrivateKey: "bGVnYWN5LXByaXZhdGUta2V5LWZvci10ZXN0aW5nLTAwMDAwMDAwMDAwMDAwMDA=",
+  localPrivateKey: "fixture-private-key-not-a-real-key",
   seedBackupStatus: "confirmed",
   createdAt: 1_700_000_000_000
 };
@@ -96,14 +104,14 @@ async function seedLegacyDatabase(page: Page): Promise<void> {
         tx.objectStore("identity").put(identity);
         tx.objectStore("groupKeys").put({
           groupId: "group-legacy",
-          senderKey: "bGVnYWN5LWdyb3VwLXNlbmRlci1rZXk=",
+          senderKey: "fixture-group-sender-key-not-a-real-key",
           createdByPubkeyHash: identity.pubkeyHash,
           createdAt: 1_700_000_000_001
         });
         tx.objectStore("contacts").put({
           id: "contact-legacy",
           pubkeyHash: "d".repeat(64),
-          publicKey: "cGVlci1wdWJsaWMta2V5LTAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+          publicKey: "fixture-peer-public-key-not-a-real-key",
           localDisplayName: "Quiet Fox",
           addedAt: 1_700_000_000_002,
           trustStatus: "trusted"
@@ -213,7 +221,7 @@ test("the upgrade keeps the returning user's data", async ({ page }) => {
     {
       groupId: "group-legacy",
       epoch: 1,
-      senderKey: "bGVnYWN5LWdyb3VwLXNlbmRlci1rZXk=",
+      senderKey: "fixture-group-sender-key-not-a-real-key",
       createdByPubkeyHash: "c".repeat(64),
       createdAt: 1_700_000_000_001
     }
@@ -243,14 +251,18 @@ test("a fresh profile still reaches onboarding", async ({ page }) => {
   });
 });
 
-test("the service worker takes control rather than pinning an old shell", async ({
+test("the service worker cannot pin a user to an old application shell", async ({
   page
 }) => {
-  await page.goto("/");
-  const controlled = await page.evaluate(async () => {
-    if (!("serviceWorker" in navigator)) return "unsupported";
-    const registration = await navigator.serviceWorker.ready.catch(() => null);
-    return registration ? "ready" : "none";
-  });
-  expect(["ready", "unsupported"]).toContain(controlled);
+  // Asserted against the served worker rather than against registration
+  // timing: `navigator.serviceWorker.ready` never settles until activation, so
+  // waiting on it makes the test hang under load rather than fail. What
+  // matters is the policy — a new build must take over immediately instead of
+  // waiting for every tab holding the old one to close.
+  const response = await page.request.get("/sw.js");
+  expect(response.status()).toBe(200);
+  const worker = await response.text();
+
+  expect(worker).toMatch(/skipWaiting/);
+  expect(worker).toMatch(/clients\.claim|clientsClaim/);
 });
