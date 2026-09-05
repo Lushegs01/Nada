@@ -72,7 +72,8 @@ class NadaDexie extends Dexie {
   chats!: Table<ChatRecord, string>;
   chatPrefs!: Table<ChatPrefRecord, string>;
   encryptedFiles!: Table<EncryptedFileRecord, string>;
-  groupKeys!: Table<GroupKeyRecord, string>;
+  /** Keyed by `[groupId, epoch]` — the primary key is compound, not a string. */
+  groupKeys!: Table<GroupKeyRecord, [string, number]>;
   messages!: Table<MessageRecord, string>;
   prekeys!: Table<PrekeyRecord, string>;
   settings!: Table<SettingRecord, string>;
@@ -107,18 +108,35 @@ class NadaDexie extends Dexie {
     });
     // Group keys become per-epoch. A group holds every epoch it has been given
     // so rotating a key revokes future messages without losing history.
+    //
+    // ⚠ Do not change this declaration. Changing a primary key is not something
+    // IndexedDB supports, and this version already shipped: devices that
+    // installed NADA afterwards hold `groupKeys` keyed `[groupId+epoch]`, and
+    // Dexie compares the *installed* structure against the declared schema at
+    // the installed version. Declaring anything else here makes those devices
+    // fail to open — the same way devices predating this version once did.
+    //
+    // Databases created before this version are converted beneath Dexie, by
+    // `repairLegacyGroupKeys` in local-database.ts, which runs before the first
+    // open. See that file for why the conversion cannot live in an upgrade
+    // callback.
     this.version(8)
       .stores({
         groupKeys: "[groupId+epoch], groupId, createdByPubkeyHash, createdAt"
       })
       .upgrade(async (tx) => {
-        // Existing rows were keyed by groupId alone and predate epochs; they
-        // are epoch 1 by definition.
+        // Rows are normally already epoch-stamped by the time this runs, since
+        // the pre-Dexie repair has converted them. This remains as a belt for
+        // any row that reached the store without an epoch: a compound key
+        // cannot be formed from `undefined`, so such a row would be unreadable.
         const table = tx.table<GroupKeyRecord>("groupKeys");
         const existing = await table.toArray();
-        await table.clear();
+        const missingEpoch = existing.filter(
+          (record) => typeof record.epoch !== "number"
+        );
+        if (missingEpoch.length === 0) return;
         await table.bulkPut(
-          existing.map((record) => ({ ...record, epoch: record.epoch ?? 1 }))
+          missingEpoch.map((record) => ({ ...record, epoch: record.epoch ?? 1 }))
         );
       });
     this.version(9).stores({

@@ -321,3 +321,17 @@ participants on identical scores.
 Manual verification: Confirm prize decisions are read from
 `contest_participants.final_rank` (set by `finalizeStandings`) and never from a
 displayed leaderboard position.
+
+## Dexie Primary Keys
+
+Risk: IndexedDB cannot change the primary key of an existing object store, and
+Dexie refuses with "Not yet support for changing primary key". Declaring a new
+primary key for a store that already exists locks out every device that has it —
+which a fresh browser profile can never reproduce.
+What breaks if wrong: Returning users are permanently unable to open the app;
+new installs are unaffected, so the failure is invisible in normal testing.
+Manual verification: Any change to `apps/web/src/lib/db.ts` that alters a
+`stores({...})` primary key must be tested against a seeded pre-existing
+database, not only a fresh one. `apps/web/tests/local-database.test.ts` and
+`legacy-startup.spec.ts` both start from an existing database for this reason.
+See `docs/local-database.md`.
