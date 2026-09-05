@@ -102,6 +102,15 @@ TEST_REDIS_URL=redis://localhost:6379 \
 pnpm test
 ```
 
+## Local data and migrations
+
+NADA is local-first: everything lives in one IndexedDB database, and a schema
+migration that an existing device cannot apply locks that device out of the
+product entirely. Changes to `apps/web/src/lib/db.ts` must be tested against a
+seeded pre-existing database — a fresh browser profile cannot reproduce the
+failures that matter. See `docs/local-database.md` for the startup path, the
+migration audit, and the recovery flow.
+
 ## Engagement contests
 
 NADA runs recurring engagement contests with real prize money. The engine is
