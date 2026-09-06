@@ -4,7 +4,7 @@ import type { ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
 import type { CommunityRecord, WhisperEcho, WhisperNotification, SafetyReport, NotificationSettings, GlobalSearchResult, ReportTarget, PendingChatAction } from "@/utils/dashboard-types";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/utils/dashboard-types";
 
-type Panel = "settings" | "contacts" | "billing" | "share" | "migration" | "group" | "safetyReport" | "community_create" | "status_create" | null;
+type Panel = "settings" | "contacts" | "billing" | "share" | "migration" | "group" | "safetyReport" | "community_create" | "status_create" | "blocked" | null;
 
 interface DashboardState {
   chatPref: import("@/lib/db").ChatPrefRecord;

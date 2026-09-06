@@ -22,14 +22,15 @@ import type { MessageEnvelope, ReplyToMessage, GroupMessageEnvelope, PollData, M
 import { cn, IdentityOrb } from "@nada/ui";
 import Dexie from "dexie";
 import { motion, AnimatePresence } from "framer-motion";
-import { Ghost, Bell, X } from "lucide-react";
+import { Ghost, Bell, ChevronRight, CircleDashed, Plus, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { IncomingCallModal, VoiceCallOverlay, VideoCallOverlay } from "../CallOverlay";
 import { GlobalSearchResults } from "../chat/ChatPanel";
 const ChatPanel = dynamic(() => import("../chat/ChatPanel").then(m => m.ChatPanel), { ssr: false });
 import { GroupCallOverlay } from "../GroupCallOverlay";
-import { DesktopNavRail, MobileChatsHome, ArchivedRow, EmptyChatListState, ChatListItem } from "../NadaMobileUI";
+import { AccountMenu } from "../AccountMenu";
+import { DesktopNavRail, MobileChatsHome, ArchivedRow, EmptyChatListState, ChatListItem, ChatFilterBar } from "../NadaMobileUI";
 const BillingSheet = dynamic(() => import("../panels/BillingSheet").then(m => m.BillingSheet), { ssr: false });
 const ContactSheet = dynamic(() => import("../panels/ContactSheets").then(m => m.ContactSheet), { ssr: false });
 const MigrationSheet = dynamic(() => import("../panels/ContactSheets").then(m => m.MigrationSheet), { ssr: false });
@@ -38,21 +39,23 @@ const GroupSheet = dynamic(() => import("../panels/ContactSheets").then(m => m.G
 import { ConfirmChatActionDialog } from "../panels/Dialogs";
 const SafetyReportSheet = dynamic(() => import("../panels/SafetyReportSheet").then(m => m.SafetyReportSheet), { ssr: false });
 import { SettingsDashboardPreview } from "../panels/SettingsSheet";
+const BlockedGhostsSheet = dynamic(() => import("../panels/SettingsSheet").then(m => m.BlockedGhostsSheet), { ssr: false });
 const SettingsSheet = dynamic(() => import("../panels/SettingsSheet").then(m => m.SettingsSheet), { ssr: false });
 import { LaunchOnboardingSheet } from "../panels/Sheet";
 import { parseVoiceNoteBody } from "../VoiceNote";
-import { GroupsHome } from "./CommunitiesHome";
 import { WhispersFeed, type WhisperThreadMeta } from "./WhispersFeed";
 import { ContestScreen } from "../contest/ContestScreen";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { ProfilePage } from "./ProfilePage";
 import { StatusView, StatusCreateSheet, StatusViewerSheet } from "./StatusView";
+import { CHAT_FILTERS, isSecondaryTab, primaryTabFor, type ChatFilterId } from "@/lib/navigation";
 import { type NotificationSettings, type GlobalSearchResult, type ReportTarget, type WhisperEcho, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type GroupDeletePayload } from "@/utils/dashboard-types";
 
 // Store actions are stable for the life of the store, so they are bound once
 // here rather than subscribed to per render. See dashboardActions.
 const setChatPrefState = dashboardActions.setChatPref;
 const {
+  setActiveFilter,
   setActiveTab,
   setAllStatuses,
   setBlurShieldActive,
@@ -643,7 +646,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       window.removeEventListener("focus", syncAll);
     };
     }, [syncWhispersFromRelay, syncWhisperNotifications]);
-    const [activeFilter] = useState("all");
+    // The filter used to be a local frozen at "all" that shadowed the store's
+    // own activeFilter, so the filtering branches below could never fire. It is
+    // the store's now, and Chats renders the pills that drive it.
+    const activeFilter = useDashboardStore((s) => s.activeFilter);
     const activeTab = useDashboardStore((s) => s.activeTab);
     const [lastMessages, setLastMessages] = useState<Record<string, { body: string; ts: number }>>({});
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -3111,6 +3117,24 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             );
             showToast(block ? "Ghost blocked." : "Ghost unblocked.");
           }, [identity.pubkeyHash, showToast]);
+    /**
+     * Everyone this device has blocked, gathered from the per-chat preference
+     * records that blocking already writes to. Settings needed a way to show
+     * and undo blocks without a second store: this reads the same rows the
+     * profile screen and the chat menu write, so the two can never disagree.
+     */
+    const [blockedGhosts, setBlockedGhosts] = useState<string[]>([]);
+    const refreshBlockedGhosts = useCallback(async (): Promise<void> => {
+            const prefs = await nadaDb.chatPrefs.toArray();
+            const hashes = new Set<string>();
+            for (const pref of prefs) {
+              for (const hash of pref.blockedPubkeyHashes) hashes.add(hash);
+            }
+            setBlockedGhosts(Array.from(hashes));
+          }, []);
+    useEffect(() => {
+    void refreshBlockedGhosts();
+    }, [refreshBlockedGhosts, profileBlocked]);
     const reportGhost = useCallback((profile: WhisperProfile): void => {
             setPendingReportTarget({
               id: profile.pubkeyHash,
@@ -4006,6 +4030,66 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     useEffect(() => {
     void registerPushNotifications();
     }, [registerPushNotifications]);
+
+    // ── Navigation ─────────────────────────────────────────────────────────
+    // One handler for both navigators. The rail and the mobile orb used to
+    // carry a copy each, so a change to one silently diverged from the other.
+    const navigateToTab = useCallback((tab: string): void => {
+            // Settings is the hub for YOUR account, so a Profile opened from it
+            // is always your own — never whichever ghost you last looked at.
+            if (tab === "profile" || tab === "settings") setProfileTarget(null);
+            setActiveTab(tab);
+            setPanel(null);
+            setShowGhostModal(false);
+            setShowMoodModal(false);
+          }, []);
+    /** True while Profile is showing the user's own identity rather than a ghost's. */
+    const viewingOwnProfile =
+            !profileTarget || profileTarget.hash === identity.pubkeyHash;
+    /**
+     * Secondary screens return to the section that owns them: Status to Chats,
+     * a ghost's profile to Whispers, your own to Settings, Alerts to wherever
+     * the bell was pressed from — Chats, as the app's home.
+     */
+    const backFromSecondary = isSecondaryTab(activeTab)
+            ? () => {
+                const parent = primaryTabFor(activeTab, { ownProfile: viewingOwnProfile });
+                setProfileTarget(null);
+                setActiveTab(parent ?? "chats");
+              }
+            : undefined;
+    const chatFilterCounts = useMemo(() => {
+            const live = sidebarChatItems.filter((item) => !item.isArchived);
+            return {
+              all: 0,
+              direct: 0,
+              groups: 0,
+              unread: live.filter((item) => item.unread > 0).length
+            };
+          }, [sidebarChatItems]);
+    /**
+     * The one conversation list. Groups are not a separate section — they are
+     * a kind of chat, so they live here behind a filter like any other slice.
+     */
+    const visibleChatItems = useMemo(
+            () =>
+              sidebarChatItems.filter((item) => {
+                if (item.isArchived !== showArchivedChats) return false;
+                if (activeFilter === "groups" && !item.isGroup) return false;
+                if (activeFilter === "direct" && item.isGroup) return false;
+                if (activeFilter === "unread" && item.unread === 0) return false;
+                return matchesSearch(
+                  `${item.title} ${item.chatId} ${item.contactHash ?? ""}`,
+                  searchQuery
+                );
+              }),
+            [activeFilter, searchQuery, showArchivedChats, sidebarChatItems]
+          );
+    const statusAuthorCount = useMemo(
+            () => new Set(visibleStatuses.map((status) => status.senderPubkeyHash)).size,
+            [visibleStatuses]
+          );
+
     return (
     <div className="nada-app-frame flex h-dvh w-full items-center justify-center overflow-hidden pl-safe-area pr-safe-area">
       <section
@@ -4013,15 +4097,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       >
         <DesktopNavRail
           activeTab={activeTab}
-          alertCount={whisperUnreadCount}
-          onTabChange={(tab) => {
-            // The nav's Profile entry is always the hub for YOUR identity.
-            if (tab === "profile") setProfileTarget(null);
-            setActiveTab(tab);
-            setPanel(null);
-            setShowGhostModal(false);
-            setShowMoodModal(false);
-          }}
+          onTabChange={navigateToTab}
+          ownProfile={viewingOwnProfile}
           unreadCount={unreadCount}
           onNewChat={() => setPanel("contacts")}
         />
@@ -4032,21 +4109,39 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           )}
         >
         <MobileChatsHome
+          accountControl={
+            <AccountMenu
+              displayName={displayName}
+              onOpenProfile={() => navigateToTab("profile")}
+              onOpenSettings={() => navigateToTab("settings")}
+              selfSeed={identity.pubkeyHash}
+              subtitle={`${identity.pubkeyHash.slice(0, 14)}…`}
+            />
+          }
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           unreadTotal={unreadCount}
           alertCount={whisperUnreadCount}
           onComposeClick={() => setPanel("contacts")}
+          onOpenAlerts={() => navigateToTab("alerts")}
+          onBack={backFromSecondary}
           selfSeed={identity.pubkeyHash}
           ghost={ghostMode}
           activeTab={activeTab}
-          onTabChange={(tab) => {
-            if (tab === "profile") setProfileTarget(null);
-            setActiveTab(tab);
-            setPanel(null);
-            setShowGhostModal(false);
-            setShowMoodModal(false);
-          }}
+          onTabChange={navigateToTab}
+          ownProfile={viewingOwnProfile}
+          // Search finds conversations; the screens without a list do not use it.
+          showSearch={activeTab === "chats"}
+          secondaryNav={
+            activeTab === "chats" ? (
+              <ChatFilterBar
+                activeFilter={activeFilter}
+                counts={chatFilterCounts}
+                filters={CHAT_FILTERS}
+                onFilterChange={(filter) => setActiveFilter(filter as ChatFilterId)}
+              />
+            ) : null
+          }
           syncStatus={
             relayStatus === "connected"
               ? "connected"
@@ -4065,20 +4160,6 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               statuses={visibleStatuses}
               onPostStatus={() => setPanel("status_create")}
               onViewStatus={(hash) => setSelectedStatusSenderHash(hash)}
-            />
-          ) : activeTab === "groups" ? (
-            <GroupsHome
-              chats={chats}
-              contacts={contacts}
-              groupItems={sidebarChatItems.filter((item) => item.isGroup && !item.isArchived)}
-              onCreateGroup={() => setPanel("group")}
-              onSelectGroup={(groupId) => {
-                const chat = chats.find((group) => group.id === groupId);
-                setSelectedContactHash(null);
-                setSelectedGroupId(groupId);
-                setDisappearingTimer(chat?.disappearingTimer ?? 0);
-                setMessageSearchQuery("");
-              }}
             />
           ) : activeTab === "whispers" ? (
             <WhispersFeed
@@ -4127,14 +4208,9 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               isBlocked={profileBlocked}
               key={(profileTarget ?? { hash: identity.pubkeyHash }).hash}
               localEchoes={whispers}
-              onBack={
-                profileTarget && profileTarget.hash !== identity.pubkeyHash
-                  ? () => {
-                      setProfileTarget(null);
-                      setActiveTab("whispers");
-                    }
-                  : undefined
-              }
+              // Back lives in the app header for every secondary screen, so the
+              // profile no longer carries a second one that only appeared for
+              // other ghosts — and your own profile gains a way back too.
               onMessage={(profile) => void messageGhost(profile)}
               onOpenEcho={openEchoFromProfile}
               onOpenProfile={openWhisperProfile}
@@ -4146,16 +4222,37 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             />
           ) : activeTab === "settings" ? (
             <SettingsDashboardPreview
+              blockedCount={blockedGhosts.length}
+              blurShieldActive={blurShieldActive}
               displayName={displayName}
               ghostMode={ghostMode}
               identity={identity}
               mood={mood}
+              notificationSummary={
+                notificationSettings.previewPrivacy === "private"
+                  ? "Previews hidden"
+                  : "Previews shown"
+              }
               onOpenBilling={() => setPanel("billing")}
+              onOpenBlocked={() => setPanel("blocked")}
               onOpenGhostModal={() => setShowGhostModal(true)}
               onOpenMigration={() => setPanel("migration")}
               onOpenMoodModal={() => setShowMoodModal(true)}
+              onOpenProfile={() => navigateToTab("profile")}
               onOpenSettings={() => setPanel("settings")}
               onOpenShare={() => setPanel("share")}
+              onToggleBlurShield={() => {
+                setBlurShieldActive((current) => {
+                  const next = !current;
+                  showToast(
+                    next
+                      ? "Privacy shield enabled. Tap messages to reveal."
+                      : "Privacy shield disabled."
+                  );
+                  return next;
+                });
+                setBlurShieldRevealed(false);
+              }}
             />
           ) : (
           <div className="flex flex-col">
@@ -4179,22 +4276,56 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 Archived chats
               </div>
             ) : null}
-            
+
+            {/* Status lost its nav slot but not its home: it is something you
+                share with the people you talk to, so it opens from Chats. */}
+            {!showArchivedChats && activeFilter !== "groups" ? (
+              <button
+                className="nada-section-row"
+                onClick={() => navigateToTab("status")}
+                type="button"
+              >
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-nada-accent/12 text-nada-accent">
+                  <CircleDashed size={19} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14.5px] font-bold text-nada-primary">Status</span>
+                  <span className="block truncate text-[12.5px] text-nada-text-muted">
+                    {statusAuthorCount > 0
+                      ? `${statusAuthorCount} ${statusAuthorCount === 1 ? "ghost has" : "ghosts have"} something up`
+                      : "Post a vanishing thought"}
+                  </span>
+                </span>
+                <ChevronRight className="shrink-0 text-nada-secondary/35" size={17} />
+              </button>
+            ) : null}
+
+            {/* Creating a group belongs with the groups you already have. */}
+            {activeFilter === "groups" && !showArchivedChats ? (
+              <button
+                className="nada-section-row"
+                onClick={() => setPanel("group")}
+                type="button"
+              >
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-nada-accent/12 text-nada-accent">
+                  <Plus size={19} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14.5px] font-bold text-nada-primary">
+                    New group
+                  </span>
+                  <span className="block truncate text-[12.5px] text-nada-text-muted">
+                    Invite-only, no names or numbers
+                  </span>
+                </span>
+              </button>
+            ) : null}
+
             {contacts.length === 0 && chats.length === 0 ? (
               <EmptyChatListState onAdd={() => setPanel("contacts")} />
             ) : (
               <div className="flex flex-col">
-                {sidebarChatItems
-                  .filter((item) => {
-                    if (item.isArchived !== showArchivedChats) return false;
-                    if (activeTab === "whispers" && !item.isGroup) return false;
-                    if (activeFilter === "groups" && !item.isGroup) return false;
-                    if (activeFilter === "unread" && item.unread === 0) return false;
-                    return matchesSearch(
-                      `${item.title} ${item.chatId} ${item.contactHash ?? ""}`,
-                      searchQuery
-                    );
-                  })
+                {visibleChatItems
                   .map((item) => {
                     const groupRecord = item.groupId
                       ? chats.find((group) => group.id === item.groupId)
@@ -4253,9 +4384,17 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                       />
                     );
                   })}
-                {sidebarChatItems.filter((item) => item.isArchived === showArchivedChats).length === 0 ? (
+                {visibleChatItems.length === 0 ? (
                   <div className="px-6 py-12 text-center text-sm text-nada-secondary/50">
-                    {showArchivedChats ? "No archived chats." : "No chats here yet."}
+                    {showArchivedChats
+                      ? "No archived chats."
+                      : activeFilter === "groups"
+                        ? "No groups yet — start one above."
+                        : activeFilter === "direct"
+                          ? "No direct chats yet."
+                          : activeFilter === "unread"
+                            ? "Nothing unread."
+                            : "No chats here yet."}
                   </div>
                 ) : null}
               </div>
@@ -4456,6 +4595,17 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               setSelectedContactHash(contact.pubkeyHash);
               setMessageSearchQuery("");
               setPanel(null);
+            }}
+          />
+        ) : null}
+        {panel === "blocked" ? (
+          <BlockedGhostsSheet
+            blockedHashes={blockedGhosts}
+            onClose={() => {
+              setPanel(null);
+            }}
+            onUnblock={(hash) => {
+              void toggleBlockGhost(hash, false).then(refreshBlockedGhosts);
             }}
           />
         ) : null}
