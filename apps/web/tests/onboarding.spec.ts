@@ -78,3 +78,53 @@ test("the seed phrase gate cannot be skipped", async ({ page }) => {
   // between a user and that, so it must actually gate.
   await expect(page.getByRole("button", { name: "Enter NADA" })).toBeDisabled();
 });
+
+test("the seed phrase screen scrolls on a short viewport", async ({ page }) => {
+  // The bug this covers made the app unusable on smaller iPhones: html, body
+  // and the app shell are all `overflow: hidden` so the chat UI can own the
+  // viewport, and the seed phrase screen inherited that with content taller
+  // than the screen. "Enter NADA" sat below the fold with no way to reach it.
+  await page.setViewportSize({ height: 600, width: 390 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Enter as a ghost" }).click();
+  await expect(
+    page.locator("text=Write these 12 words down in order")
+  ).toBeVisible({ timeout: 20_000 });
+
+  const enter = page.getByRole("button", { name: "Enter NADA" });
+  await enter.scrollIntoViewIfNeeded();
+  await expect(enter).toBeInViewport();
+
+  // Scrolling has to move the page, not just satisfy an assertion: a container
+  // that cannot scroll reports a scrollTop of 0 no matter what is asked of it.
+  const scrolled = await page.evaluate(() => {
+    const scroller = document.querySelector(".nada-onboarding-scroll");
+    return scroller ? scroller.scrollTop > 0 : false;
+  });
+  expect(scrolled).toBe(true);
+});
+
+test("the seed phrase can be copied", async ({ page, context, browserName }) => {
+  // Losing the seed phrase means losing the identity for good, so copying it
+  // has to actually put the twelve words on the clipboard — in order.
+  test.skip(browserName !== "chromium", "Clipboard permissions are Chromium-only.");
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Enter as a ghost" }).click();
+  await expect(
+    page.locator("text=Write these 12 words down in order")
+  ).toBeVisible({ timeout: 20_000 });
+
+  const words = await page.locator(".nada-onboarding-page .grid > div").allInnerTexts();
+  const expected = words
+    .map((cell) => cell.replace(/^\s*\d+\s*/, "").trim())
+    .join(" ");
+
+  await page.getByRole("button", { name: "Copy seed phrase to clipboard" }).click();
+  await expect(page.getByRole("button", { name: /copied/i })).toBeVisible();
+
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard.split(" ")).toHaveLength(12);
+  expect(clipboard).toBe(expected);
+});

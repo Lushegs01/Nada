@@ -1,11 +1,12 @@
 "use client";
+import { copyText } from "@/lib/clipboard";
 import { primaryIdentityId, nadaDb } from "@/lib/db";
 import { generateRandomUsername } from "@/utils/helpers";
 import { createSeedPhrase, createAnonymousIdentity } from "@nada/crypto";
 import type { IdentityRecord } from "@nada/db";
 import { motion } from "framer-motion";
-import { Loader2 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { Check, Copy, Loader2 } from "lucide-react";
+import { useState, useMemo, useRef, useEffect } from "react";
 
 export function Onboarding({
       onComplete
@@ -17,7 +18,27 @@ export function Onboarding({
     const [isGenerating, setIsGenerating] = useState(false);
     const [saved, setSaved] = useState(false);
     const [seedPhrase, setSeedPhrase] = useState("");
+    const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+    const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const seedWords = useMemo(() => seedPhrase.split(" ").filter(Boolean), [seedPhrase]);
+    useEffect(
+      () => () => {
+        if (copyResetTimer.current !== null) {
+          clearTimeout(copyResetTimer.current);
+        }
+      },
+      []
+    );
+    const copySeedPhrase = async (): Promise<void> => {
+            const ok = await copyText(seedPhrase);
+            setCopyState(ok ? "copied" : "failed");
+            if (copyResetTimer.current !== null) {
+              clearTimeout(copyResetTimer.current);
+            }
+            copyResetTimer.current = setTimeout(() => {
+              setCopyState("idle");
+            }, 4000);
+          };
     const generateIdentity = async (): Promise<void> => {
             setIsGenerating(true);
             const phrase = createSeedPhrase();
@@ -52,7 +73,7 @@ export function Onboarding({
             onComplete(confirmed);
           };
     return (
-    <div className="relative min-h-dvh w-full overflow-hidden">
+    <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
       {/* Aurora backdrop — full-bleed so desktop shows no column seams */}
       <div className="pointer-events-none absolute inset-0 nada-hero-gradient" />
       <div
@@ -70,7 +91,13 @@ export function Onboarding({
         }}
       />
 
-    <section className="relative mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-6 py-12">
+    {/* The app shell locks html/body so the chat UI can own the viewport, which
+        leaves this screen with nowhere to scroll. On a short phone the seed
+        phrase alone is taller than the viewport and "Enter NADA" sits below
+        the fold, unreachable — so onboarding scrolls inside its own container.
+        The aurora stays outside it and does not scroll away. */}
+    <div className="nada-onboarding-scroll relative z-10">
+    <section className="nada-onboarding-page relative mx-auto flex w-full max-w-lg flex-col justify-center px-6">
       <div className="relative z-10">
         {/* Brand mark */}
         <motion.div
@@ -158,22 +185,69 @@ export function Onboarding({
 
               {/* Seed phrase grid */}
               <div className="rounded-3xl p-5 nada-surface-elevated">
-                <div className="grid grid-cols-3 gap-2">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-nada-secondary/55">
+                    12 words
+                  </p>
+                  <button
+                    aria-label={
+                      copyState === "copied"
+                        ? "Seed phrase copied to clipboard"
+                        : "Copy seed phrase to clipboard"
+                    }
+                    className="nada-seed-copy"
+                    onClick={() => { void copySeedPhrase(); }}
+                    type="button"
+                  >
+                    {copyState === "copied" ? (
+                      <Check aria-hidden="true" size={13} />
+                    ) : (
+                      <Copy aria-hidden="true" size={13} />
+                    )}
+                    {copyState === "copied" ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                {/* Two columns below 360px (iPhone SE and the like) — three
+                    would squeeze an 8-letter word past the edge of its cell. */}
+                <div className="grid grid-cols-2 gap-2 min-[360px]:grid-cols-3">
                   {seedWords.map((word, index) => (
                     <div
-                      className="flex items-center gap-1.5 rounded-xl border border-nada-border/[0.08] bg-nada-surface/70 px-2.5 py-2 text-[12.5px] font-medium text-nada-primary"
+                      className="flex items-center gap-1 rounded-xl border border-nada-border/[0.08] bg-nada-surface/70 px-2 py-2 text-[12.5px] font-medium text-nada-primary"
                       key={`${word}-${index}`}
                     >
-                      <span className="w-4 text-right font-mono text-[10px] font-semibold tabular-nums text-nada-accent/70">
+                      <span className="w-3.5 shrink-0 text-right font-mono text-[10px] font-semibold tabular-nums text-nada-accent/70">
                         {index + 1}
                       </span>
-                      <span className="truncate">{word}</span>
+                      {/* No truncation: a word shown as "convin…" cannot be
+                          written down, and the seed phrase is the whole point
+                          of this screen. The longest BIP39 word is 8 letters
+                          and fits these cells on a 320px-wide phone. */}
+                      <span>{word}</span>
                     </div>
                   ))}
                 </div>
                 <p className="mt-3 text-[11.5px] leading-relaxed text-nada-secondary/65">
                   Write these 12 words down in order, somewhere offline.
                 </p>
+                {/* The clipboard is readable by every other app on the device,
+                    so say so rather than letting a copy feel like a backup. */}
+                {copyState === "copied" ? (
+                  <p
+                    className="mt-2 text-[11.5px] leading-relaxed text-nada-accent/85"
+                    role="status"
+                  >
+                    Copied. Paste it somewhere safe now — the clipboard is
+                    shared with other apps.
+                  </p>
+                ) : null}
+                {copyState === "failed" ? (
+                  <p
+                    className="mt-2 text-[11.5px] leading-relaxed text-nada-danger"
+                    role="alert"
+                  >
+                    Couldn&apos;t reach the clipboard. Write the words down instead.
+                  </p>
+                ) : null}
               </div>
 
               <label className="flex cursor-pointer select-none items-center gap-3 rounded-2xl border border-nada-border/[0.08] bg-nada-surface/60 px-4 py-3 text-[13.5px] text-nada-primary/90 transition-colors hover:bg-nada-surface-elevated/55">
@@ -208,6 +282,7 @@ export function Onboarding({
         )}
       </div>
     </section>
+    </div>
     </div>
     );
 }
