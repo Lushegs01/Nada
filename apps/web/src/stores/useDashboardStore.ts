@@ -3,13 +3,16 @@ type Updater<T> = T | ((prev: T) => T);
 import type { ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
 import type { CommunityRecord, WhisperEcho, WhisperNotification, SafetyReport, NotificationSettings, GlobalSearchResult, ReportTarget, PendingChatAction } from "@/utils/dashboard-types";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/utils/dashboard-types";
+import { DEFAULT_APPEARANCE, type AppearanceSettings } from "@/lib/appearance";
 
-type Panel = "settings" | "contacts" | "billing" | "share" | "migration" | "group" | "safetyReport" | "community_create" | "status_create" | "blocked" | null;
+type Panel = "settings" | "contacts" | "billing" | "share" | "migration" | "group" | "safetyReport" | "community_create" | "status_create" | "blocked" | "erase" | null;
 
 interface DashboardState {
   chatPref: import("@/lib/db").ChatPrefRecord;
   setChatPref: (p: Updater<import("@/lib/db").ChatPrefRecord>) => void;
   // App State
+  appearance: AppearanceSettings;
+  setAppearance: (val: Updater<AppearanceSettings>) => void;
   ghostMode: boolean;
   setGhostMode: (val: Updater<boolean>) => void;
   mood: string;
@@ -105,6 +108,8 @@ interface DashboardState {
 }
 
 export const useDashboardStore = create<DashboardState>((set) => ({
+  appearance: DEFAULT_APPEARANCE,
+  setAppearance: (appearance) => set((state) => ({ appearance: typeof appearance === 'function' ? appearance(state.appearance) : appearance })),
   ghostMode: false,
   setGhostMode: (ghostMode) => set((state) => ({ ghostMode: typeof ghostMode === 'function' ? ghostMode(state.ghostMode) : ghostMode })),
   mood: "Available",
@@ -208,6 +213,8 @@ export const useDashboardStore = create<DashboardState>((set) => ({
  * dependency rule run for real, where it can catch actual stale closures.
  */
 export const dashboardActions = {
+  setAppearance: ((value: Parameters<DashboardState["setAppearance"]>[0]) =>
+    useDashboardStore.getState().setAppearance(value)) as DashboardState["setAppearance"],
   setActiveFilter: ((value: Parameters<DashboardState["setActiveFilter"]>[0]) =>
     useDashboardStore.getState().setActiveFilter(value)) as DashboardState["setActiveFilter"],
   setActiveTab: ((value: Parameters<DashboardState["setActiveTab"]>[0]) =>

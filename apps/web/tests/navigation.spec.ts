@@ -34,6 +34,18 @@ async function enterApp(page: Page): Promise<void> {
   }
 }
 
+/** Opens Settings from whichever navigator this viewport shows. */
+async function openSettings(page: Page): Promise<void> {
+  const rail = page.locator("nav[aria-label='Primary']");
+  if (await rail.isVisible()) {
+    await rail.getByRole("button", { name: "Settings", exact: true }).click();
+  } else {
+    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
+  }
+  await expect(page.locator(".nada-settings-dashboard")).toBeVisible();
+}
+
 test("the navigators carry only the primary destinations", async ({ page }) => {
   await enterApp(page);
 
@@ -120,13 +132,7 @@ test("groups and status live inside Chats", async ({ page }) => {
 test("Settings is the account centre", async ({ page }) => {
   await enterApp(page);
 
-  const rail = page.locator("nav[aria-label='Primary']");
-  if (await rail.isVisible()) {
-    await rail.getByRole("button", { name: "Settings", exact: true }).click();
-  } else {
-    await page.getByRole("button", { name: "Open navigation" }).click();
-    await page.getByRole("button", { name: "Settings" }).click();
-  }
+  await openSettings(page);
 
   const sections = page.locator(".nada-settings-dashboard section > p");
   await expect(sections).toHaveText([
@@ -163,4 +169,99 @@ test("mobile navigation fits the viewport", async ({ page }) => {
       .filter((height) => height > 0 && height < 32)
   );
   expect(undersized).toEqual([]);
+});
+
+test("appearance offers real variants and remembers the choice", async ({ page }) => {
+  await enterApp(page);
+  await openSettings(page);
+
+  // Three palettes that already existed as token sets in the design system,
+  // finally reachable. The light one is the reason this matters.
+  const themes = page.getByRole("radio");
+  await expect(themes).toHaveCount(3);
+
+  await page.getByRole("radio", { name: "Paper" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "paper");
+
+  const light = await page.evaluate(() => ({
+    scheme: document.documentElement.style.colorScheme,
+    // The browser's own chrome has to follow the page, or a light NADA sits
+    // under a dark status bar in the installed PWA.
+    themeColor: document
+      .querySelector('meta[name="theme-color"]')
+      ?.getAttribute("content"),
+    background: getComputedStyle(document.body).backgroundColor
+  }));
+  expect(light.scheme).toBe("light");
+  expect(light.themeColor).toBe("#F5F2EC");
+  expect(light.background).toBe("rgb(245, 242, 236)");
+
+  // The choice must be on the document before the first paint, not after the
+  // bundle runs — otherwise every load flashes the wrong palette.
+  await page.reload({ waitUntil: "commit" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "paper");
+
+  await page.goto("/");
+  await openSettings(page);
+  await page.getByRole("radio", { name: "Midnight" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "midnight");
+});
+
+test("motion can be calmed without touching the OS setting", async ({ page }) => {
+  await enterApp(page);
+  await openSettings(page);
+
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "full");
+  await page.getByRole("button", { name: /Reduce motion/ }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
+  await expect(page.getByRole("button", { name: /Reduce motion/ })).toBeVisible();
+
+  await page.reload({ waitUntil: "commit" });
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
+});
+
+test("erasing an identity is gated, then complete", async ({ page }) => {
+  await enterApp(page);
+  await openSettings(page);
+
+  await page.getByRole("button", { name: /Erase this identity/ }).click();
+  const confirm = page.getByRole("button", { name: "Erase identity" });
+
+  // Nothing this destructive may go through on a single stray tap.
+  await expect(confirm).toBeDisabled();
+  await page.getByPlaceholder("ERASE").fill("delete");
+  await expect(confirm).toBeDisabled();
+  await page.getByPlaceholder("ERASE").fill("ERASE");
+  await expect(confirm).toBeEnabled();
+
+  await confirm.click();
+
+  // A wipe has to leave nothing behind: back to onboarding, no identity row.
+  await expect(
+    page.getByRole("button", { name: "Enter as a ghost" })
+  ).toBeVisible({ timeout: 30_000 });
+  const identityRows = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const request = indexedDB.open("nada-local");
+        request.onsuccess = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains("identity")) {
+            resolve(0);
+            db.close();
+            return;
+          }
+          const count = db
+            .transaction("identity", "readonly")
+            .objectStore("identity")
+            .count();
+          count.onsuccess = () => {
+            resolve(count.result);
+            db.close();
+          };
+        };
+        request.onerror = () => resolve(-1);
+      })
+  );
+  expect(identityRows).toBe(0);
 });

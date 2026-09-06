@@ -665,10 +665,9 @@ export const MobileHeader = ({
             <NadaLogoMark size={40} />
           </div>
         )}
-        <span className={cn(
-          "truncate text-[24px] font-extrabold tracking-[-0.02em]",
-          title === "NADA" ? "text-white" : "text-n-tx1"
-        )}>
+        {/* Token, not a literal white: the brand title has to stay legible on
+            the light theme's cream as well as on midnight. */}
+        <span className="truncate text-[24px] font-extrabold tracking-[-0.02em] text-n-tx1">
           {title}
         </span>
         {ghost && <span className="n-ghost-badge n-ghost-reveal">Ghost Mode</span>}
@@ -771,7 +770,20 @@ export const MobileChatsHome = ({
   headerProps: {
     activeTab?: string;
   };
-}) => (
+}) => {
+  /*
+   * Every section renders into this one scroller, so without a reset the
+   * offset from the last section carries into the next one: opening Chats
+   * after scrolling Settings left the list already scrolled, hiding its first
+   * row behind the filter bar. A section change is a navigation, and
+   * navigations start at the top.
+   */
+  const sectionScroller = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    sectionScroller.current?.scrollTo({ top: 0 });
+  }, [activeTab]);
+
+  return (
   <div className="relative flex h-full flex-col overflow-x-hidden overflow-y-hidden nada-chat-bg">
     <MobileHeader
       activeTab={headerProps.activeTab ?? activeTab}
@@ -786,7 +798,11 @@ export const MobileChatsHome = ({
     {syncStatus && <SyncIndicator status={syncStatus} />}
     {secondaryNav}
 
-    <div className="flex-1 overflow-y-auto overflow-x-hidden pb-[104px]" style={{ overscrollBehavior: "contain" }}>
+    <div
+      className="flex-1 overflow-y-auto overflow-x-hidden pb-[104px]"
+      ref={sectionScroller}
+      style={{ overscrollBehavior: "contain" }}
+    >
       {children}
     </div>
 
@@ -798,7 +814,8 @@ export const MobileChatsHome = ({
       {...(selfSeed ? { selfSeed } : {})}
     />
   </div>
-);
+  );
+};
 
 /* ─────────────────────────────────────────────────────────────
    ChatFilterBar — All / Direct / Groups / Unread

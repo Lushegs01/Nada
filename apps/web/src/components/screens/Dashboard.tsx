@@ -40,6 +40,7 @@ import { ConfirmChatActionDialog } from "../panels/Dialogs";
 const SafetyReportSheet = dynamic(() => import("../panels/SafetyReportSheet").then(m => m.SafetyReportSheet), { ssr: false });
 import { SettingsDashboardPreview } from "../panels/SettingsSheet";
 const BlockedGhostsSheet = dynamic(() => import("../panels/SettingsSheet").then(m => m.BlockedGhostsSheet), { ssr: false });
+const EraseIdentitySheet = dynamic(() => import("../panels/SettingsSheet").then(m => m.EraseIdentitySheet), { ssr: false });
 const SettingsSheet = dynamic(() => import("../panels/SettingsSheet").then(m => m.SettingsSheet), { ssr: false });
 import { LaunchOnboardingSheet } from "../panels/Sheet";
 import { parseVoiceNoteBody } from "../VoiceNote";
@@ -48,6 +49,13 @@ import { ContestScreen } from "../contest/ContestScreen";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { ProfilePage } from "./ProfilePage";
 import { StatusView, StatusCreateSheet, StatusViewerSheet } from "./StatusView";
+import {
+  applyAppearance,
+  readAppearance,
+  writeAppearance,
+  type AppearanceSettings
+} from "@/lib/appearance";
+import { deleteLocalDatabase } from "@/lib/local-database";
 import { CHAT_FILTERS, isSecondaryTab, primaryTabFor, type ChatFilterId } from "@/lib/navigation";
 import { type NotificationSettings, type GlobalSearchResult, type ReportTarget, type WhisperEcho, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type GroupDeletePayload } from "@/utils/dashboard-types";
 
@@ -57,6 +65,7 @@ const setChatPrefState = dashboardActions.setChatPref;
 const {
   setActiveFilter,
   setActiveTab,
+  setAppearance,
   setAllStatuses,
   setBlurShieldActive,
   setBlurShieldRevealed,
@@ -4031,6 +4040,22 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     void registerPushNotifications();
     }, [registerPushNotifications]);
 
+    // ── Appearance ─────────────────────────────────────────────────────────
+    // The stored preference is already on the document — the root layout's
+    // bootstrap put it there before the first paint. This only mirrors it into
+    // React state so Settings can render the current choice.
+    const appearance = useDashboardStore((s) => s.appearance);
+    useEffect(() => {
+    const stored = readAppearance();
+    setAppearance(stored);
+    applyAppearance(stored);
+    }, []);
+    const changeAppearance = useCallback((next: AppearanceSettings): void => {
+            setAppearance(next);
+            applyAppearance(next);
+            writeAppearance(next);
+          }, []);
+
     // ── Navigation ─────────────────────────────────────────────────────────
     // One handler for both navigators. The rail and the mobile orb used to
     // carry a copy each, so a change to one silently diverged from the other.
@@ -4043,6 +4068,26 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             setShowGhostModal(false);
             setShowMoodModal(false);
           }, []);
+    /**
+     * Erasing the identity.
+     *
+     * NADA has no session to sign out of, so leaving a device means destroying
+     * the keypair and everything stored beside it. This reuses the same
+     * `deleteLocalDatabase` the recovery screen offers rather than inventing a
+     * second teardown path, then reloads so startup runs from nothing and
+     * lands on onboarding.
+     */
+    const [erasing, setErasing] = useState(false);
+    const eraseIdentity = useCallback(async (): Promise<void> => {
+            setErasing(true);
+            const deleted = await deleteLocalDatabase();
+            if (!deleted) {
+              setErasing(false);
+              showToast("Couldn't erase local data. Close other NADA tabs and try again.");
+              return;
+            }
+            window.location.reload();
+          }, [showToast]);
     /** True while Profile is showing the user's own identity rather than a ghost's. */
     const viewingOwnProfile =
             !profileTarget || profileTarget.hash === identity.pubkeyHash;
@@ -4222,6 +4267,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             />
           ) : activeTab === "settings" ? (
             <SettingsDashboardPreview
+              appearance={appearance}
               blockedCount={blockedGhosts.length}
               blurShieldActive={blurShieldActive}
               displayName={displayName}
@@ -4241,6 +4287,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               onOpenProfile={() => navigateToTab("profile")}
               onOpenSettings={() => setPanel("settings")}
               onOpenShare={() => setPanel("share")}
+              onAppearanceChange={changeAppearance}
+              onEraseIdentity={() => setPanel("erase")}
               onToggleBlurShield={() => {
                 setBlurShieldActive((current) => {
                   const next = !current;
@@ -4595,6 +4643,17 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               setSelectedContactHash(contact.pubkeyHash);
               setMessageSearchQuery("");
               setPanel(null);
+            }}
+          />
+        ) : null}
+        {panel === "erase" ? (
+          <EraseIdentitySheet
+            erasing={erasing}
+            onClose={() => {
+              if (!erasing) setPanel(null);
+            }}
+            onConfirm={() => {
+              void eraseIdentity();
             }}
           />
         ) : null}

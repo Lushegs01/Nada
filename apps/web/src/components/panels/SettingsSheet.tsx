@@ -1,8 +1,13 @@
 import { type NotificationSettings, type NotificationTone, NOTIFICATION_SOUND_CHOICES, NOTIFICATION_RINGTONE_CHOICES } from "@/utils/dashboard-types";
 import { notificationToneLabel, notificationRingtoneLabel } from "@/utils/helpers";
+import {
+  THEMES,
+  themeOption,
+  type AppearanceSettings
+} from "@/lib/appearance";
 import type { IdentityRecord } from "@nada/db";
 import { IconButton, IdentityOrb, cn } from "@nada/ui";
-import { X, Edit3, Ghost, Flame, Bell, EyeOff, Eye, MessageCircle, Download, Trash2, ShieldAlert, Upload, QrCode, WifiOff, CreditCard, ChevronDown, Share2, Settings, FileText, CircleUserRound, KeyRound, Image as ImageIcon } from "lucide-react";
+import { X, Edit3, Ghost, Flame, Bell, EyeOff, Eye, MessageCircle, Download, Trash2, ShieldAlert, Upload, QrCode, WifiOff, CreditCard, ChevronDown, Share2, Settings, FileText, CircleUserRound, KeyRound, Moon, Sparkles, Image as ImageIcon } from "lucide-react";
 import { Sheet } from "./Sheet";
 import { useState, type ReactNode } from "react";
 
@@ -466,6 +471,7 @@ export function SettingsSheetSection({
 }
 
 export function SettingsDashboardPreview({
+      appearance,
       blockedCount,
       blurShieldActive,
       displayName,
@@ -481,8 +487,11 @@ export function SettingsDashboardPreview({
       onOpenProfile,
       onOpenSettings,
       onOpenShare,
+      onAppearanceChange,
+      onEraseIdentity,
       onToggleBlurShield
     }: {
+          appearance: AppearanceSettings;
           blockedCount: number;
           blurShieldActive: boolean;
           displayName: string;
@@ -498,6 +507,8 @@ export function SettingsDashboardPreview({
           onOpenProfile: () => void;
           onOpenSettings: () => void;
           onOpenShare: () => void;
+          onAppearanceChange: (settings: AppearanceSettings) => void;
+          onEraseIdentity: () => void;
           onToggleBlurShield: () => void;
         }): JSX.Element {
     /*
@@ -589,7 +600,7 @@ export function SettingsDashboardPreview({
           icon={<Flame size={17} />}
           label="Mood Status"
           value={mood}
-          description="Visible only inside your anonymous profile."
+          description="Shown on your profile."
           onClick={onOpenMoodModal}
         />
       </SettingsPreviewSection>
@@ -597,32 +608,53 @@ export function SettingsDashboardPreview({
       <SettingsPreviewSection title="Notifications">
         <SettingsPreviewButton
           icon={<Bell size={17} />}
-          label="Notification preferences"
+          label="Alerts & sounds"
           value={notificationSummary}
-          description="Tones, previews, ringtones."
+          description="Tones and previews."
           onClick={onOpenSettings}
         />
       </SettingsPreviewSection>
 
       <SettingsPreviewSection title="Appearance">
-        <div className="nada-settings-card flex w-full min-w-0 items-center gap-3">
-          <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-2xl">
-            <img src="/logo.webp" alt="" className="h-full w-full object-cover" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[14px] font-bold text-nada-primary">
-              Obsidian Gold
-            </span>
-            <span className="block truncate text-[12px] text-nada-text-muted">
-              NADA ships one theme, tuned for dark rooms.
-            </span>
-          </span>
-          <span className="flex shrink-0 gap-1.5" aria-hidden>
-            <span className="h-4 w-4 rounded-full" style={{ background: "rgb(var(--nada-bg))", border: "1px solid rgb(var(--nada-border) / 0.1)" }} />
-            <span className="h-4 w-4 rounded-full" style={{ background: "rgb(var(--nada-accent))" }} />
-            <span className="h-4 w-4 rounded-full" style={{ background: "rgb(var(--nada-gold-dark))" }} />
-          </span>
+        <div
+          aria-label="Theme"
+          className="nada-theme-grid"
+          role="radiogroup"
+        >
+          {THEMES.map((option) => (
+            <button
+              aria-checked={appearance.theme === option.id}
+              className="nada-theme-card"
+              key={option.id}
+              onClick={() => { onAppearanceChange({ ...appearance, theme: option.id }); }}
+              role="radio"
+              title={option.description}
+              type="button"
+            >
+              <span aria-hidden className="nada-theme-swatch">
+                {option.swatch.map((colour) => (
+                  <span key={colour} style={{ background: colour }} />
+                ))}
+              </span>
+              <span className="nada-theme-name">{option.label}</span>
+            </button>
+          ))}
         </div>
+        <p className="px-1 text-[12px] leading-relaxed text-nada-text-muted">
+          {themeOption(appearance.theme).description}
+        </p>
+        <SettingsPreviewButton
+          icon={appearance.motion === "reduced" ? <Moon size={17} /> : <Sparkles size={17} />}
+          label="Reduce motion"
+          value={appearance.motion === "reduced" ? "On" : "Off"}
+          description="Stops glows, drifts and pulses."
+          onClick={() => {
+            onAppearanceChange({
+              ...appearance,
+              motion: appearance.motion === "reduced" ? "full" : "reduced"
+            });
+          }}
+        />
       </SettingsPreviewSection>
 
       <SettingsPreviewSection title="Security">
@@ -630,14 +662,14 @@ export function SettingsDashboardPreview({
           icon={<KeyRound size={17} />}
           label="Seed backup"
           value={identity.seedBackupStatus === "confirmed" ? "Backed up" : "Pending"}
-          description="The 12 words that restore you."
+          description="Your recovery phrase."
           onClick={onOpenSettings}
         />
         <SettingsPreviewButton
           icon={<WifiOff size={17} />}
           label="Active sessions"
           value="This device"
-          description="Keys never leave this device."
+          description="Keys stay on this device."
           onClick={onOpenSettings}
         />
         <SettingsPreviewButton
@@ -654,6 +686,23 @@ export function SettingsDashboardPreview({
           description="Storage, about, everything."
           onClick={onOpenSettings}
         />
+        <button
+          className="nada-settings-card nada-settings-card-danger flex w-full min-w-0 items-center gap-3 text-left"
+          onClick={onEraseIdentity}
+          type="button"
+        >
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-nada-danger/12 text-nada-danger">
+            <Trash2 size={17} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[14px] font-bold text-nada-danger">
+              Erase this identity
+            </span>
+            <span className="block truncate text-[12px] text-nada-text-muted">
+              Wipes this device. Seed phrase only.
+            </span>
+          </span>
+        </button>
       </SettingsPreviewSection>
 
       <div className="rounded-2xl border border-nada-accent/15 bg-nada-accent/[0.08] p-4 text-[12.5px] leading-relaxed text-nada-secondary/78">
@@ -726,6 +775,101 @@ export function BlockedGhostsSheet({
           ))}
         </ul>
       )}
+    </Sheet>
+    );
+}
+
+/**
+ * Erasing the identity this device holds.
+ *
+ * NADA has no sign-out because there is no session to end — the identity is a
+ * keypair in local storage. Leaving a device therefore means destroying that
+ * keypair, and with it every message, contact and group stored beside it. The
+ * only route back is the 12-word seed phrase, so this says that plainly and
+ * asks for a typed confirmation rather than a button anyone can brush past.
+ */
+export function EraseIdentitySheet({
+      erasing,
+      onClose,
+      onConfirm
+    }: {
+          erasing: boolean;
+          onClose: () => void;
+          onConfirm: () => void;
+        }): JSX.Element {
+    const [typed, setTyped] = useState("");
+    const confirmed = typed.trim().toUpperCase() === "ERASE";
+
+    return (
+    <Sheet onClose={onClose}>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-nada-danger" style={{ letterSpacing: "-0.3px" }}>
+          Erase this identity
+        </h2>
+        <IconButton label="Close" onClick={onClose}>
+          <X size={18} />
+        </IconButton>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-nada-danger/25 bg-nada-danger/[0.08] p-4">
+        <div className="mb-2 flex items-center gap-2 text-[13px] font-bold text-nada-danger">
+          <ShieldAlert size={15} />
+          This cannot be undone from here
+        </div>
+        <p className="text-[13px] leading-relaxed text-nada-secondary/[.78]">
+          Your keys, messages, contacts and groups are deleted from this device.
+          Only your 12-word seed phrase can restore this identity — without it
+          nothing here is recoverable, by you or by anyone else.
+        </p>
+      </div>
+
+      <ul className="mt-4 grid gap-1.5 text-[12.5px] text-nada-text-muted">
+        {[
+          "Message history on this device is gone for good.",
+          "Contacts and group keys are gone; groups you own lose their key.",
+          "Your seed phrase restores the identity, not the history."
+        ].map((line) => (
+          <li className="flex gap-2" key={line}>
+            <span aria-hidden className="text-nada-danger">•</span>
+            {line}
+          </li>
+        ))}
+      </ul>
+
+      <label className="mt-5 block">
+        <span className="mb-2 block text-[12px] font-semibold text-nada-secondary/[.72]">
+          Type ERASE to confirm
+        </span>
+        <input
+          autoCapitalize="characters"
+          autoComplete="off"
+          className="nada-input-dark h-12 w-full text-[15px]"
+          disabled={erasing}
+          onChange={(event) => { setTyped(event.target.value); }}
+          placeholder="ERASE"
+          spellCheck={false}
+          value={typed}
+        />
+      </label>
+
+      <div className="mt-5 flex gap-2">
+        <button
+          className="h-12 flex-1 rounded-2xl border border-nada-border/12 bg-nada-surface-elevated/60 text-[14px] font-bold text-nada-primary transition hover:bg-nada-surface-elevated"
+          disabled={erasing}
+          onClick={onClose}
+          type="button"
+        >
+          Cancel
+        </button>
+        <button
+          className="h-12 flex-1 rounded-2xl bg-nada-danger text-[14px] font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!confirmed || erasing}
+          onClick={onConfirm}
+          type="button"
+        >
+          {erasing ? "Erasing…" : "Erase identity"}
+        </button>
+      </div>
     </Sheet>
     );
 }
