@@ -381,6 +381,66 @@ body > * {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ── First-run onboarding — the app shell's one full-page scroller ──
+   html, body and .nada-shell are all locked so the chat UI can own the
+   viewport and scroll its own lists. Onboarding is the exception: its content
+   is taller than a short phone's viewport, so it scrolls inside this container
+   instead. Without it the "Enter NADA" button sits below the fold with no way
+   to reach it, and the app cannot be entered at all. */
+.nada-onboarding-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* `flex: 1 0 auto` rather than `min-height: 100%`: the page fills the scroller
+   and stays vertically centred while it fits, and keeps its natural height —
+   overflowing into a scroll — once it does not. No percentage height to
+   resolve against a flex-sized parent, which is where iOS Safari trips.
+   The safe-area insets keep the CTA clear of the home indicator. */
+.nada-onboarding-page {
+  flex: 1 0 auto;
+  padding-top: calc(3rem + var(--sai-top));
+  padding-bottom: calc(3rem + var(--sai-bottom));
+}
+
+/* ── Copy-the-seed-phrase affordance ── */
+.nada-seed-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: var(--n-r-pill);
+  border: 1px solid rgb(var(--n-edge) / 0.10);
+  background: rgb(var(--n-s3) / 0.80);
+  color: rgb(var(--n-tx2));
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.004em;
+  cursor: pointer;
+  transition: transform var(--dur-instant) ease, background var(--dur-fast) ease,
+    color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+.nada-seed-copy:hover {
+  background: rgb(var(--n-s3));
+  color: rgb(var(--n-tx1));
+}
+.nada-seed-copy:active {
+  transform: scale(0.96);
+}
+.nada-seed-copy:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--n-focus-ring);
+}
+
 @keyframes n-breathe {
   0%, 100% { transform: scale(1); opacity: 0.9; }
   50%      { transform: scale(1.14); opacity: 1; }
