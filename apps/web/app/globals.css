@@ -191,6 +191,24 @@ code, kbd, pre, samp, .font-mono {
 
   --nada-text-faint: 178 168 160;
   --nada-overlay: 26 24 20;
+
+  /* The accent and semantic hues above are tuned for a near-black ground and
+     drop to 1.4:1–4.0:1 against cream, which is unreadable for the small text
+     and icons they carry. These are the same hues taken darker until they
+     clear 4.5:1 on this theme's surfaces. The brand gradient is untouched — it
+     only ever appears as a fill behind white text, where it already passes. */
+  --n-accent:       88 66 214;   /* #5842D6 */
+  --n-accent-solid: 88 66 214;
+  --n-danger:  199 32 48;        /* #C72030 */
+  --n-success: 6 115 73;         /* #067349 */
+  --n-warning: 133 96 0;         /* #856000 */
+  --n-focus-ring: rgba(88, 66, 214, 0.55);
+
+  /* Bubbles need light grounds too, or sent messages stay near-black. */
+  --n-sent-bg: 237 232 255;
+  --n-sent-bd: rgba(88, 66, 214, 0.22);
+  --n-recv-bg: 232 228 222;
+  --n-recv-bd: rgba(26, 24, 20, 0.08);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -408,6 +426,127 @@ body > * {
   flex: 1 0 auto;
   padding-top: calc(3rem + var(--sai-top));
   padding-bottom: calc(3rem + var(--sai-bottom));
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   NAVIGATION — chat filters, account menu, section entry rows
+   The primary navigators carry three communication destinations plus Settings;
+   everything below is the secondary layer that absorbed what used to sit
+   alongside them (Groups, Status, Alerts, Profile).
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Chats: All / Direct / Groups / Unread ── */
+.nada-chat-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--n-r-pill);
+  border: 1px solid transparent;
+  background: rgb(var(--n-s2) / 0.55);
+  color: rgb(var(--n-tx2) / 0.82);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.004em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+.nada-chat-filter:hover {
+  background: rgb(var(--n-s3) / 0.75);
+  color: rgb(var(--n-tx1));
+}
+.nada-chat-filter:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--n-focus-ring);
+}
+.nada-chat-filter.active {
+  background: rgb(var(--n-accent-solid) / 0.16);
+  border-color: rgb(var(--n-accent-solid) / 0.34);
+  color: rgb(var(--n-tx1));
+}
+.nada-chat-filter-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--n-tx2) / 0.75);
+}
+.nada-chat-filter.active .nada-chat-filter-count {
+  color: rgb(var(--n-accent-solid));
+}
+
+/* ── Header avatar menu ── */
+.nada-account-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 80;
+  width: 236px;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgb(var(--n-edge) / 0.09);
+  background: rgb(var(--n-s2) / 0.97);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  box-shadow: var(--n-e2), 0 18px 44px rgba(0, 0, 0, 0.46);
+  transform-origin: top right;
+}
+.nada-account-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: rgb(var(--n-tx1));
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.nada-account-menu-item:hover {
+  background: rgb(var(--n-s3) / 0.85);
+}
+.nada-account-menu-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--n-focus-ring);
+}
+.nada-account-menu-item svg {
+  color: rgb(var(--n-accent-solid));
+}
+
+/* ── Entry row into a section that no longer holds a nav slot (Status) ── */
+.nada-section-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 20px;
+  border: none;
+  border-bottom: 1px solid rgb(var(--n-edge) / 0.05);
+  background: transparent;
+  color: rgb(var(--n-tx1));
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+.nada-section-row:hover {
+  background: rgb(var(--n-s2) / 0.45);
+}
+.nada-section-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--n-focus-ring);
 }
 
 /* ── Copy-the-seed-phrase affordance ── */
@@ -1109,6 +1248,18 @@ body > * {
   border-color: rgb(var(--n-accent-solid) / 0.18);
   transform: translateY(-1px);
 }
+/* Destructive rows read as destructive on hover, not as another accent action. */
+.nada-settings-card-danger {
+  border-color: rgb(var(--nada-danger) / 0.22);
+}
+.nada-settings-card-danger:hover {
+  border-color: rgb(var(--nada-danger) / 0.45);
+  background: rgb(var(--nada-danger) / 0.08);
+}
+.nada-settings-card-danger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(var(--nada-danger) / 0.55);
+}
 
 .nada-premium-card {
   background: linear-gradient(155deg, rgb(var(--n-s2) / 0.86), rgb(var(--n-s1) / 0.72));
@@ -1719,4 +1870,84 @@ body > * {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+}
+
+/* The same rules, chosen inside the app rather than by the operating system.
+   NADA glows and drifts a lot by design; someone can want it calmer here
+   without turning motion off everywhere else on their device. Ambient
+   animation stops, structure and state changes stay. */
+[data-motion="reduced"] .n-orb {
+  animation: none;
+  border-radius: 50%;
+}
+[data-motion="reduced"][data-theme="aurora"] body::before,
+[data-motion="reduced"] .nada-skeleton::after,
+[data-motion="reduced"] .nada-message,
+[data-motion="reduced"] .animate-aurora,
+[data-motion="reduced"] .animate-logo-glow,
+[data-motion="reduced"] .animate-glow-pulse,
+[data-motion="reduced"] .animate-breathe,
+[data-motion="reduced"] .nada-vanish-dot,
+[data-motion="reduced"] .nada-typing-dot,
+[data-motion="reduced"] .nada-voice-recorder-dot,
+[data-motion="reduced"] .n-ghost-badge::before {
+  animation: none;
+}
+[data-motion="reduced"] *,
+[data-motion="reduced"] *::before,
+[data-motion="reduced"] *::after {
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   APPEARANCE PICKER — theme swatches and the motion toggle
+   ═════════════════════════════════════════════════════════════════════════════ */
+.nada-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.nada-theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid rgb(var(--n-edge) / 0.08);
+  background: rgb(var(--n-s2) / 0.55);
+  color: rgb(var(--n-tx2));
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+.nada-theme-card:hover {
+  background: rgb(var(--n-s3) / 0.70);
+  border-color: rgb(var(--n-edge) / 0.16);
+}
+.nada-theme-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--n-focus-ring);
+}
+.nada-theme-card[aria-checked="true"] {
+  border-color: rgb(var(--n-accent-solid) / 0.55);
+  background: rgb(var(--n-accent-solid) / 0.10);
+  color: rgb(var(--n-tx1));
+}
+/* The swatch is the preview: base, surface, accent of the palette it names. */
+.nada-theme-swatch {
+  display: flex;
+  height: 34px;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid rgb(var(--n-edge) / 0.10);
+}
+.nada-theme-swatch span {
+  flex: 1;
+}
+.nada-theme-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: -0.004em;
 }

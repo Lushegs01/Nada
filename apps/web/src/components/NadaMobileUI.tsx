@@ -3,9 +3,6 @@
 import React from "react";
 import {
   Search,
-  MessageCircle,
-  Users,
-  Settings,
   Plus,
   Check,
   CheckCheck,
@@ -14,16 +11,21 @@ import {
   VolumeX,
   Pin,
   ChevronRight,
-  CircleDashed,
-  CircleUserRound,
+  ChevronLeft,
   Loader2,
-  Trophy,
-  Waves,
   Bell,
   X
 } from "lucide-react";
 import { cn, IdentityOrb } from "@nada/ui";
 import { AnimatePresence, motion } from "framer-motion";
+import {
+  ALL_NAV,
+  PRIMARY_NAV,
+  SETTINGS_NAV,
+  primaryTabFor,
+  tabBadge,
+  tabTitle
+} from "@/lib/navigation";
 
 /* Vantage spring presets */
 const SPRING = {
@@ -46,25 +48,6 @@ function useIsDesktop(): boolean {
     return () => mq.removeEventListener("change", update);
   }, []);
   return isDesktop;
-}
-
-/* Shared tab set — single source of truth for both navigators */
-const NAV_TABS = [
-  { id: "chats", label: "Chats", icon: MessageCircle },
-  { id: "status", label: "Status", icon: CircleDashed },
-  { id: "groups", label: "Groups", icon: Users },
-  { id: "whispers", label: "Whispers", icon: Waves },
-  { id: "contest", label: "Contest", icon: Trophy },
-  { id: "alerts", label: "Alerts", icon: Bell },
-  { id: "profile", label: "Profile", icon: CircleUserRound },
-  { id: "settings", label: "Settings", icon: Settings }
-] as const;
-
-/* Per-tab badge counts shared by both navigators. */
-function tabBadge(tabId: string, unreadCount: number, alertCount: number): number {
-  if (tabId === "chats") return unreadCount;
-  if (tabId === "alerts") return alertCount;
-  return 0;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -388,15 +371,19 @@ export const BottomNavigation = ({
   activeTab,
   onTabChange,
   unreadCount = 0,
-  alertCount = 0,
-  selfSeed = "nada-you"
+  selfSeed = "nada-you",
+  ownProfile = false
 }: {
   activeTab: string;
   onTabChange: (tab: string) => void;
   unreadCount?: number;
-  alertCount?: number;
   selfSeed?: string;
+  /** Whether the open Profile screen is the user's own — decides which entry lights up. */
+  ownProfile?: boolean;
 }) => {
+  // The orb is unchanged; it just fans out the four primary destinations now
+  // instead of eight, so the menu reads as a hierarchy rather than a feature list.
+  const activePrimary = primaryTabFor(activeTab, { ownProfile });
   const [open, setOpen] = React.useState(false);
 
   const select = (tab: string) => {
@@ -435,14 +422,15 @@ export const BottomNavigation = ({
                 closed: { transition: { staggerChildren: 0.03, staggerDirection: 1 } }
               }}
             >
-              {NAV_TABS.map((tab) => {
+              {ALL_NAV.map((tab) => {
                 const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
-                const badge = tabBadge(tab.id, unreadCount, alertCount);
+                const isActive = activePrimary === tab.id;
+                const badge = tabBadge(tab.id, unreadCount);
                 const showBadge = badge > 0;
                 return (
                   <motion.li
                     key={tab.id}
+                    className={cn(tab.id === SETTINGS_NAV.id && "mt-1.5 border-t border-n-edge/[0.08] pt-3")}
                     variants={{
                       open: { opacity: 1, y: 0, scale: 1 },
                       closed: { opacity: 0, y: 16, scale: 0.85 }
@@ -452,6 +440,7 @@ export const BottomNavigation = ({
                     <button
                       type="button"
                       onClick={() => select(tab.id)}
+                      aria-current={isActive ? "page" : undefined}
                       className={cn("n-orb-nav-item tap-highlight-none", isActive && "active")}
                     >
                       <span className="grid h-6 w-6 place-items-center">
@@ -526,17 +515,62 @@ export const DesktopNavRail = ({
   activeTab,
   onTabChange,
   unreadCount = 0,
-  alertCount = 0,
-  onNewChat
+  onNewChat,
+  ownProfile = false
 }: {
   activeTab: string;
   onTabChange: (tab: string) => void;
   unreadCount?: number;
-  alertCount?: number;
   onNewChat?: () => void;
+  /** Whether the open Profile screen is the user's own — decides which entry lights up. */
+  ownProfile?: boolean;
 }) => {
+  // Three communication destinations at the top, account management pinned to
+  // the bottom. Nothing else competes for the rail: notifications live on the
+  // header bell, profile under Settings, groups and status inside Chats.
+  const activePrimary = primaryTabFor(activeTab, { ownProfile });
+
+  const renderItem = (tab: (typeof ALL_NAV)[number]): JSX.Element => {
+    const Icon = tab.icon;
+    const isActive = activePrimary === tab.id;
+    const badge = tabBadge(tab.id, unreadCount);
+    return (
+      <button
+        key={tab.id}
+        type="button"
+        onClick={() => onTabChange(tab.id)}
+        title={`${tab.label} — ${tab.hint}`}
+        aria-label={tab.label}
+        aria-current={isActive ? "page" : undefined}
+        className={cn(
+          "group relative grid h-11 w-11 place-items-center rounded-xl transition-colors duration-150",
+          "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-n-accent",
+          isActive
+            ? "bg-n-s3/80 text-n-accent"
+            : "text-n-tx2/70 hover:bg-n-s2/55 hover:text-n-tx1"
+        )}
+      >
+        {isActive && (
+          <motion.span
+            layoutId="rail-active-indicator"
+            className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full"
+            style={{ background: "var(--n-accent-gradient-v)" }}
+            transition={SPRING.snappy}
+          />
+        )}
+        <Icon size={20} strokeWidth={isActive ? 2.4 : 1.9} />
+        {badge > 0 && (
+          <span className="nada-unread-badge absolute -right-0.5 -top-0.5 !h-4 !min-w-4 text-[9px]">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <nav
+      aria-label="Primary"
       className="hidden h-full w-[68px] shrink-0 flex-col items-center gap-1.5 border-r border-n-edge/[0.05] px-2 py-4 md:flex"
       style={{
         background: "linear-gradient(180deg, rgb(var(--n-s1) / 0.92), rgb(var(--n-base) / 0.96))"
@@ -553,42 +587,14 @@ export const DesktopNavRail = ({
       >
         <img src="/logo.webp" alt="NADA" className="h-full w-full object-cover" />
       </motion.button>
-      {NAV_TABS.map((tab) => {
-        const Icon = tab.icon;
-        const isActive = activeTab === tab.id;
-        const badge = tabBadge(tab.id, unreadCount, alertCount);
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => onTabChange(tab.id)}
-            title={tab.label}
-            aria-label={tab.label}
-            aria-current={isActive ? "page" : undefined}
-            className={cn(
-              "group relative grid h-11 w-11 place-items-center rounded-xl transition-colors duration-150",
-              isActive
-                ? "bg-n-s3/80 text-n-accent"
-                : "text-n-tx2/70 hover:bg-n-s2/55 hover:text-n-tx1"
-            )}
-          >
-            {isActive && (
-              <motion.span
-                layoutId="rail-active-indicator"
-                className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full"
-                style={{ background: "var(--n-accent-gradient-v)" }}
-                transition={SPRING.snappy}
-              />
-            )}
-            <Icon size={20} strokeWidth={isActive ? 2.4 : 1.9} />
-            {badge > 0 && (
-              <span className="nada-unread-badge absolute -right-0.5 -top-0.5 !h-4 !min-w-4 text-[9px]">
-                {badge > 99 ? "99+" : badge}
-              </span>
-            )}
-          </button>
-        );
-      })}
+
+      {PRIMARY_NAV.map(renderItem)}
+
+      {/* Settings is account management, not a fourth place to talk. */}
+      <div className="mt-auto flex flex-col items-center gap-1.5 pt-3">
+        <span aria-hidden className="mb-1 h-px w-7 bg-n-edge/[0.10]" />
+        {renderItem(SETTINGS_NAV)}
+      </div>
     </nav>
   );
 };
@@ -611,31 +617,31 @@ const NadaLogoMark = ({ size = 32 }: { size?: number }) => (
 /* ─────────────────────────────────────────────────────────────
    Mobile Header — frosted glass
    ───────────────────────────────────────────────────────────── */
-const TAB_TITLES: Record<string, string> = {
-  chats: "Messages",
-  status: "Status",
-  groups: "Groups",
-  whispers: "Whispers",
-  contest: "Contest",
-  alerts: "Alerts",
-  profile: "Profile",
-  settings: "Settings"
-};
-
 export const MobileHeader = ({
   activeTab = "chats",
   onComposeClick,
-  ghost = false
+  ghost = false,
+  alertCount = 0,
+  onOpenAlerts,
+  onBack,
+  accountControl
 }: {
   activeTab?: string;
   onComposeClick?: () => void;
   ghost?: boolean;
+  alertCount?: number;
+  onOpenAlerts?: () => void;
+  /** Present on secondary screens (Status, Alerts, a profile) — returns to their section. */
+  onBack?: (() => void) | undefined;
+  /** The avatar menu, injected so the header stays free of identity state. */
+  accountControl?: React.ReactNode;
 }) => {
-  const title = activeTab === "chats" ? "NADA" : TAB_TITLES[activeTab] ?? "NADA";
+  const title = tabTitle(activeTab);
+  const alertsOpen = activeTab === "alerts";
 
   return (
     <header
-      className="sticky top-0 z-header flex items-center justify-between gap-3 border-b border-n-edge/[0.04] pb-5 pt-[max(env(safe-area-inset-top),20px)]"
+      className="sticky top-0 z-header flex items-center justify-between gap-2 border-b border-n-edge/[0.04] pb-5 pt-[max(env(safe-area-inset-top),20px)]"
       style={{
         background: "var(--n-s-glass)",
         backdropFilter: "blur(28px) saturate(160%)",
@@ -644,34 +650,77 @@ export const MobileHeader = ({
         paddingRight: "max(env(safe-area-inset-right), 20px)"
       }}
     >
-      <div className="flex min-w-0 items-center gap-3.5">
-        <div className="md:hidden">
-          <NadaLogoMark size={40} />
-        </div>
-        <span className={cn(
-          "truncate text-[24px] font-extrabold tracking-[-0.02em]",
-          title === "NADA" ? "text-white" : "text-n-tx1"
-        )}>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        {onBack ? (
+          <button
+            aria-label="Back"
+            className="-ml-1.5 grid h-10 w-10 shrink-0 place-items-center rounded-full text-n-tx2 transition-colors hover:bg-n-s2/60 hover:text-n-tx1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-n-accent"
+            onClick={onBack}
+            type="button"
+          >
+            <ChevronLeft size={22} strokeWidth={2.2} />
+          </button>
+        ) : (
+          <div className="md:hidden">
+            <NadaLogoMark size={40} />
+          </div>
+        )}
+        {/* Token, not a literal white: the brand title has to stay legible on
+            the light theme's cream as well as on midnight. */}
+        <span className="truncate text-[24px] font-extrabold tracking-[-0.02em] text-n-tx1">
           {title}
         </span>
         {ghost && <span className="n-ghost-badge n-ghost-reveal">Ghost Mode</span>}
       </div>
 
-      <motion.button
-        onClick={onComposeClick}
-        whileTap={{ scale: 0.9 }}
-        whileHover={{ scale: 1.05 }}
-        transition={SPRING.snappy}
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-n-edge/[0.08] transition-all duration-150 hover:border-n-accent/45"
-        style={{
-          background: "linear-gradient(135deg, rgb(var(--n-s2) / 0.85), rgb(var(--n-s1) / 0.85))",
-          backdropFilter: "blur(12px)",
-          boxShadow: "0 4px 14px rgba(0,0,0,0.30)"
-        }}
-        aria-label="New conversation"
-      >
-        <Plus className="h-[19px] w-[19px] text-n-tx1/85" strokeWidth={2.4} />
-      </motion.button>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {/* Notifications are a global utility, so they ride the header on every
+            screen rather than holding a permanent slot in the navigators. */}
+        {onOpenAlerts ? (
+          <button
+            aria-label={
+              alertCount > 0
+                ? `Notifications, ${alertCount} unread`
+                : "Notifications"
+            }
+            aria-current={alertsOpen ? "page" : undefined}
+            className={cn(
+              "relative grid h-11 w-11 place-items-center rounded-full transition-colors duration-150",
+              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-n-accent",
+              alertsOpen
+                ? "bg-n-s3/80 text-n-accent"
+                : "text-n-tx2/85 hover:bg-n-s2/60 hover:text-n-tx1"
+            )}
+            onClick={onOpenAlerts}
+            type="button"
+          >
+            <Bell size={19} strokeWidth={alertsOpen ? 2.4 : 2} />
+            {alertCount > 0 && (
+              <span className="nada-unread-badge absolute right-1.5 top-1.5 !h-4 !min-w-4 text-[9px]">
+                {alertCount > 99 ? "99+" : alertCount}
+              </span>
+            )}
+          </button>
+        ) : null}
+
+        {accountControl}
+
+        <motion.button
+          onClick={onComposeClick}
+          whileTap={{ scale: 0.9 }}
+          whileHover={{ scale: 1.05 }}
+          transition={SPRING.snappy}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-n-edge/[0.08] transition-all duration-150 hover:border-n-accent/45 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-n-accent"
+          style={{
+            background: "linear-gradient(135deg, rgb(var(--n-s2) / 0.85), rgb(var(--n-s1) / 0.85))",
+            backdropFilter: "blur(12px)",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.30)"
+          }}
+          aria-label="New conversation"
+        >
+          <Plus className="h-[19px] w-[19px] text-n-tx1/85" strokeWidth={2.4} />
+        </motion.button>
+      </div>
     </header>
   );
 };
@@ -686,12 +735,18 @@ export const MobileChatsHome = ({
   unreadTotal,
   alertCount = 0,
   onComposeClick,
+  onOpenAlerts,
+  onBack,
+  accountControl,
   activeTab,
   onTabChange,
   headerProps,
   syncStatus,
   selfSeed,
-  ghost
+  ghost,
+  ownProfile = false,
+  showSearch = true,
+  secondaryNav
 }: {
   children: React.ReactNode;
   searchQuery: string;
@@ -699,35 +754,109 @@ export const MobileChatsHome = ({
   unreadTotal: number;
   alertCount?: number;
   onComposeClick: () => void;
+  onOpenAlerts?: () => void;
+  onBack?: (() => void) | undefined;
+  accountControl?: React.ReactNode;
   activeTab: string;
   onTabChange: (tab: string) => void;
   syncStatus?: "connected" | "syncing" | "offline";
   selfSeed?: string;
   ghost?: boolean;
+  ownProfile?: boolean;
+  /** Search is for finding conversations; screens without a list hide it. */
+  showSearch?: boolean;
+  /** Section-level controls, e.g. the All / Direct / Groups filters in Chats. */
+  secondaryNav?: React.ReactNode;
   headerProps: {
     activeTab?: string;
   };
-}) => (
+}) => {
+  /*
+   * Every section renders into this one scroller, so without a reset the
+   * offset from the last section carries into the next one: opening Chats
+   * after scrolling Settings left the list already scrolled, hiding its first
+   * row behind the filter bar. A section change is a navigation, and
+   * navigations start at the top.
+   */
+  const sectionScroller = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    sectionScroller.current?.scrollTo({ top: 0 });
+  }, [activeTab]);
+
+  return (
   <div className="relative flex h-full flex-col overflow-x-hidden overflow-y-hidden nada-chat-bg">
     <MobileHeader
       activeTab={headerProps.activeTab ?? activeTab}
+      alertCount={alertCount}
       onComposeClick={onComposeClick}
+      onBack={onBack}
       ghost={ghost ?? false}
+      {...(onOpenAlerts ? { onOpenAlerts } : {})}
+      {...(accountControl ? { accountControl } : {})}
     />
-    <SearchBar value={searchQuery} onChange={onSearchChange} />
+    {showSearch ? <SearchBar value={searchQuery} onChange={onSearchChange} /> : null}
     {syncStatus && <SyncIndicator status={syncStatus} />}
+    {secondaryNav}
 
-    <div className="flex-1 overflow-y-auto overflow-x-hidden pb-[104px]" style={{ overscrollBehavior: "contain" }}>
+    <div
+      className="flex-1 overflow-y-auto overflow-x-hidden pb-[104px]"
+      ref={sectionScroller}
+      style={{ overscrollBehavior: "contain" }}
+    >
       {children}
     </div>
 
     <BottomNavigation
       activeTab={activeTab}
-      alertCount={alertCount}
       onTabChange={onTabChange}
+      ownProfile={ownProfile}
       unreadCount={unreadTotal}
       {...(selfSeed ? { selfSeed } : {})}
     />
+  </div>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────
+   ChatFilterBar — All / Direct / Groups / Unread
+   Groups are a kind of conversation, so they filter the one list
+   rather than living in their own section.
+   ───────────────────────────────────────────────────────────── */
+export const ChatFilterBar = ({
+  activeFilter,
+  counts,
+  onFilterChange,
+  filters
+}: {
+  activeFilter: string;
+  counts?: Partial<Record<string, number>>;
+  onFilterChange: (filter: string) => void;
+  filters: readonly { readonly id: string; readonly label: string }[];
+}) => (
+  <div
+    className="flex items-center gap-1.5 overflow-x-auto px-5 pb-1 pt-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    role="tablist"
+    aria-label="Filter conversations"
+  >
+    {filters.map((filter) => {
+      const isActive = activeFilter === filter.id;
+      const count = counts?.[filter.id] ?? 0;
+      return (
+        <button
+          key={filter.id}
+          aria-selected={isActive}
+          className={cn("nada-chat-filter tap-highlight-none", isActive && "active")}
+          onClick={() => onFilterChange(filter.id)}
+          role="tab"
+          type="button"
+        >
+          {filter.label}
+          {count > 0 && (
+            <span className="nada-chat-filter-count">{count > 99 ? "99+" : count}</span>
+          )}
+        </button>
+      );
+    })}
   </div>
 );
 

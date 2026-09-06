@@ -1,8 +1,13 @@
 import { type NotificationSettings, type NotificationTone, NOTIFICATION_SOUND_CHOICES, NOTIFICATION_RINGTONE_CHOICES } from "@/utils/dashboard-types";
 import { notificationToneLabel, notificationRingtoneLabel } from "@/utils/helpers";
+import {
+  THEMES,
+  themeOption,
+  type AppearanceSettings
+} from "@/lib/appearance";
 import type { IdentityRecord } from "@nada/db";
-import { IconButton, cn } from "@nada/ui";
-import { X, Edit3, Ghost, Flame, Bell, EyeOff, Eye, MessageCircle, Download, Trash2, ShieldAlert, Upload, QrCode, WifiOff, CreditCard, ChevronDown, Share2, Settings, FileText, Image as ImageIcon } from "lucide-react";
+import { IconButton, IdentityOrb, cn } from "@nada/ui";
+import { X, Edit3, Ghost, Flame, Bell, EyeOff, Eye, MessageCircle, Download, Trash2, ShieldAlert, Upload, QrCode, WifiOff, CreditCard, ChevronDown, Share2, Settings, FileText, CircleUserRound, KeyRound, Moon, Sparkles, Image as ImageIcon } from "lucide-react";
 import { Sheet } from "./Sheet";
 import { useState, type ReactNode } from "react";
 
@@ -466,55 +471,108 @@ export function SettingsSheetSection({
 }
 
 export function SettingsDashboardPreview({
+      appearance,
+      blockedCount,
+      blurShieldActive,
       displayName,
       ghostMode,
       identity,
       mood,
+      notificationSummary,
       onOpenBilling,
+      onOpenBlocked,
       onOpenGhostModal,
       onOpenMigration,
       onOpenMoodModal,
+      onOpenProfile,
       onOpenSettings,
-      onOpenShare
+      onOpenShare,
+      onAppearanceChange,
+      onEraseIdentity,
+      onToggleBlurShield
     }: {
+          appearance: AppearanceSettings;
+          blockedCount: number;
+          blurShieldActive: boolean;
           displayName: string;
           ghostMode: boolean;
           identity: IdentityRecord;
           mood: string;
+          notificationSummary: string;
           onOpenBilling: () => void;
+          onOpenBlocked: () => void;
           onOpenGhostModal: () => void;
           onOpenMigration: () => void;
           onOpenMoodModal: () => void;
+          onOpenProfile: () => void;
           onOpenSettings: () => void;
           onOpenShare: () => void;
+          onAppearanceChange: (settings: AppearanceSettings) => void;
+          onEraseIdentity: () => void;
+          onToggleBlurShield: () => void;
         }): JSX.Element {
+    /*
+     * Settings is the account centre now that Profile has left the primary
+     * navigation. The sections below mirror the questions a user actually
+     * arrives with — who am I, who can see me, what reaches me, how does it
+     * look, how safe are my keys — and every row opens something that already
+     * exists. Nothing here is a placeholder for a capability NADA lacks.
+     */
     return (
     <div className="nada-settings-dashboard animate-fade-in">
-      <div className="nada-premium-card overflow-hidden p-4">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="relative grid h-12 w-12 place-items-center overflow-hidden rounded-2xl nada-logo-aura">
-            <img src="/logo.webp" alt="NADA" className="h-full w-full object-cover" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[15px] font-bold text-nada-primary">{displayName}</p>
-            <p className="truncate font-mono text-[11px] text-nada-text-muted">
-              {identity.pubkeyHash.slice(0, 18)}...
-            </p>
-          </div>
-          <button
-            className="grid h-10 w-10 place-items-center rounded-2xl border border-nada-border/10 bg-nada-surface-elevated/60 text-nada-accent transition hover:border-nada-accent/35"
-            onClick={onOpenSettings}
-            type="button"
-          >
-            <Edit3 size={16} />
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {["No name", "No number", "Local keys", "Encrypted"].map((label) => (
-            <span className="nada-privacy-chip" key={label}>{label}</span>
-          ))}
-        </div>
-      </div>
+      {/* Identity header — the account this device holds. */}
+      <button
+        className="nada-premium-card flex w-full items-center gap-3 overflow-hidden p-4 text-left transition hover:border-nada-accent/30"
+        onClick={onOpenProfile}
+        type="button"
+      >
+        <IdentityOrb seed={identity.pubkeyHash} size="lg" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15.5px] font-bold text-nada-primary">
+            {displayName}
+          </span>
+          <span className="mt-0.5 block truncate font-mono text-[11px] text-nada-text-muted">
+            {identity.pubkeyHash.slice(0, 18)}…
+          </span>
+          <span className="mt-2 flex flex-wrap gap-1.5">
+            {["No name", "No number", "Local keys"].map((label) => (
+              <span className="nada-privacy-chip" key={label}>{label}</span>
+            ))}
+          </span>
+        </span>
+        <ChevronDown className="shrink-0 rotate-[-90deg] text-nada-secondary/35" size={18} />
+      </button>
+
+      <SettingsPreviewSection title="Account">
+        <SettingsPreviewButton
+          icon={<CircleUserRound size={17} />}
+          label="Profile"
+          value="Open"
+          description="Avatar, bio and your timeline."
+          onClick={onOpenProfile}
+        />
+        <SettingsPreviewButton
+          icon={<Edit3 size={17} />}
+          label="Display name"
+          value={displayName}
+          description="Your visible name."
+          onClick={onOpenSettings}
+        />
+        <SettingsPreviewButton
+          icon={<QrCode size={17} />}
+          label="Share invite card"
+          value="Private"
+          description="Share without contacts."
+          onClick={onOpenShare}
+        />
+        <SettingsPreviewButton
+          icon={<CreditCard size={17} />}
+          label="Plans & Billing"
+          value="Free"
+          description="Plans never read messages."
+          onClick={onOpenBilling}
+        />
+      </SettingsPreviewSection>
 
       <SettingsPreviewSection title="Privacy">
         <SettingsPreviewButton
@@ -525,28 +583,94 @@ export function SettingsDashboardPreview({
           onClick={onOpenGhostModal}
         />
         <SettingsPreviewButton
-          icon={<ShieldAlert size={17} />}
+          icon={blurShieldActive ? <Eye size={17} /> : <EyeOff size={17} />}
           label="Privacy Shield"
-          value="Ready"
-          description="Blur sensitive chat content on demand."
-          onClick={onOpenSettings}
+          value={blurShieldActive ? "On" : "Off"}
+          description="Blur messages until you tap."
+          onClick={onToggleBlurShield}
+        />
+        <SettingsPreviewButton
+          icon={<ShieldAlert size={17} />}
+          label="Blocked ghosts"
+          value={String(blockedCount)}
+          description="Nobody blocked reaches you."
+          onClick={onOpenBlocked}
         />
         <SettingsPreviewButton
           icon={<Flame size={17} />}
           label="Mood Status"
           value={mood}
-          description="Visible only inside your anonymous profile."
+          description="Shown on your profile."
           onClick={onOpenMoodModal}
         />
       </SettingsPreviewSection>
 
-      <SettingsPreviewSection title="Identity">
+      <SettingsPreviewSection title="Notifications">
         <SettingsPreviewButton
-          icon={<QrCode size={17} />}
-          label="Share invite card"
-          value="Private"
-          description="Send an invite without exposing contacts."
-          onClick={onOpenShare}
+          icon={<Bell size={17} />}
+          label="Alerts & sounds"
+          value={notificationSummary}
+          description="Tones and previews."
+          onClick={onOpenSettings}
+        />
+      </SettingsPreviewSection>
+
+      <SettingsPreviewSection title="Appearance">
+        <div
+          aria-label="Theme"
+          className="nada-theme-grid"
+          role="radiogroup"
+        >
+          {THEMES.map((option) => (
+            <button
+              aria-checked={appearance.theme === option.id}
+              className="nada-theme-card"
+              key={option.id}
+              onClick={() => { onAppearanceChange({ ...appearance, theme: option.id }); }}
+              role="radio"
+              title={option.description}
+              type="button"
+            >
+              <span aria-hidden className="nada-theme-swatch">
+                {option.swatch.map((colour) => (
+                  <span key={colour} style={{ background: colour }} />
+                ))}
+              </span>
+              <span className="nada-theme-name">{option.label}</span>
+            </button>
+          ))}
+        </div>
+        <p className="px-1 text-[12px] leading-relaxed text-nada-text-muted">
+          {themeOption(appearance.theme).description}
+        </p>
+        <SettingsPreviewButton
+          icon={appearance.motion === "reduced" ? <Moon size={17} /> : <Sparkles size={17} />}
+          label="Reduce motion"
+          value={appearance.motion === "reduced" ? "On" : "Off"}
+          description="Stops glows, drifts and pulses."
+          onClick={() => {
+            onAppearanceChange({
+              ...appearance,
+              motion: appearance.motion === "reduced" ? "full" : "reduced"
+            });
+          }}
+        />
+      </SettingsPreviewSection>
+
+      <SettingsPreviewSection title="Security">
+        <SettingsPreviewButton
+          icon={<KeyRound size={17} />}
+          label="Seed backup"
+          value={identity.seedBackupStatus === "confirmed" ? "Backed up" : "Pending"}
+          description="Your recovery phrase."
+          onClick={onOpenSettings}
+        />
+        <SettingsPreviewButton
+          icon={<WifiOff size={17} />}
+          label="Active sessions"
+          value="This device"
+          description="Keys stay on this device."
+          onClick={onOpenSettings}
         />
         <SettingsPreviewButton
           icon={<Download size={17} />}
@@ -555,23 +679,30 @@ export function SettingsDashboardPreview({
           description="Export invite-only rooms safely."
           onClick={onOpenMigration}
         />
-      </SettingsPreviewSection>
-
-      <SettingsPreviewSection title="Product">
-        <SettingsPreviewButton
-          icon={<CreditCard size={17} />}
-          label="Plans & Billing"
-          value="Free"
-          description="Paid plans never touch message content."
-          onClick={onOpenBilling}
-        />
         <SettingsPreviewButton
           icon={<Settings size={17} />}
-          label="Full settings"
+          label="All settings"
           value="Open"
-          description="Security, appearance, storage, and about."
+          description="Storage, about, everything."
           onClick={onOpenSettings}
         />
+        <button
+          className="nada-settings-card nada-settings-card-danger flex w-full min-w-0 items-center gap-3 text-left"
+          onClick={onEraseIdentity}
+          type="button"
+        >
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-nada-danger/12 text-nada-danger">
+            <Trash2 size={17} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[14px] font-bold text-nada-danger">
+              Erase this identity
+            </span>
+            <span className="block truncate text-[12px] text-nada-text-muted">
+              Wipes this device. Seed phrase only.
+            </span>
+          </span>
+        </button>
       </SettingsPreviewSection>
 
       <div className="rounded-2xl border border-nada-accent/15 bg-nada-accent/[0.08] p-4 text-[12.5px] leading-relaxed text-nada-secondary/78">
@@ -582,6 +713,164 @@ export function SettingsDashboardPreview({
         A browser PWA cannot control network routing. Use Tor Browser, Orbot, VPN, or a future mixnet relay for IP-level anonymity.
       </div>
     </div>
+    );
+}
+
+/**
+ * The ghosts this device has blocked, with a way to undo.
+ *
+ * Blocking already worked — from a profile and from a chat's menu — but there
+ * was nowhere to see the result or reverse it without finding the ghost again.
+ * The rows come from the same per-chat preference records those two write, and
+ * unblocking calls the same action, so there is one implementation of blocking.
+ */
+export function BlockedGhostsSheet({
+      blockedHashes,
+      onClose,
+      onUnblock
+    }: {
+          blockedHashes: readonly string[];
+          onClose: () => void;
+          onUnblock: (hash: string) => void;
+        }): JSX.Element {
+    return (
+    <Sheet onClose={onClose}>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-nada-primary" style={{ letterSpacing: "-0.3px" }}>
+          Blocked ghosts
+        </h2>
+        <IconButton label="Close" onClick={onClose}>
+          <X size={18} />
+        </IconButton>
+      </div>
+      <p className="mt-2 text-[13px] leading-relaxed text-nada-secondary/[.60]">
+        Blocked ghosts cannot reach this device. Blocks are stored locally with
+        your keys — nothing about them leaves the device.
+      </p>
+
+      {blockedHashes.length === 0 ? (
+        <div className="mt-5 rounded-2xl border border-dashed border-nada-border/10 bg-nada-surface-elevated/35 px-4 py-10 text-center">
+          <ShieldAlert className="mx-auto mb-3 h-7 w-7 text-nada-secondary/35" />
+          <p className="text-[14px] font-bold text-nada-primary">Nobody blocked</p>
+          <p className="mt-1 text-[12.5px] text-nada-text-muted">
+            Block a ghost from their profile or a conversation menu.
+          </p>
+        </div>
+      ) : (
+        <ul className="mt-5 grid gap-2">
+          {blockedHashes.map((hash) => (
+            <li className="nada-settings-card flex items-center gap-3" key={hash}>
+              <IdentityOrb seed={hash} size="sm" />
+              <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-nada-secondary/[.80]">
+                {hash.slice(0, 22)}…
+              </span>
+              <button
+                className="shrink-0 rounded-full bg-nada-accent/12 px-3 py-1.5 text-[11.5px] font-bold text-nada-accent transition hover:bg-nada-accent/20"
+                onClick={() => onUnblock(hash)}
+                type="button"
+              >
+                Unblock
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Sheet>
+    );
+}
+
+/**
+ * Erasing the identity this device holds.
+ *
+ * NADA has no sign-out because there is no session to end — the identity is a
+ * keypair in local storage. Leaving a device therefore means destroying that
+ * keypair, and with it every message, contact and group stored beside it. The
+ * only route back is the 12-word seed phrase, so this says that plainly and
+ * asks for a typed confirmation rather than a button anyone can brush past.
+ */
+export function EraseIdentitySheet({
+      erasing,
+      onClose,
+      onConfirm
+    }: {
+          erasing: boolean;
+          onClose: () => void;
+          onConfirm: () => void;
+        }): JSX.Element {
+    const [typed, setTyped] = useState("");
+    const confirmed = typed.trim().toUpperCase() === "ERASE";
+
+    return (
+    <Sheet onClose={onClose}>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-nada-danger" style={{ letterSpacing: "-0.3px" }}>
+          Erase this identity
+        </h2>
+        <IconButton label="Close" onClick={onClose}>
+          <X size={18} />
+        </IconButton>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-nada-danger/25 bg-nada-danger/[0.08] p-4">
+        <div className="mb-2 flex items-center gap-2 text-[13px] font-bold text-nada-danger">
+          <ShieldAlert size={15} />
+          This cannot be undone from here
+        </div>
+        <p className="text-[13px] leading-relaxed text-nada-secondary/[.78]">
+          Your keys, messages, contacts and groups are deleted from this device.
+          Only your 12-word seed phrase can restore this identity — without it
+          nothing here is recoverable, by you or by anyone else.
+        </p>
+      </div>
+
+      <ul className="mt-4 grid gap-1.5 text-[12.5px] text-nada-text-muted">
+        {[
+          "Message history on this device is gone for good.",
+          "Contacts and group keys are gone; groups you own lose their key.",
+          "Your seed phrase restores the identity, not the history."
+        ].map((line) => (
+          <li className="flex gap-2" key={line}>
+            <span aria-hidden className="text-nada-danger">•</span>
+            {line}
+          </li>
+        ))}
+      </ul>
+
+      <label className="mt-5 block">
+        <span className="mb-2 block text-[12px] font-semibold text-nada-secondary/[.72]">
+          Type ERASE to confirm
+        </span>
+        <input
+          autoCapitalize="characters"
+          autoComplete="off"
+          className="nada-input-dark h-12 w-full text-[15px]"
+          disabled={erasing}
+          onChange={(event) => { setTyped(event.target.value); }}
+          placeholder="ERASE"
+          spellCheck={false}
+          value={typed}
+        />
+      </label>
+
+      <div className="mt-5 flex gap-2">
+        <button
+          className="h-12 flex-1 rounded-2xl border border-nada-border/12 bg-nada-surface-elevated/60 text-[14px] font-bold text-nada-primary transition hover:bg-nada-surface-elevated"
+          disabled={erasing}
+          onClick={onClose}
+          type="button"
+        >
+          Cancel
+        </button>
+        <button
+          className="h-12 flex-1 rounded-2xl bg-nada-danger text-[14px] font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!confirmed || erasing}
+          onClick={onConfirm}
+          type="button"
+        >
+          {erasing ? "Erasing…" : "Erase identity"}
+        </button>
+      </div>
+    </Sheet>
     );
 }
 

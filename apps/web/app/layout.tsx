@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { headers } from "next/headers";
 import localFont from "next/font/local";
+
+import { APPEARANCE_BOOTSTRAP } from "@/lib/appearance";
 
 import "./globals.css";
 
@@ -43,11 +46,23 @@ export const viewport: Viewport = {
   viewportFit: "cover"
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children
-}: Readonly<{ children: ReactNode }>): JSX.Element {
+}: Readonly<{ children: ReactNode }>): Promise<JSX.Element> {
+  // The middleware mints a per-response nonce; the appearance bootstrap is the
+  // only inline script this app writes, and it carries that nonce like Next's
+  // own. Without it the stored theme could only be applied once the bundle had
+  // run, so anyone on the light theme would watch the app flash dark first.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{ __html: APPEARANCE_BOOTSTRAP }}
+          {...(nonce ? { nonce } : {})}
+        />
+      </head>
       <body className="bg-nada-bg text-nada-primary antialiased font-sans" suppressHydrationWarning>
         {children}
       </body>

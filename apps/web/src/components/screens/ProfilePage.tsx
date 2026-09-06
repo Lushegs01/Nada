@@ -26,7 +26,6 @@ import type { IdentityRecord } from "@nada/db";
 import { cn } from "@nada/ui";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft,
   Ghost,
   UserPlus,
   UserCheck,
@@ -272,7 +271,6 @@ export function ProfilePage({
   identity,
   isBlocked,
   localEchoes,
-  onBack,
   onMessage,
   onOpenEcho,
   onOpenProfile,
@@ -287,7 +285,6 @@ export function ProfilePage({
   isBlocked: boolean;
   /** Locally cached feed — powers a best-effort profile with no relay. */
   localEchoes: WhisperEcho[];
-  onBack?: (() => void) | undefined;
   onMessage: (profile: WhisperProfile) => void;
   onOpenEcho: (echoId: string, echo?: WhisperEcho) => void;
   onOpenProfile: (hash: string, name: string) => void;
@@ -630,18 +627,8 @@ export function ProfilePage({
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-5 pb-24 pt-3 animate-fade-in">
-      {/* Top bar */}
+      {/* Top bar — back lives in the app header, shared by every secondary screen. */}
       <div className="mb-3 flex items-center gap-2">
-        {onBack ? (
-          <button
-            aria-label="Back"
-            className="grid h-9 w-9 place-items-center rounded-2xl bg-nada-muted text-nada-secondary transition hover:text-nada-primary"
-            onClick={onBack}
-            type="button"
-          >
-            <ArrowLeft size={16} />
-          </button>
-        ) : null}
         <h2 className="min-w-0 flex-1 truncate text-[15px] font-bold text-nada-primary">
           {isSelf ? "Your profile" : name}
         </h2>
