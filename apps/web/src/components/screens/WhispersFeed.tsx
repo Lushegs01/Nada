@@ -1,9 +1,10 @@
 "use client";
 /* eslint-disable */
-import type { WhisperEcho, WhisperReflection } from "@/utils/dashboard-types";
+import type { WhisperEcho, WhisperMention, WhisperReflection } from "@/utils/dashboard-types";
 import { WHISPER_THREAD_MAX_VISUAL_DEPTH } from "@/utils/dashboard-types";
 import { formatRelativeTime } from "@/utils/helpers";
 import type { IdentityRecord } from "@nada/db";
+import { segmentMentions } from "@nada/types";
 import { cn } from "@nada/ui";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -23,56 +24,12 @@ import {
   Loader2,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmActionDialog } from "../panels/Dialogs";
+import { AuthorAvatar } from "./AuthorAvatar";
+import { MentionSuggestions, useMentionPicker, type MentionSearch } from "./MentionPicker";
 
-// A soft gradient avatar derived from the author name so anonymous handles
-// still get a stable, recognisable little identity chip.
-export function authorGradient(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  const hue = hash % 360;
-  return `linear-gradient(135deg, hsl(${hue} 70% 55%), hsl(${(hue + 48) % 360} 68% 42%))`;
-}
-
-export function AuthorAvatar({
-  name,
-  onClick,
-  size = "md"
-}: {
-  name: string;
-  onClick?: (() => void) | undefined;
-  size?: "md" | "sm";
-}): JSX.Element {
-  const initial = (name.trim()[0] ?? "?").toUpperCase();
-  const classes = cn(
-    "grid shrink-0 place-items-center rounded-2xl font-bold text-white shadow-inner",
-    size === "md" ? "h-10 w-10 text-[15px]" : "h-8 w-8 rounded-xl text-[12px]",
-    onClick &&
-      "cursor-pointer transition hover:ring-2 hover:ring-nada-accent/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-nada-accent"
-  );
-  const style = { backgroundImage: authorGradient(name) };
-  if (!onClick) {
-    return (
-      <span className={classes} style={style}>
-        {initial}
-      </span>
-    );
-  }
-  return (
-    <button
-      aria-label={`View ${name}'s profile`}
-      className={classes}
-      onClick={onClick}
-      style={style}
-      type="button"
-    >
-      {initial}
-    </button>
-  );
-}
+export { AuthorAvatar, authorGradient } from "./AuthorAvatar";
 
 function AuthorName({
   name,
@@ -101,11 +58,11 @@ function AuthorName({
 }
 
 // Renders "@handle" tokens in the accent colour while keeping everything else
-// plain text — mentions stay purely visual (names, never keys), preserving
-// anonymity rules.
-const MENTION_PATTERN = /(@[\w.·-]+)/g;
-function MentionText({ text }: { text: string }): JSX.Element {
-  const parts = text.split(MENTION_PATTERN);
+// plain text. These are not tags — nothing resolved them to anyone — so they
+// stay purely visual: older posts, and names typed without the picker.
+const HANDLE_PATTERN = /(@[\w.·-]+)/g;
+function HandleText({ text }: { text: string }): JSX.Element {
+  const parts = text.split(HANDLE_PATTERN);
   return (
     <>
       {parts.map((part, index) =>
@@ -115,6 +72,43 @@ function MentionText({ text }: { text: string }): JSX.Element {
           </span>
         ) : (
           <span key={index}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
+// An Echo or Reflection body. Tags the relay resolved are links to the tagged
+// ghost's profile — real links to the ?ghost= deep link, so they wrap with the
+// text and open in a new tab like any other link.
+function TaggedText({
+  mentions,
+  onOpenProfile,
+  text
+}: {
+  mentions: WhisperMention[] | undefined;
+  onOpenProfile: (authorHash: string, authorName: string) => void;
+  text: string;
+}): JSX.Element {
+  if (!mentions?.length) return <HandleText text={text} />;
+  return (
+    <>
+      {segmentMentions(text, mentions).map((segment, index) =>
+        segment.kind === "mention" ? (
+          <a
+            className="font-semibold text-nada-accent hover:underline focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-nada-accent"
+            href={`/?ghost=${segment.mention.pubkeyHash}`}
+            key={index}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+              event.preventDefault();
+              onOpenProfile(segment.mention.pubkeyHash, segment.mention.name);
+            }}
+          >
+            {segment.text}
+          </a>
+        ) : (
+          <HandleText key={index} text={segment.text} />
         )
       )}
     </>
@@ -150,21 +144,40 @@ function buildThread(reflections: WhisperReflection[]): ThreadTree {
   return { childrenOf, roots };
 }
 
+const ECHO_MAX_LENGTH = 500;
+const REFLECTION_MAX_LENGTH = 280;
+
 function ReflectionComposer({
   autoFocus = false,
   onCancel,
+  onSearchMentions,
   onSubmit,
   placeholder,
   replyToName
 }: {
   autoFocus?: boolean;
   onCancel?: (() => void) | undefined;
-  onSubmit: (body: string) => void;
+  onSearchMentions: MentionSearch | undefined;
+  onSubmit: (body: string, mentions: WhisperMention[]) => void;
   placeholder: string;
   replyToName?: string | undefined;
 }): JSX.Element {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const picker = useMentionPicker<HTMLInputElement>({
+    maxLength: REFLECTION_MAX_LENGTH,
+    search: onSearchMentions,
+    setText: setDraft,
+    text: draft
+  });
+  const anchorRef = picker.inputProps.ref;
+  const setInput = useCallback(
+    (node: HTMLInputElement | null) => {
+      inputRef.current = node;
+      anchorRef(node);
+    },
+    [anchorRef]
+  );
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
@@ -173,8 +186,9 @@ function ReflectionComposer({
   const submit = (): void => {
     const body = draft.trim();
     if (!body) return;
-    onSubmit(body);
+    onSubmit(body, picker.tagged);
     setDraft("");
+    picker.reset();
   };
 
   return (
@@ -201,16 +215,20 @@ function ReflectionComposer({
         </span>
       ) : null}
       <input
+        {...picker.inputProps}
+        aria-label={placeholder}
         className="nada-input-dark h-10 min-w-0 flex-1 text-[13px]"
-        maxLength={280}
-        onChange={(event) => setDraft(event.target.value)}
+        maxLength={REFLECTION_MAX_LENGTH}
+        onChange={picker.handleChange}
         onKeyDown={(event) => {
+          if (picker.handleKeyDown(event)) return;
           if (event.key === "Escape" && onCancel) onCancel();
         }}
         placeholder={placeholder}
-        ref={inputRef}
+        ref={setInput}
         value={draft}
       />
+      <MentionSuggestions state={picker.suggestions} />
       <button
         aria-label="Send reflection"
         className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-nada-accent text-white transition disabled:opacity-40"
@@ -231,6 +249,7 @@ function ReflectionNode({
   onDelete,
   onOpenProfile,
   onReply,
+  onSearchMentions,
   onToggleCollapse,
   onToggleLike,
   reflection,
@@ -245,12 +264,13 @@ function ReflectionNode({
   onDelete: (reflection: WhisperReflection) => void;
   onOpenProfile: (authorHash: string, authorName: string) => void;
   onReply: (reflection: WhisperReflection) => void;
+  onSearchMentions: MentionSearch | undefined;
   onToggleCollapse: (id: string) => void;
   onToggleLike: (reflection: WhisperReflection) => void;
   reflection: WhisperReflection;
   replyingToId: string | null;
   onCancelReply: () => void;
-  onSubmitReply: (parent: WhisperReflection, body: string) => void;
+  onSubmitReply: (parent: WhisperReflection, body: string, mentions: WhisperMention[]) => void;
 }): JSX.Element {
   const children = childrenOf.get(reflection.id) ?? [];
   const isCollapsed = collapsed.has(reflection.id);
@@ -315,7 +335,11 @@ function ReflectionNode({
                     </span>{" "}
                   </>
                 ) : null}
-                <MentionText text={reflection.body} />
+                <TaggedText
+                  mentions={reflection.mentions}
+                  onOpenProfile={onOpenProfile}
+                  text={reflection.body}
+                />
               </p>
             )}
           </div>
@@ -371,7 +395,8 @@ function ReflectionNode({
               <ReflectionComposer
                 autoFocus
                 onCancel={onCancelReply}
-                onSubmit={(body) => onSubmitReply(reflection, body)}
+                onSearchMentions={onSearchMentions}
+                onSubmit={(body, mentions) => onSubmitReply(reflection, body, mentions)}
                 placeholder="Reply to this reflection..."
                 replyToName={reflection.authorName}
               />
@@ -414,6 +439,7 @@ function ReflectionNode({
                 onDelete={onDelete}
                 onOpenProfile={onOpenProfile}
                 onReply={onReply}
+                onSearchMentions={onSearchMentions}
                 onSubmitReply={onSubmitReply}
                 onToggleCollapse={onToggleCollapse}
                 onToggleLike={onToggleLike}
@@ -487,7 +513,8 @@ function EchoCard({
   onOpenProfile,
   onRipple,
   onDelete,
-  onReport
+  onReport,
+  onSearchMentions
 }: {
   echo: WhisperEcho;
   isMine: boolean;
@@ -499,6 +526,7 @@ function EchoCard({
   onToggleReflections: () => void;
   onSubmitReflection: (
     body: string,
+    mentions: WhisperMention[],
     parent?: { parentId: string; replyToName: string }
   ) => void;
   onToggleReflectionLike: (reflection: WhisperReflection) => void;
@@ -508,6 +536,7 @@ function EchoCard({
   onRipple: () => void;
   onDelete: () => void;
   onReport: () => void;
+  onSearchMentions: MentionSearch | undefined;
 }): JSX.Element {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
@@ -528,8 +557,15 @@ function EchoCard({
     });
   };
 
-  const submitNestedReply = (parent: WhisperReflection, body: string): void => {
-    onSubmitReflection(body, { parentId: parent.id, replyToName: parent.authorName });
+  const submitNestedReply = (
+    parent: WhisperReflection,
+    body: string,
+    mentions: WhisperMention[]
+  ): void => {
+    onSubmitReflection(body, mentions, {
+      parentId: parent.id,
+      replyToName: parent.authorName
+    });
     setReplyingToId(null);
   };
 
@@ -594,7 +630,7 @@ function EchoCard({
 
       {echo.body ? (
         <p className="mt-3 whitespace-pre-wrap break-words text-[14.5px] leading-relaxed text-nada-primary/90">
-          <MentionText text={echo.body} />
+          <TaggedText mentions={echo.mentions} onOpenProfile={onOpenProfile} text={echo.body} />
         </p>
       ) : null}
 
@@ -700,6 +736,7 @@ function EchoCard({
                           current === target.id ? null : target.id
                         )
                       }
+                      onSearchMentions={onSearchMentions}
                       onSubmitReply={submitNestedReply}
                       onToggleCollapse={toggleCollapse}
                       onToggleLike={onToggleReflectionLike}
@@ -726,7 +763,8 @@ function EchoCard({
 
               <div className="pt-1.5">
                 <ReflectionComposer
-                  onSubmit={(body) => onSubmitReflection(body)}
+                  onSearchMentions={onSearchMentions}
+                  onSubmit={(body, mentions) => onSubmitReflection(body, mentions)}
                   placeholder="Add a reflection..."
                 />
               </div>
@@ -754,6 +792,7 @@ export function WhispersFeed({
   onLoadThread,
   onOpenProfile,
   onPostEcho,
+  onSearchMentions,
   onToggleEcho,
   onAddReflection,
   onToggleReflectionLike,
@@ -774,11 +813,14 @@ export function WhispersFeed({
   onLoadMoreFeed?: () => void;
   onLoadThread: (echoId: string, before?: number) => void;
   onOpenProfile: (authorHash: string, authorName: string) => void;
-  onPostEcho: (body: string) => void;
+  onPostEcho: (body: string, mentions: WhisperMention[]) => void;
+  /** Suggestions for the "@" tag picker; absent disables tagging. */
+  onSearchMentions?: MentionSearch;
   onToggleEcho: (echoId: string) => void;
   onAddReflection: (
     echoId: string,
     body: string,
+    mentions: WhisperMention[],
     parent?: { parentId: string; replyToName: string }
   ) => void;
   onToggleReflectionLike: (echoId: string, reflection: WhisperReflection) => void;
@@ -786,6 +828,12 @@ export function WhispersFeed({
   onReportEcho: (echo: WhisperEcho) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState("");
+  const echoPicker = useMentionPicker<HTMLTextAreaElement>({
+    maxLength: ECHO_MAX_LENGTH,
+    search: onSearchMentions,
+    setText: setDraft,
+    text: draft
+  });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<
     | { kind: "echo"; echoId: string; title: string }
@@ -822,8 +870,9 @@ export function WhispersFeed({
   const submitEcho = (): void => {
     const body = draft.trim();
     if (!body) return;
-    onPostEcho(body);
+    onPostEcho(body, echoPicker.tagged);
     setDraft("");
+    echoPicker.reset();
   };
 
   const requestDeleteReflection = (echoId: string, reflection: WhisperReflection): void => {
@@ -890,15 +939,25 @@ export function WhispersFeed({
             }}
           >
             <textarea
+              {...echoPicker.inputProps}
+              aria-label="Whisper something to everyone"
               className="nada-input-dark min-h-[64px] w-full resize-none px-4 py-3 text-[14px]"
-              maxLength={500}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="Whisper something to everyone..."
+              maxLength={ECHO_MAX_LENGTH}
+              onChange={echoPicker.handleChange}
+              onKeyDown={(event) => {
+                echoPicker.handleKeyDown(event);
+              }}
+              placeholder={
+                onSearchMentions
+                  ? "Whisper something to everyone... type @ to tag a ghost"
+                  : "Whisper something to everyone..."
+              }
               value={draft}
             />
+            <MentionSuggestions state={echoPicker.suggestions} />
             <div className="mt-2 flex items-center justify-between">
               <span className="text-[11px] text-nada-secondary/45">
-                {draft.length}/500
+                {draft.length}/{ECHO_MAX_LENGTH}
               </span>
               <button
                 className="nada-btn-gold inline-flex h-10 items-center justify-center gap-2 rounded-2xl px-5 text-[13px] font-bold disabled:opacity-45"
@@ -961,8 +1020,9 @@ export function WhispersFeed({
                   onOpenProfile={onOpenProfile}
                   onReport={() => onReportEcho(echo)}
                   onRipple={() => onRipple(echo.id)}
-                  onSubmitReflection={(body, parent) =>
-                    onAddReflection(echo.id, body, parent)
+                  onSearchMentions={onSearchMentions}
+                  onSubmitReflection={(body, mentions, parent) =>
+                    onAddReflection(echo.id, body, mentions, parent)
                   }
                   onToggleEcho={() => onToggleEcho(echo.id)}
                   onToggleReflectionLike={(reflection) =>

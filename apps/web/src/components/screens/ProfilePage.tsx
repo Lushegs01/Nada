@@ -19,6 +19,7 @@ import type {
   WhisperDmPrivacy,
   WhisperEcho,
   WhisperFollowEntry,
+  WhisperMentionPrivacy,
   WhisperProfile
 } from "@/utils/dashboard-types";
 import { formatRelativeTime } from "@/utils/helpers";
@@ -26,6 +27,7 @@ import type { IdentityRecord } from "@nada/db";
 import { cn } from "@nada/ui";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  AtSign,
   Ghost,
   UserPlus,
   UserCheck,
@@ -58,6 +60,7 @@ export type WhisperProfileDraft = {
   displayName: string;
   dmPrivacy: WhisperDmPrivacy;
   institution: string;
+  mentionPrivacy: WhisperMentionPrivacy;
   showActivity: boolean;
   showLikes: boolean;
 };
@@ -343,6 +346,7 @@ export function ProfilePage({
       likesReceived:
         authored.reduce((sum, echo) => sum + echo.echoCount, 0) +
         authoredReflections.reduce((sum, reflection) => sum + reflection.likeCount, 0),
+      mentionPrivacy: "everyone",
       pubkey: "",
       pubkeyHash: target.hash,
       reflectionCount: authoredReflections.length,
@@ -386,6 +390,7 @@ export function ProfilePage({
         displayName: profile.displayName || viewerName,
         dmPrivacy: profile.dmPrivacy,
         institution: profile.institution,
+        mentionPrivacy: profile.mentionPrivacy,
         showActivity: profile.showActivity,
         showLikes: profile.showLikes
       });
@@ -837,6 +842,47 @@ export function ProfilePage({
                       </button>
                     ))}
                   </div>
+                </div>
+                <div
+                  aria-labelledby="whisper-tag-privacy-label"
+                  className="rounded-2xl bg-nada-surface/60 px-3.5 py-3"
+                  role="group"
+                >
+                  <p
+                    className="mb-2 flex items-center gap-2 text-[12.5px] font-semibold text-nada-primary"
+                    id="whisper-tag-privacy-label"
+                  >
+                    <AtSign size={13} className="text-nada-secondary/60" />
+                    Who can tag you
+                  </p>
+                  <div className="flex gap-1.5">
+                    {(
+                      [
+                        { id: "everyone", label: "Everyone" },
+                        { id: "following", label: "People you follow" },
+                        { id: "none", label: "No one" }
+                      ] as Array<{ id: WhisperMentionPrivacy; label: string }>
+                    ).map((option) => (
+                      <button
+                        aria-pressed={draft.mentionPrivacy === option.id}
+                        className={cn(
+                          "flex-1 rounded-xl px-2 py-2 text-[11.5px] font-bold transition",
+                          draft.mentionPrivacy === option.id
+                            ? "bg-nada-accent/15 text-nada-accent"
+                            : "bg-nada-muted text-nada-secondary/70 hover:text-nada-primary"
+                        )}
+                        key={option.id}
+                        onClick={() => setDraft({ ...draft, mentionPrivacy: option.id })}
+                        type="button"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[11px] leading-snug text-nada-text-muted">
+                    Tags link an Echo to your profile and notify you. People you
+                    don&apos;t allow can still type your name; it just won&apos;t tag you.
+                  </p>
                 </div>
                 <div className="flex gap-2 pt-1">
                   <button

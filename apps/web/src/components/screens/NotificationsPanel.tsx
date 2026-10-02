@@ -191,8 +191,11 @@ export function NotificationsPanel({
                 <motion.div
                   layout
                   animate={{ opacity: 1, y: 0 }}
+                  // min-w-0: a grid item is otherwise as wide as its longest
+                  // unbroken line, so a long preview pushed the row off a
+                  // phone screen instead of truncating.
                   className={cn(
-                    "flex w-full cursor-pointer items-start gap-3 rounded-2xl border p-3.5 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-nada-accent",
+                    "flex w-full min-w-0 cursor-pointer items-start gap-3 rounded-2xl border p-3.5 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-nada-accent",
                     group.unread
                       ? "border-nada-accent/25 bg-nada-accent/[0.06] hover:bg-nada-accent/[0.10]"
                       : "border-nada-border/10 bg-nada-surface-elevated/40 hover:bg-nada-surface-elevated/70"

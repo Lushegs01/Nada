@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import type { WhisperNotificationKind } from "@nada/types";
+import {
+  WHISPER_MAX_MENTIONS,
+  mentionsInText,
+  parseMentions,
+  type WhisperMention,
+  type WhisperMentionPrivacy,
+  type WhisperNotificationKind
+} from "@nada/types";
 
 import type { Queryable, RelayDb } from "./db";
 import { TtlCache } from "./ttl-cache";
@@ -20,6 +27,8 @@ export interface WhisperEchoInput {
   body: string;
   createdAt: number;
   id: string;
+  /** Tags the relay has already resolved and validated. */
+  mentions?: WhisperMention[];
   rippleOf?: WhisperRippleSource;
 }
 
@@ -34,6 +43,8 @@ export interface WhisperReflectionInput {
   parentId?: string;
   /** Anonymous handle of the parent author, preserved as an "@name" mention. */
   replyToName?: string;
+  /** Tags the relay has already resolved and validated. */
+  mentions?: WhisperMention[];
 }
 
 export interface WhisperReflectionView {
@@ -44,6 +55,8 @@ export interface WhisperReflectionView {
   id: string;
   parentId?: string;
   replyToName?: string;
+  /** Present only when the reflection tags someone. */
+  mentions?: WhisperMention[];
   /** Tombstone: the reply was deleted but keeps its slot to preserve the thread. */
   deleted: boolean;
   likeCount: number;
@@ -63,6 +76,8 @@ export interface WhisperEchoView {
   echoCount: number;
   echoedByViewer: boolean;
   id: string;
+  /** Present only when the Echo tags someone. */
+  mentions?: WhisperMention[];
   reflectionCount: number;
   reflections: WhisperReflectionView[];
   rippleCount: number;
@@ -100,6 +115,8 @@ export interface WhisperProfileRecord {
   displayName: string;
   dmPrivacy: WhisperDmPrivacy;
   institution: string;
+  /** Who may tag this ghost. Absent on an update keeps the stored setting. */
+  mentionPrivacy?: WhisperMentionPrivacy;
   /** Ed25519 public key (base64) captured from a verified identity proof. */
   pubkey: string;
   pubkeyHash: string;
@@ -120,6 +137,7 @@ export interface WhisperProfileView {
   institution: string;
   joinedAt: number | null;
   likesReceived: number;
+  mentionPrivacy: WhisperMentionPrivacy;
   pubkey: string;
   pubkeyHash: string;
   reflectionCount: number;
@@ -138,6 +156,80 @@ export interface WhisperFollowEntry {
   avatar: string;
   displayName: string;
   pubkeyHash: string;
+}
+
+/**
+ * A ghost the "@" picker may offer. No avatar: the picker refetches on every
+ * keystroke, and avatars are data URLs of up to 120 KB each.
+ */
+export interface WhisperMentionCandidate {
+  displayName: string;
+  /** The viewer follows them — the picker lists these first. */
+  followedByViewer: boolean;
+  pubkeyHash: string;
+}
+
+/** What deciding whether a ghost may be tagged needs to know about them. */
+export interface MentionTarget {
+  displayName: string;
+  /** They follow the would-be tagger: what 'following' privacy asks. */
+  followsAuthor: boolean;
+  mentionPrivacy: WhisperMentionPrivacy;
+}
+
+/**
+ * The tags a write keeps, from the identities it asked to tag.
+ *
+ * Each identity is labelled with its own public display name — never a name
+ * the writer chose — so a tag cannot attach "@anything" to someone's profile.
+ * An identity with no public profile cannot be tagged at all: that is what
+ * keeps a private chat contact from being pulled into the public feed by
+ * someone who knows their key. Then the tagged ghost's privacy has to allow
+ * it, and the tag has to be visible in the text, so nobody is notified about
+ * a post that does not show them being tagged.
+ */
+export function selectMentions(
+  authorPubkeyHash: string,
+  body: string,
+  requested: readonly string[],
+  targets: ReadonlyMap<string, MentionTarget>
+): WhisperMention[] {
+  const allowed: WhisperMention[] = [];
+  for (const pubkeyHash of uniqueMentionRequests(requested)) {
+    const target = targets.get(pubkeyHash);
+    if (!target?.displayName) continue;
+    const permitted =
+      pubkeyHash === authorPubkeyHash ||
+      target.mentionPrivacy === "everyone" ||
+      (target.mentionPrivacy === "following" && target.followsAuthor);
+    if (permitted) allowed.push({ name: target.displayName, pubkeyHash });
+  }
+  return mentionsInText(body, allowed);
+}
+
+function uniqueMentionRequests(requested: readonly string[]): string[] {
+  return [...new Set(requested)].slice(0, WHISPER_MAX_MENTIONS);
+}
+
+/** Escapes LIKE metacharacters so a typed "%" or "_" matches itself. */
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+function asMentionPrivacy(value: unknown): WhisperMentionPrivacy {
+  return value === "following" || value === "none" ? value : "everyone";
+}
+
+/** Spreads `mentions` onto a view only when there is at least one. */
+function withMentions(raw: unknown): { mentions?: WhisperMention[] } {
+  const mentions = parseMentions(raw);
+  return mentions.length > 0 ? { mentions } : {};
+}
+
+/** A tag list as a jsonb parameter. node-postgres would send a JS array as a
+ *  Postgres array literal, so it has to be serialised explicitly. */
+function mentionsParam(mentions: WhisperMention[] | undefined): string | null {
+  return mentions && mentions.length > 0 ? JSON.stringify(mentions) : null;
 }
 
 export interface WhisperNotificationInput {
@@ -189,7 +281,8 @@ export interface WhisperRepository {
     since: number,
     options?: { authorPubkeyHash?: string }
   ) => Promise<number>;
-  createEcho: (echo: WhisperEchoInput) => Promise<void>;
+  /** False when an Echo with this id already existed and nothing was written. */
+  createEcho: (echo: WhisperEchoInput) => Promise<boolean>;
   deleteEcho: (id: string, authorPubkeyHash: string) => Promise<boolean>;
   deleteReflection: (
     id: string,
@@ -251,6 +344,22 @@ export interface WhisperRepository {
     direction: "followers" | "following",
     limit: number
   ) => Promise<WhisperFollowEntry[]>;
+  /** The tags an author's write keeps; see `selectMentions`. */
+  resolveMentions: (
+    authorPubkeyHash: string,
+    body: string,
+    requested: readonly string[]
+  ) => Promise<WhisperMention[]>;
+  /**
+   * Ghosts the viewer may tag whose name matches `query` from the start of
+   * any word, people the viewer follows first. An empty query lists only the
+   * viewer's own connections.
+   */
+  searchMentionCandidates: (
+    viewerPubkeyHash: string,
+    query: string,
+    limit: number
+  ) => Promise<WhisperMentionCandidate[]>;
   setFollow: (
     followerPubkeyHash: string,
     followeePubkeyHash: string,
@@ -334,6 +443,7 @@ interface ReflectionRow {
   root_id: string | null;
   reply_to_name: string | null;
   deleted_at_ms: SqlTimestamp | null;
+  mentions: unknown;
 }
 
 interface EchoRow {
@@ -346,6 +456,7 @@ interface EchoRow {
   ripple_of_author_name: string | null;
   ripple_of_body: string | null;
   ripple_of_created_at_ms: SqlTimestamp | null;
+  mentions: unknown;
 }
 
 /** Aggregate row of the form `{ echo_id, n }` produced by the count queries. */
@@ -410,16 +521,16 @@ class PostgresWhisperRepository implements WhisperRepository {
   // The shared pool is owned and closed by the relay server.
   async close(): Promise<void> {}
 
-  async createEcho(echo: WhisperEchoInput): Promise<void> {
+  async createEcho(echo: WhisperEchoInput): Promise<boolean> {
     // This write changes feed aggregates; drop the cached copies. Freshness
     // is ultimately bounded by the cache TTL, not by this call.
     this.invalidateFeedCaches();
-    await this.client.query(
+    const result = await this.client.query(
       `insert into whisper_echoes
          (id, author_pubkey_hash, author_name, body,
           ripple_of_id, ripple_of_author_name, ripple_of_body, ripple_of_created_at_ms,
-          created_at_ms, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+          created_at_ms, mentions, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, now())
        on conflict (id) do nothing`,
       [
         echo.id,
@@ -430,9 +541,11 @@ class PostgresWhisperRepository implements WhisperRepository {
         echo.rippleOf?.authorName ?? null,
         echo.rippleOf?.body ?? null,
         echo.rippleOf?.createdAt ?? null,
-        echo.createdAt
+        echo.createdAt,
+        mentionsParam(echo.mentions)
       ]
     );
+    return Boolean(result.rowCount && result.rowCount > 0);
   }
 
   // Deleting an Echo cascades across five child tables. On a pool each bare
@@ -496,8 +609,8 @@ class PostgresWhisperRepository implements WhisperRepository {
     const inserted = await this.client.query(
       `insert into whisper_reflections
          (id, echo_id, author_pubkey_hash, author_name, body, created_at_ms,
-          parent_id, root_id, reply_to_name)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          parent_id, root_id, reply_to_name, mentions)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
        on conflict (id) do nothing`,
       [
         reflection.id,
@@ -508,7 +621,8 @@ class PostgresWhisperRepository implements WhisperRepository {
         reflection.createdAt,
         reflection.parentId ?? null,
         reflection.parentId ? rootId : reflection.id,
-        reflection.replyToName ?? null
+        reflection.replyToName ?? null,
+        mentionsParam(reflection.mentions)
       ]
     );
     if (!inserted.rowCount || inserted.rowCount === 0) return { created: false };
@@ -556,10 +670,12 @@ class PostgresWhisperRepository implements WhisperRepository {
         [id]
       );
       if (hasChildren) {
-        // Tombstone: keep the row so child replies keep their place in the thread.
+        // Tombstone: keep the row so child replies keep their place in the
+        // thread. Its tags go with its body — a removed reply must not keep
+        // naming the people it tagged.
         await tx.query(
           `update whisper_reflections
-           set body = '', reply_to_name = null, deleted_at_ms = $2
+           set body = '', reply_to_name = null, mentions = null, deleted_at_ms = $2
            where id = $1`,
           [id, Date.now()]
         );
@@ -708,7 +824,8 @@ class PostgresWhisperRepository implements WhisperRepository {
       likedByViewer: likedSet.has(row.id),
       replyCount: replyMap.get(row.id) ?? 0,
       ...(row.parent_id ? { parentId: row.parent_id } : {}),
-      ...(row.reply_to_name ? { replyToName: row.reply_to_name } : {})
+      ...(row.reply_to_name ? { replyToName: row.reply_to_name } : {}),
+      ...(row.deleted_at_ms ? {} : withMentions(row.mentions))
     }));
   }
 
@@ -724,7 +841,7 @@ class PostgresWhisperRepository implements WhisperRepository {
     // they anchor live children.
     const rootsResult = await this.client.query(
       `select id, echo_id, author_pubkey_hash, author_name, body, created_at_ms,
-              parent_id, root_id, reply_to_name, deleted_at_ms
+              parent_id, root_id, reply_to_name, deleted_at_ms, mentions
        from whisper_reflections
        where echo_id = $1 and parent_id is null
          and ($2::bigint is null or created_at_ms < $2)
@@ -740,7 +857,7 @@ class PostgresWhisperRepository implements WhisperRepository {
       rootIds.length > 0
         ? this.client.query(
             `select id, echo_id, author_pubkey_hash, author_name, body, created_at_ms,
-                    parent_id, root_id, reply_to_name, deleted_at_ms
+                    parent_id, root_id, reply_to_name, deleted_at_ms, mentions
              from whisper_reflections
              where root_id = any($1::uuid[]) and parent_id is not null
              order by created_at_ms asc`,
@@ -770,7 +887,7 @@ class PostgresWhisperRepository implements WhisperRepository {
     const echoResult = await this.client.query(
       `select id, author_pubkey_hash, author_name, body,
               ripple_of_id, ripple_of_author_name, ripple_of_body, ripple_of_created_at_ms,
-              created_at_ms
+              created_at_ms, mentions
        from whisper_echoes
        where created_at_ms >= $1
          and ($3::bigint is null or created_at_ms < $3)
@@ -839,7 +956,7 @@ class PostgresWhisperRepository implements WhisperRepository {
             // thread is paged lazily through listReflections when expanded.
             this.client.query(
               `select id, echo_id, author_pubkey_hash, author_name, body, created_at_ms,
-                      parent_id, root_id, reply_to_name, deleted_at_ms
+                      parent_id, root_id, reply_to_name, deleted_at_ms, mentions
                from (
                  select r.*, row_number() over (
                    partition by echo_id order by created_at_ms desc
@@ -899,6 +1016,7 @@ class PostgresWhisperRepository implements WhisperRepository {
       echoCount: echoCounts.get(row.id) ?? 0,
       echoedByViewer: viewerEchoed.has(row.id),
       id: row.id,
+      ...withMentions(row.mentions),
       reflectionCount: reflectionCountMap.get(row.id) ?? 0,
       reflections: previewByEcho.get(row.id) ?? [],
       rippleCount: rippleCountMap.get(row.id) ?? 0,
@@ -927,7 +1045,7 @@ class PostgresWhisperRepository implements WhisperRepository {
     const [profile, stats, follows, viewerFollow] = await Promise.all([
       this.client.query(
         `select display_name, bio, institution, show_activity, created_at_ms,
-                pubkey, avatar, show_likes, dm_privacy
+                pubkey, avatar, show_likes, dm_privacy, mention_privacy
          from whisper_profiles where pubkey_hash = $1`,
         [pubkeyHash]
       ),
@@ -979,6 +1097,7 @@ class PostgresWhisperRepository implements WhisperRepository {
       institution: profileRow?.institution ?? "",
       joinedAt,
       likesReceived: Number(statsRow.echo_likes) + Number(statsRow.reflection_likes),
+      mentionPrivacy: asMentionPrivacy(profileRow?.mention_privacy),
       pubkey: profileRow?.pubkey ?? "",
       pubkeyHash,
       reflectionCount: Number(statsRow.reflection_count),
@@ -990,11 +1109,15 @@ class PostgresWhisperRepository implements WhisperRepository {
   async upsertProfile(profile: WhisperProfileRecord): Promise<void> {
     // An empty pubkey/avatar in the update means "keep whatever we had" — the
     // verified pubkey especially must survive profile edits.
+    // A missing mentionPrivacy keeps the stored one, so a client that
+    // predates the setting cannot quietly reopen tagging on its next save.
     await this.client.query(
       `insert into whisper_profiles
          (pubkey_hash, display_name, bio, institution, show_activity,
-          pubkey, avatar, show_likes, dm_privacy, created_at_ms, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+          pubkey, avatar, show_likes, dm_privacy, created_at_ms, mention_privacy,
+          updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+               coalesce($11::text, 'everyone'), now())
        on conflict (pubkey_hash) do update set
          display_name = excluded.display_name,
          bio = excluded.bio,
@@ -1005,6 +1128,7 @@ class PostgresWhisperRepository implements WhisperRepository {
          avatar = excluded.avatar,
          show_likes = excluded.show_likes,
          dm_privacy = excluded.dm_privacy,
+         mention_privacy = coalesce($11::text, whisper_profiles.mention_privacy),
          updated_at = now()`,
       [
         profile.pubkeyHash,
@@ -1016,7 +1140,8 @@ class PostgresWhisperRepository implements WhisperRepository {
         profile.avatar,
         profile.showLikes,
         profile.dmPrivacy,
-        profile.createdAt
+        profile.createdAt,
+        profile.mentionPrivacy ?? null
       ]
     );
   }
@@ -1048,7 +1173,7 @@ class PostgresWhisperRepository implements WhisperRepository {
     const rows = await this.client.query(
       `select r.id, r.echo_id, r.author_pubkey_hash, r.author_name, r.body,
               r.created_at_ms, r.parent_id, r.root_id, r.reply_to_name, r.deleted_at_ms,
-              e.body as echo_body, e.author_name as echo_author_name
+              r.mentions, e.body as echo_body, e.author_name as echo_author_name
        from whisper_reflections r
        join whisper_echoes e on e.id = r.echo_id
        where r.author_pubkey_hash = $1 and r.deleted_at_ms is null
@@ -1076,7 +1201,7 @@ class PostgresWhisperRepository implements WhisperRepository {
     const rows = await this.client.query(
       `select e.id, e.author_pubkey_hash, e.author_name, e.body,
               e.ripple_of_id, e.ripple_of_author_name, e.ripple_of_body,
-              e.ripple_of_created_at_ms, e.created_at_ms
+              e.ripple_of_created_at_ms, e.created_at_ms, e.mentions
        from whisper_reactions x
        join whisper_echoes e on e.id = x.echo_id
        where x.reactor_pubkey_hash = $1
@@ -1112,6 +1237,77 @@ class PostgresWhisperRepository implements WhisperRepository {
       avatar: row.avatar,
       displayName: row.display_name,
       pubkeyHash: row.hash
+    }));
+  }
+
+  async resolveMentions(
+    authorPubkeyHash: string,
+    body: string,
+    requested: readonly string[]
+  ): Promise<WhisperMention[]> {
+    const hashes = uniqueMentionRequests(requested);
+    if (hashes.length === 0) return [];
+    const rows = await this.client.query(
+      `select p.pubkey_hash, p.display_name, p.mention_privacy,
+              exists (
+                select 1 from whisper_follows f
+                where f.follower_pubkey_hash = p.pubkey_hash
+                  and f.followee_pubkey_hash = $2
+              ) as follows_author
+       from whisper_profiles p
+       where p.pubkey_hash = any($1::text[])`,
+      [hashes, authorPubkeyHash]
+    );
+    const targets = new Map<string, MentionTarget>(
+      rows.rows.map((row) => [
+        row.pubkey_hash as string,
+        {
+          displayName: row.display_name as string,
+          followsAuthor: Boolean(row.follows_author),
+          mentionPrivacy: asMentionPrivacy(row.mention_privacy)
+        }
+      ])
+    );
+    return selectMentions(authorPubkeyHash, body, hashes, targets);
+  }
+
+  async searchMentionCandidates(
+    viewerPubkeyHash: string,
+    query: string,
+    limit: number
+  ): Promise<WhisperMentionCandidate[]> {
+    const needle = escapeLikePattern(query.trimStart().toLowerCase());
+    // vf: the viewer follows them. tf: they follow the viewer, which is what
+    // their 'following' privacy needs before the viewer may tag them.
+    const rows = await this.client.query(
+      `select p.pubkey_hash, p.display_name,
+              (vf.follower_pubkey_hash is not null) as viewer_follows,
+              (tf.follower_pubkey_hash is not null) as follows_viewer
+       from whisper_profiles p
+       left join whisper_follows vf
+         on vf.follower_pubkey_hash = $1 and vf.followee_pubkey_hash = p.pubkey_hash
+       left join whisper_follows tf
+         on tf.follower_pubkey_hash = p.pubkey_hash and tf.followee_pubkey_hash = $1
+       where p.pubkey_hash <> $1
+         and p.display_name <> ''
+         and (p.mention_privacy = 'everyone'
+              or (p.mention_privacy = 'following' and tf.follower_pubkey_hash is not null))
+         and case when $2 = ''
+               then vf.follower_pubkey_hash is not null
+                 or tf.follower_pubkey_hash is not null
+               else lower(p.display_name) like $2 || '%'
+                 or lower(p.display_name) like '% ' || $2 || '%'
+             end
+       order by viewer_follows desc, follows_viewer desc,
+                (lower(p.display_name) like $2 || '%') desc,
+                lower(p.display_name) asc
+       limit $3`,
+      [viewerPubkeyHash, needle, limit]
+    );
+    return rows.rows.map((row) => ({
+      displayName: row.display_name,
+      followedByViewer: Boolean(row.viewer_follows),
+      pubkeyHash: row.pubkey_hash
     }));
   }
 
@@ -1290,8 +1486,10 @@ class MemoryWhisperRepository implements WhisperRepository {
     this.notifications.length = 0;
   }
 
-  async createEcho(echo: WhisperEchoInput): Promise<void> {
-    if (!this.echoes.has(echo.id)) this.echoes.set(echo.id, echo);
+  async createEcho(echo: WhisperEchoInput): Promise<boolean> {
+    if (this.echoes.has(echo.id)) return false;
+    this.echoes.set(echo.id, echo);
+    return true;
   }
 
   async deleteEcho(id: string, authorPubkeyHash: string): Promise<boolean> {
@@ -1354,6 +1552,7 @@ class MemoryWhisperRepository implements WhisperRepository {
         deletedAt: Date.now()
       };
       delete tombstone.replyToName;
+      delete tombstone.mentions;
       this.reflections.set(id, tombstone);
       return "soft";
     }
@@ -1428,7 +1627,8 @@ class MemoryWhisperRepository implements WhisperRepository {
       likedByViewer: likes.has(viewerPubkeyHash),
       replyCount,
       ...(reflection.parentId ? { parentId: reflection.parentId } : {}),
-      ...(reflection.replyToName ? { replyToName: reflection.replyToName } : {})
+      ...(reflection.replyToName ? { replyToName: reflection.replyToName } : {}),
+      ...(reflection.deletedAt ? {} : withMentions(reflection.mentions))
     };
   }
 
@@ -1479,6 +1679,7 @@ class MemoryWhisperRepository implements WhisperRepository {
       echoCount: likes.size,
       echoedByViewer: likes.has(viewerPubkeyHash),
       id: echo.id,
+      ...withMentions(echo.mentions),
       reflectionCount: live.length,
       reflections: preview.map((reflection) =>
         this.reflectionView(reflection, viewerPubkeyHash)
@@ -1627,6 +1828,7 @@ class MemoryWhisperRepository implements WhisperRepository {
         profile?.createdAt ??
         (Number.isFinite(firstEchoAt) ? firstEchoAt : null),
       likesReceived,
+      mentionPrivacy: profile?.mentionPrivacy ?? "everyone",
       pubkey: profile?.pubkey ?? "",
       pubkeyHash,
       reflectionCount: authoredReflections.length,
@@ -1640,6 +1842,7 @@ class MemoryWhisperRepository implements WhisperRepository {
     this.profiles.set(profile.pubkeyHash, {
       ...profile,
       createdAt: existing?.createdAt ?? profile.createdAt,
+      mentionPrivacy: profile.mentionPrivacy ?? existing?.mentionPrivacy ?? "everyone",
       // The relay-verified pubkey must survive profile edits that omit it.
       pubkey: profile.pubkey || existing?.pubkey || ""
     });
@@ -1664,11 +1867,77 @@ class MemoryWhisperRepository implements WhisperRepository {
       displayName,
       dmPrivacy: "everyone",
       institution: "",
+      mentionPrivacy: "everyone",
       pubkey,
       pubkeyHash,
       showActivity: true,
       showLikes: true
     });
+  }
+
+  async resolveMentions(
+    authorPubkeyHash: string,
+    body: string,
+    requested: readonly string[]
+  ): Promise<WhisperMention[]> {
+    const targets = new Map<string, MentionTarget>();
+    for (const pubkeyHash of uniqueMentionRequests(requested)) {
+      const profile = this.profiles.get(pubkeyHash);
+      if (!profile) continue;
+      targets.set(pubkeyHash, {
+        displayName: profile.displayName,
+        followsAuthor: this.follows.get(pubkeyHash)?.has(authorPubkeyHash) ?? false,
+        mentionPrivacy: profile.mentionPrivacy ?? "everyone"
+      });
+    }
+    return selectMentions(authorPubkeyHash, body, requested, targets);
+  }
+
+  async searchMentionCandidates(
+    viewerPubkeyHash: string,
+    query: string,
+    limit: number
+  ): Promise<WhisperMentionCandidate[]> {
+    const needle = query.trimStart().toLowerCase();
+    const viewerFollows = this.follows.get(viewerPubkeyHash) ?? new Set<string>();
+    const ranked: Array<WhisperMentionCandidate & { followsViewer: boolean; prefix: boolean }> =
+      [];
+    for (const profile of this.profiles.values()) {
+      if (profile.pubkeyHash === viewerPubkeyHash || !profile.displayName) continue;
+      const followsViewer =
+        this.follows.get(profile.pubkeyHash)?.has(viewerPubkeyHash) ?? false;
+      const privacy = profile.mentionPrivacy ?? "everyone";
+      if (privacy === "none" || (privacy === "following" && !followsViewer)) continue;
+      const followedByViewer = viewerFollows.has(profile.pubkeyHash);
+      const name = profile.displayName.toLowerCase();
+      const prefix = name.startsWith(needle);
+      const matches = needle
+        ? prefix || name.includes(` ${needle}`)
+        : followedByViewer || followsViewer;
+      if (!matches) continue;
+      ranked.push({
+        displayName: profile.displayName,
+        followedByViewer,
+        followsViewer,
+        prefix,
+        pubkeyHash: profile.pubkeyHash
+      });
+    }
+    const rank = (flag: boolean): number => (flag ? 0 : 1);
+    return ranked
+      .sort(
+        (a, b) =>
+          rank(a.followedByViewer) - rank(b.followedByViewer) ||
+          rank(a.followsViewer) - rank(b.followsViewer) ||
+          rank(a.prefix) - rank(b.prefix) ||
+          a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase())
+      )
+      .slice(0, limit)
+      .map(({ displayName, followedByViewer, pubkeyHash }) => ({
+        displayName,
+        followedByViewer,
+        pubkeyHash
+      }));
   }
 
   async setFollow(

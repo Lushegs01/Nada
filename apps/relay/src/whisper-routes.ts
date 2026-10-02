@@ -9,6 +9,7 @@ import {
   WhisperFollowListRequestSchema,
   WhisperFollowRequestSchema,
   WhisperLikedEchoesRequestSchema,
+  WhisperMentionSearchRequestSchema,
   WhisperProfileGetRequestSchema,
   WhisperProfileUpdateRequestSchema,
   WhisperPublishRequestSchema,
@@ -35,6 +36,7 @@ import {
 const FEED_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 const DEFAULT_REFLECTION_PAGE = 25;
 const DEFAULT_NOTIFICATION_PAGE = 50;
+const DEFAULT_MENTION_SUGGESTIONS = 8;
 /**
  * Granularity of the default feed window's lower bound. Without this the bound
  * is `Date.now() - FEED_WINDOW_MS`, a value that changes every millisecond, so
@@ -139,12 +141,18 @@ export async function registerWhisperRoutes(
         reason: verification.reason
       });
     }
-    await repository.createEcho({
+    const mentions = await repository.resolveMentions(
+      result.data.author,
+      result.data.body,
+      result.data.mentions ?? []
+    );
+    const created = await repository.createEcho({
       authorName: result.data.authorName,
       authorPubkeyHash: result.data.author,
       body: result.data.body,
       createdAt: result.data.timestamp,
-      id: result.data.id
+      id: result.data.id,
+      ...(mentions.length > 0 ? { mentions } : {})
     });
     // The proof's pubkey is relay-verified (it hashes to the author). Capture
     // it so other ghosts can open an encrypted DM lane from this profile.
@@ -162,7 +170,24 @@ export async function registerWhisperRoutes(
       sourceEntityId: result.data.id,
       occurredAtMs: result.data.timestamp
     });
-    return reply.send({ success: true });
+    // Only a write that created the Echo notifies. A replay of an existing id
+    // stores nothing, so its tags would point people at text that never
+    // tagged them.
+    if (created && mentions.length > 0) {
+      const preview = notificationPreview(result.data.body);
+      for (const mention of mentions) {
+        await notify({
+          actorName: result.data.authorName,
+          actorPubkeyHash: result.data.author,
+          createdAt: result.data.timestamp,
+          echoId: result.data.id,
+          kind: "mention",
+          preview,
+          recipientPubkeyHash: mention.pubkeyHash
+        });
+      }
+    }
+    return reply.send({ success: true, mentions: created ? mentions : [] });
   });
 
   // Delete an Echo (only the author may delete their own). Cascades replies,
@@ -218,6 +243,11 @@ export async function registerWhisperRoutes(
         reason: verification.reason
       });
     }
+    const mentions = await repository.resolveMentions(
+      result.data.author,
+      result.data.body,
+      result.data.mentions ?? []
+    );
     const created = await repository.addReflection({
       authorName: result.data.authorName,
       authorPubkeyHash: result.data.author,
@@ -226,7 +256,8 @@ export async function registerWhisperRoutes(
       echoId: result.data.echoId,
       id: result.data.id,
       ...(result.data.parentId ? { parentId: result.data.parentId } : {}),
-      ...(result.data.replyToName ? { replyToName: result.data.replyToName } : {})
+      ...(result.data.replyToName ? { replyToName: result.data.replyToName } : {}),
+      ...(mentions.length > 0 ? { mentions } : {})
     });
     if (!created.created) {
       return reply
@@ -269,7 +300,11 @@ export async function registerWhisperRoutes(
       preview,
       reflectionId: result.data.id
     };
+    // One notification per person per reflection, most specific kind first:
+    // a reply to your reflection says "replied" even if it also tags you.
+    const notified = new Set<string>();
     if (created.parentAuthorPubkeyHash) {
+      notified.add(created.parentAuthorPubkeyHash);
       await notify({
         ...base,
         kind: "reply",
@@ -282,17 +317,26 @@ export async function registerWhisperRoutes(
     ) {
       // An explicit "@name" of the Echo's author upgrades the notification to
       // a mention — anonymity holds because only public handles are involved.
-      const mentionsEchoAuthor = Boolean(
-        created.echoAuthorName &&
-          result.data.body.toLowerCase().includes(`@${created.echoAuthorName.toLowerCase()}`)
-      );
+      const echoAuthor = created.echoAuthorPubkeyHash;
+      const mentionsEchoAuthor =
+        mentions.some((mention) => mention.pubkeyHash === echoAuthor) ||
+        Boolean(
+          created.echoAuthorName &&
+            result.data.body.toLowerCase().includes(`@${created.echoAuthorName.toLowerCase()}`)
+        );
+      notified.add(echoAuthor);
       await notify({
         ...base,
         kind: mentionsEchoAuthor ? "mention" : "reflect",
-        recipientPubkeyHash: created.echoAuthorPubkeyHash
+        recipientPubkeyHash: echoAuthor
       });
     }
-    return reply.send({ success: true });
+    for (const mention of mentions) {
+      if (notified.has(mention.pubkeyHash)) continue;
+      notified.add(mention.pubkeyHash);
+      await notify({ ...base, kind: "mention", recipientPubkeyHash: mention.pubkeyHash });
+    }
+    return reply.send({ success: true, mentions });
   });
 
   // Read one Echo's threaded replies, newest top-level first. Each page of
@@ -633,9 +677,31 @@ export async function registerWhisperRoutes(
       pubkey: result.data.proof.pubkey,
       pubkeyHash: result.data.author,
       showActivity: result.data.showActivity,
-      showLikes: result.data.showLikes ?? true
+      showLikes: result.data.showLikes ?? true,
+      ...(result.data.mentionPrivacy ? { mentionPrivacy: result.data.mentionPrivacy } : {})
     });
     return reply.send({ success: true });
+  });
+
+  // Suggestions for the "@" tag picker: ghosts the viewer may tag, matched on
+  // the start of any word of their name. Public read like the profile card —
+  // names are already public — and it never lists a ghost whose privacy
+  // would refuse the tag. That check uses the asserted viewer, which is fine
+  // for suggestions; the write path re-checks against the proven author.
+  app.post("/api/v1/whispers/mentions/search", async (request, reply) => {
+    const result = WhisperMentionSearchRequestSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({
+        code: "invalid_mention_search",
+        message: "Invalid mention search."
+      });
+    }
+    const candidates = await repository.searchMentionCandidates(
+      result.data.viewerPubkeyHash,
+      result.data.query,
+      result.data.limit ?? DEFAULT_MENTION_SUGGESTIONS
+    );
+    return reply.send({ candidates });
   });
 
   // A profile's authored Reflections (public read, "Reflects" tab).

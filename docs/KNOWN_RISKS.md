@@ -183,6 +183,37 @@ Manual verification: Before adding any endpoint that takes a pubkey hash and
 returns private data, confirm it verifies an identity proof bound to the
 caller.
 
+## Whisper Tagging
+
+Risk: Echoes and Reflections can tag ("@name") other ghosts. The relay labels
+each tag with the tagged ghost's own public display name, only tags identities
+that have a Whispers profile, enforces each ghost's "Who can tag you" setting
+against the proven author, and keeps a tag only when it is visible in the text.
+Four limits remain:
+
+- The "@" picker (`/api/v1/whispers/mentions/search`) takes the viewer it
+  filters for on trust, like the other public reads. A client claiming another
+  identity learns whether a 'following'-only ghost would accept a tag from it —
+  the same fact the public follow lists already expose. Writes re-check against
+  the identity proof, so this cannot produce a tag.
+- Display names are not unique. A tag links to the right identity, but two
+  ghosts called the same thing render the same text; the link, not the name,
+  says who was tagged.
+- Blocking is local to the device, so the relay does not know about it. A ghost
+  you blocked is never offered by your picker, but can still tag you, and that
+  notification still reaches you — as their likes and replies already do.
+- The picker matches from the start of any word of a name, which scans
+  `whisper_profiles` rather than using the prefix index. Requests are debounced
+  and rate limited, and the scan returns a handful of rows.
+
+What breaks if wrong: Tags could label someone with a name they never chose,
+drag a private chat identity into the public feed, or notify people about posts
+that do not visibly tag them.
+Manual verification: `apps/relay/tests/whisper-mentions.test.ts` covers each
+rule against both backends; run it with `TEST_DATABASE_URL` set. If profile
+counts grow large enough for the picker scan to show up in query latency, add
+a `pg_trgm` index on `lower(display_name)`.
+
 ## Signal Adapter
 
 Risk: `@signalapp/libsignal-client` licensing, native loading, and browser

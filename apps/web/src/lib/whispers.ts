@@ -10,12 +10,15 @@ import type {
   WhisperDmPrivacy,
   WhisperEcho,
   WhisperFollowEntry,
+  WhisperMentionCandidate,
+  WhisperMentionPrivacy,
   WhisperNotification,
   WhisperNotificationKind,
   WhisperProfile,
   WhisperReflection,
   WhisperRippleSource
 } from "@/utils/dashboard-types";
+import { parseMentions } from "@nada/types";
 
 export function whispersRelayConfigured(): boolean {
   return Boolean(getRelayHttpBaseUrl());
@@ -30,6 +33,7 @@ type RelayReflection = {
   id: string;
   likeCount?: number;
   likedByViewer?: boolean;
+  mentions?: unknown;
   parentId?: string;
   replyCount?: number;
   replyToName?: string;
@@ -43,6 +47,7 @@ type RelayEcho = {
   echoCount: number;
   echoedByViewer: boolean;
   id: string;
+  mentions?: unknown;
   reflectionCount?: number;
   reflections: RelayReflection[];
   rippleCount: number;
@@ -74,12 +79,19 @@ type RelayProfile = {
   institution: string;
   joinedAt: number | null;
   likesReceived: number;
+  mentionPrivacy?: WhisperMentionPrivacy;
   pubkey?: string;
   pubkeyHash: string;
   reflectionCount: number;
   showActivity: boolean;
   showLikes?: boolean;
 };
+
+/** Present only when there is at least one tag, matching the relay's views. */
+function withMentions(raw: unknown): Pick<WhisperEcho, "mentions"> {
+  const mentions = parseMentions(raw);
+  return mentions.length > 0 ? { mentions } : {};
+}
 
 function mapReflection(reflection: RelayReflection): WhisperReflection {
   return {
@@ -93,6 +105,7 @@ function mapReflection(reflection: RelayReflection): WhisperReflection {
     replyCount: reflection.replyCount ?? 0,
     ...(reflection.parentId ? { parentId: reflection.parentId } : {}),
     ...(reflection.replyToName ? { replyToName: reflection.replyToName } : {}),
+    ...withMentions(reflection.mentions),
     ...(reflection.deleted ? { deleted: true } : {})
   };
 }
@@ -109,6 +122,7 @@ function mapEcho(echo: RelayEcho): WhisperEcho {
     echoCount: echo.echoCount,
     echoedByMe: echo.echoedByViewer,
     id: echo.id,
+    ...withMentions(echo.mentions),
     reflectionCount: echo.reflectionCount ?? reflections.length,
     reflections,
     rippleCount: echo.rippleCount,
@@ -235,6 +249,8 @@ export async function publishEchoRemote(input: {
   authorName: string;
   body: string;
   id: string;
+  /** Identities to tag. The relay labels each with that ghost's own name. */
+  mentions?: string[];
   timestamp: number;
 }): Promise<boolean> {
   const proof = await useIdentityStore.getState().signProof("whisper-publish", input.id);
@@ -257,6 +273,8 @@ export async function reflectRemote(input: {
   body: string;
   echoId: string;
   id: string;
+  /** Identities to tag. The relay labels each with that ghost's own name. */
+  mentions?: string[];
   parentId?: string;
   replyToName?: string;
   timestamp: number;
@@ -340,6 +358,7 @@ export async function queryWhisperProfile(
     institution: profile.institution,
     joinedAt: profile.joinedAt,
     likesReceived: profile.likesReceived,
+    mentionPrivacy: profile.mentionPrivacy ?? "everyone",
     pubkey: profile.pubkey ?? "",
     pubkeyHash: profile.pubkeyHash,
     reflectionCount: profile.reflectionCount,
@@ -355,6 +374,7 @@ export async function updateWhisperProfileRemote(input: {
   displayName: string;
   dmPrivacy: WhisperDmPrivacy;
   institution: string;
+  mentionPrivacy: WhisperMentionPrivacy;
   showActivity: boolean;
   showLikes: boolean;
   timestamp: number;
@@ -428,6 +448,24 @@ export async function queryFollowList(
   );
   if (!data) return null;
   return data.entries ?? [];
+}
+
+/**
+ * Ghosts the "@" picker may offer for `query` (the text typed after "@"), or
+ * null when the relay is unreachable. The relay only returns ghosts whose
+ * privacy accepts a tag from this viewer.
+ */
+export async function searchMentionCandidatesRemote(
+  viewerPubkeyHash: string,
+  query: string,
+  limit = 8
+): Promise<WhisperMentionCandidate[] | null> {
+  const data = await postJson<{ candidates?: WhisperMentionCandidate[] }>(
+    "/api/v1/whispers/mentions/search",
+    { viewerPubkeyHash, query, limit }
+  );
+  if (!data) return null;
+  return data.candidates ?? [];
 }
 
 export async function setFollowRemote(input: {
