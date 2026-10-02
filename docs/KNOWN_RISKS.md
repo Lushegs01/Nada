@@ -227,9 +227,8 @@ inside the ciphertext, so the relay sees neither. Four limits remain:
 - A member who has never sent a message since this shipped has no name yet.
   They are offered and tagged by their `ghost·…` handle instead.
 - The "@" list offers your local member list, because that is who your
-  message reaches. Existing members never learn about someone who joined
-  through an invite link, so that person is not offered — and does not receive
-  their messages at all, tag or no tag.
+  message reaches. Someone who joined through an invite link is on it once
+  their "joined the group" message has reached you.
 - Members on older clients see the text of a tag but no highlight or alert,
   and send no names or tags of their own.
 
@@ -276,23 +275,53 @@ reject a stale `customer.subscription.updated` arriving after a `deleted`.
 
 ## Group Key Rotation Is Manual
 
-Risk: Rotation exists ("Reset group key", owner-only) but nothing triggers it
-automatically, and there is no member-removal UI to trigger it from.
+Risk: Rotation ("Reset group key", owner-only) is also how the owner removes
+members — the dialog lets them untick anyone — but nothing triggers it
+automatically.
 What breaks if wrong: A leaked invite link, or someone who should no longer be
-in the group, keeps reading until an owner remembers to rotate.
-Manual verification: Confirm the group menu exposes the reset action and that
-its copy explains what it revokes. Automatic rotation on membership change is
-the remaining work, and needs a membership-management surface first.
+in the group, keeps reading until the owner resets the key without them.
+Manual verification: Confirm the group menu exposes the reset action, that its
+dialog explains what it revokes, and that `apps/web/tests/group-invite-join.spec.ts`
+still shows a removed member cut off.
 
 ## Group Invite Links
 
 Risk: Group invites carry the sender key in the URL, so the link is the group
-credential.
+credential: whoever opens a current link joins, and every member's device
+admits them.
 What breaks if wrong: Anyone who obtains a forwarded invite link can decrypt
-messages sent after they join.
+messages sent after they join, and members start sending to them.
 Manual verification: Confirm invite-sharing copy says the link admits its
 holder. Replace with authenticated admission and per-member key delivery before
 treating group membership as access control.
+
+## Group Membership Is Decided On Each Device
+
+Risk: There is no membership authority. Each device admits members, accepts
+keys and takes member lists by the rules in
+`apps/web/src/lib/group-membership.ts`, and those rules only hold for devices
+that run them. Four limits remain:
+
+- Older clients accept a new key from anyone, never admit someone who joined
+  by link, and ignore the owner's member list on a reset, so they go on
+  sealing the new key to everyone on their old list. A removal only holds
+  once every remaining member runs this version.
+- A device that joins a group through a message, rather than a link, takes
+  that message's sender as the owner. The owner writes first, so this is the
+  owner unless delivery reorders the first messages; a device that got it
+  wrong ignores the real owner's resets.
+- A joiner's "joined the group" message is queued if they are offline and
+  goes out when they reconnect; until then members do not send to them.
+- A member's message under a new key that arrives before the owner's reset
+  message is shown as undecryptable.
+
+What breaks if wrong: Someone who joined by link misses messages, someone the
+owner removed keeps reading, or a stranger who knows a group's id takes over
+its key.
+Manual verification: `apps/web/tests/group-membership.test.ts` covers the rules
+and `apps/web/tests/group-invite-join.test.ts` the receive path on a real
+database; `apps/web/tests/group-invite-join.spec.ts` drives three devices
+through joining by link and removal against a running relay.
 
 ## Relay-Trusted Group Fan-Out
 
@@ -301,8 +330,9 @@ supplies; it holds no group membership state.
 What breaks if wrong: A malicious client can address a "group message" to
 arbitrary identities. Three things bound it: the payload is encrypted under a
 key those identities do not hold, the client only *admits* a new group when it
-was sealed a key for it, and the socket budget is charged per delivery rather
-than per envelope. None of these is membership control.
+was sealed a key for it (and drops a non-member's message unless it is written
+under the group's current key), and the socket budget is charged per delivery
+rather than per envelope. None of these is membership control.
 Manual verification: Confirm the 512-recipient schema cap, the per-delivery
 fan-out charge, and the client-side admission check are all in force before
 treating group fan-out as abuse-resistant.

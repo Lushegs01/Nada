@@ -25,8 +25,9 @@ What that does **not** cover, stated plainly because the difference matters:
   it routes on exactly that.
 - **No IP anonymity.** A browser PWA does not control network routing.
 - **An invite link carries the group key** — the link is the group credential.
-  "Reset group key" mints a new epoch sealed to current members only, which is
-  what revokes a leaked link.
+  Whoever opens it joins, and every member's device admits them. "Reset group
+  key" mints a new epoch sealed only to the members the owner keeps, which is
+  what revokes a leaked link or removes someone.
 - **Forward secrecy costs recoverability.** Prekey private halves are not
   derived from the seed phrase, so an identity restored on a new device cannot
   open messages queued for the old one. That is the property working, not a
@@ -80,10 +81,10 @@ pnpm --filter web build && pnpm --filter web start &
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 pnpm --filter web test:e2e
 ```
 
-It skips when `PLAYWRIGHT_BASE_URL` is unset. The two tagging journeys (Whispers
-and group chats) also need a relay: build the app with `NEXT_PUBLIC_RELAY_URL`
-pointing at a running relay and set `PLAYWRIGHT_RELAY_URL` to the same address,
-or they skip. Set `PLAYWRIGHT_CHROMIUM_PATH` when the environment ships its own
+It skips when `PLAYWRIGHT_BASE_URL` is unset. The journeys that send messages
+(the two tagging journeys and joining a group by link) also need a relay: build
+the app with `NEXT_PUBLIC_RELAY_URL` pointing at a running relay and set
+`PLAYWRIGHT_RELAY_URL` to the same address, or they skip. Set `PLAYWRIGHT_CHROMIUM_PATH` when the environment ships its own
 Chromium rather than the build Playwright downloads. The suite runs on a
 desktop and a mobile viewport — NADA is phone-first, so a layout that only
 works on a desktop is a broken product.
@@ -180,7 +181,8 @@ not contact the relay, anonymous local storage, or NADA's database.
 
 Working end to end: anonymous identity and seed-phrase recovery, invite links
 and QR sharing, encrypted direct and group messaging with offline queueing and
-reconnect replay, group member names and "@" tagging inside the encryption,
+reconnect replay, joining a group by link, removing members with a key reset,
+group member names and "@" tagging inside the encryption,
 replies, reactions, edits, unsend, disappearing timers,
 search, encrypted media, vanishing statuses shared with a chosen audience, the
 public Whispers feed with threads, profiles and "@" tagging (with a per-ghost
@@ -193,9 +195,12 @@ Known gaps, in priority order:
    no ratchet, so a device compromised *now* stays readable until its prekeys
    rotate. Closing this means a Double Ratchet or the Signal adapter.
 2. **Group fan-out is sender-driven.** The relay holds no group membership, so
-   it delivers to whatever recipient list a sender supplies. The client only
-   admits a group it was sealed a key for, and the fan-out budget is charged
-   per delivery, but this is not membership control.
+   it delivers to whatever recipient list a sender supplies. Each device
+   decides membership for itself: it only admits a group it was sealed a key
+   for, a member who writes under the group's current key, and a new key or
+   member list from the group's owner. The fan-out budget is charged per
+   delivery. This is not server-enforced membership, and members on older
+   clients do not follow these rules (see `docs/KNOWN_RISKS.md`).
 3. **Group media downloads.** Direct media is authorized to its two parties;
    group media falls back to "any authenticated identity that knows the object
    id", because the relay cannot check membership it does not hold.

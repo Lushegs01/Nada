@@ -178,6 +178,9 @@ test("a group member tags another, who is told even with the group muted", async
   await alice.getByPlaceholder("Group name").fill(groupTitle);
   await alice.getByRole("checkbox").last().check();
   await alice.getByRole("button", { name: "Create group" }).click();
+  // Typing before the new group has opened would write to the chat that was
+  // open before it, the direct chat with Bob.
+  await expect(alice.getByRole("heading", { level: 2, name: groupTitle })).toBeVisible();
   await send(alice, "hello team");
 
   // Bob is in. A group joined through a message rather than an invite link

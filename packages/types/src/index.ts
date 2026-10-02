@@ -86,7 +86,13 @@ export const MessagePayloadSchema = z.object({
   /** What the sender calls themselves, so group members can name each other. */
   senderName: z.string().trim().min(1).max(80).optional().catch(undefined),
   /** Who this message tags, in the order they appear in the text. */
-  mentions: z.array(MentionSchema).max(MAX_MENTIONS).optional().catch(undefined)
+  mentions: z.array(MentionSchema).max(MAX_MENTIONS).optional().catch(undefined),
+  /**
+   * The group's member list for a new key epoch. Only the owner's reset
+   * message counts: receivers adopt it with the new key, so nobody goes on
+   * sealing that key to someone the owner removed.
+   */
+  members: z.array(PubkeyHashSchema).max(512).optional().catch(undefined)
 });
 
 // devPlaintext: dev-only debug field that ships plaintext alongside ciphertext

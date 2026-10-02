@@ -242,6 +242,7 @@ export function ChatPanel({
       onSendPoll,
       onForward,
       memberLabels,
+      groupMembers,
       onSearchMentions
     }: {
           canAttachFile: boolean;
@@ -259,7 +260,8 @@ export function ChatPanel({
           onCancelReply: () => void;
           onCopyGroupInvite: () => void;
           onDeleteGroup: () => void;
-          onResetGroupKey: () => void;
+          /** `keep`: the members, besides the owner, who get the new key. */
+          onResetGroupKey: (keep: string[]) => void;
           onDisappearingTimerChange: (value: number) => void;
           onEditMessage: (message: MessageRecord) => void;
           onMessageSearchChange: (value: string) => void;
@@ -305,6 +307,8 @@ export function ChatPanel({
           contacts: ContactRecord[];
           /** Groups: what each member is called on this screen. */
           memberLabels?: Record<string, string> | undefined;
+          /** Groups: who the group is sent to. */
+          groupMembers?: readonly string[] | undefined;
           /** Groups: suggestions for the "@" tag picker. */
           onSearchMentions?: MentionSearch | undefined;
         }): JSX.Element {
@@ -321,6 +325,8 @@ export function ChatPanel({
     const [showBlockModal, setShowBlockModal] = useState(false);
     const [showProfilePanel, setShowProfilePanel] = useState(false);
     const [showVerifyKeyModal, setShowVerifyKeyModal] = useState(false);
+    /** Open while the owner picks who keeps the group: the members to keep. */
+    const [resetKeepers, setResetKeepers] = useState<ReadonlySet<string> | null>(null);
     const [toast, setToast] = useState<string | null>(null);
     const [deleteSheetMessageId, setDeleteSheetMessageId] = useState<string | null>(null);
     const [messageText, setMessageText] = useState("");
@@ -389,6 +395,7 @@ export function ChatPanel({
       showBlockModal ||
       showProfilePanel ||
       showVerifyKeyModal ||
+      resetKeepers !== null ||
       deleteSheetMessageId !== null ||
       messageMenu !== null ||
       attachmentMenuOpen ||
@@ -403,6 +410,7 @@ export function ChatPanel({
       else if (showBlockModal) setShowBlockModal(false);
       else if (showProfilePanel) setShowProfilePanel(false);
       else if (showVerifyKeyModal) setShowVerifyKeyModal(false);
+      else if (resetKeepers !== null) setResetKeepers(null);
       else if (deleteSheetMessageId !== null) setDeleteSheetMessageId(null);
       else if (messageMenu !== null) setMessageMenu(null);
       else if (attachmentMenuOpen) setAttachmentMenuOpen(false);
@@ -418,6 +426,7 @@ export function ChatPanel({
     showBlockModal,
     showProfilePanel,
     showVerifyKeyModal,
+    resetKeepers,
     deleteSheetMessageId,
     messageMenu,
     attachmentMenuOpen,
@@ -1023,14 +1032,16 @@ export function ChatPanel({
                           className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-nada-primary hover:bg-nada-surface-elevated/40 transition-colors"
                           onClick={() => {
                             setShowOptions(false);
-                            onResetGroupKey();
+                            setResetKeepers(
+                              new Set((groupMembers ?? []).filter((member) => member !== myPubkeyHash))
+                            );
                           }}
                         >
                           <Lock size={14} className="text-nada-secondary" />
                           <span className="flex flex-col">
                             <span>Reset group key</span>
                             <span className="text-[11px] leading-tight text-nada-secondary/70">
-                              Revokes older invite links
+                              Revokes older invite links, removes members
                             </span>
                           </span>
                         </button>
@@ -1422,6 +1433,76 @@ export function ChatPanel({
                   }}
                 >
                   Clear chat
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Reset group key: the owner chooses who keeps the group */}
+      <AnimatePresence>
+        {resetKeepers !== null && isGroup && (
+          <motion.div
+            className="fixed inset-0 z-[900] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setResetKeepers(null)} />
+            <motion.div
+              aria-labelledby="reset-group-key-title"
+              aria-modal="true"
+              className="relative z-10 flex max-h-[85vh] w-full max-w-sm flex-col rounded-2xl bg-nada-surface border border-nada-border/10 p-6 shadow-2xl"
+              initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+              role="dialog"
+            >
+              <h3 id="reset-group-key-title" className="text-lg font-semibold text-nada-primary mb-2">Reset group key</h3>
+              <p className="text-sm text-nada-secondary mb-4">
+                Only the people ticked get the new key. Anyone you untick, and anyone holding an older invite link, can&apos;t read what is sent from now on.
+              </p>
+              {(groupMembers ?? []).some((member) => member !== myPubkeyHash) ? (
+                <fieldset className="-mx-2 mb-5 min-h-0 overflow-y-auto">
+                  <legend className="sr-only">Members who keep the group</legend>
+                  {(groupMembers ?? [])
+                    .filter((member) => member !== myPubkeyHash)
+                    .map((member) => (
+                      <label
+                        key={member}
+                        className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm text-nada-primary hover:bg-nada-surface-elevated/40"
+                      >
+                        <input
+                          checked={resetKeepers.has(member)}
+                          className="h-4 w-4 accent-[rgb(var(--nada-accent))]"
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            setResetKeepers((current) => {
+                              const next = new Set(current);
+                              if (checked) next.add(member);
+                              else next.delete(member);
+                              return next;
+                            });
+                          }}
+                          type="checkbox"
+                        />
+                        <span className="min-w-0 truncate">{nameOf(member) ?? `${member.slice(0, 8)}…`}</span>
+                      </label>
+                    ))}
+                </fieldset>
+              ) : null}
+              <div className="flex gap-3">
+                <button
+                  className="flex-1 rounded-xl px-4 py-2.5 text-sm text-nada-secondary bg-nada-muted hover:bg-nada-border/40 transition-colors"
+                  onClick={() => setResetKeepers(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-nada-bg bg-nada-accent hover:bg-nada-accent/90 transition-colors"
+                  onClick={() => {
+                    onResetGroupKey([...resetKeepers]);
+                    setResetKeepers(null);
+                  }}
+                >
+                  Reset key
                 </button>
               </div>
             </motion.div>
@@ -1931,6 +2012,34 @@ export function ChatPanel({
                       ? <Video size={12} />
                       : <Phone size={12} />}
                     {label}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          // Something that happened to the group — someone joining, the owner
+          // resetting the key. The text is what its sender did, so it reads
+          // after their name.
+          const systemText =
+            isGroup && message.kind === "system"
+              ? decodeMessagePayload(message.body)?.text
+              : undefined;
+          if (systemText) {
+            return (
+              <div key={message.id} ref={(el) => setMessageRef(message.id, el)} className="px-3">
+                {showDateSep && (
+                  <div className="flex justify-center py-3">
+                    <span className="nada-date-pill">
+                      {new Date(message.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-center py-2">
+                  <div
+                    className="max-w-[85%] rounded-full border border-nada-border/12 px-4 py-1.5 text-center text-[11.5px] font-medium text-nada-secondary/70"
+                    style={{ background: "rgb(var(--nada-surface-elevated) / 0.5)" }}
+                  >
+                    {nameOf(message.senderPubkeyHash) ?? "Someone"} {systemText}
                   </div>
                 </div>
               </div>
