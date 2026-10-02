@@ -17,7 +17,7 @@ import { decryptDirectBody, groupKeyForEpoch, isKeyForIdentity, learnPeerPublicK
 import {} from "@/lib/media-message";
 import { decryptGroupMessage, __UNSAFE_mockDecryptMessage } from "@nada/crypto";
 import type { MessageRecord, ContactRecord, IdentityRecord, ChatRecord } from "@nada/db";
-import type { InvitePayload, GroupInvitePayload, MessageEnvelope, GroupMessageEnvelope } from "@nada/types";
+import { parseMentions, type InvitePayload, type GroupInvitePayload, type MessageEnvelope, type GroupMessageEnvelope } from "@nada/types";
 
 export function mergeMessageRecords(...groups: MessageRecord[][]): MessageRecord[] {
     const byId = new Map<string, MessageRecord>();
@@ -297,6 +297,12 @@ export function parseCommunityRecords(raw: string | null): CommunityRecord[] {
     }
 }
 
+// Tags from the local feed cache. Caches written before tagging have none.
+function cachedMentions(raw: unknown): Pick<WhisperEcho, "mentions"> {
+    const mentions = parseMentions(raw);
+    return mentions.length > 0 ? { mentions } : {};
+}
+
 function parseWhisperReflections(raw: unknown): WhisperReflection[] {
     if (!Array.isArray(raw)) return [];
     return raw
@@ -328,6 +334,7 @@ function parseWhisperReflections(raw: unknown): WhisperReflection[] {
               : 0,
           ...(typeof r.parentId === "string" ? { parentId: r.parentId } : {}),
           ...(typeof r.replyToName === "string" ? { replyToName: r.replyToName } : {}),
+          ...cachedMentions(r.mentions),
           ...(r.deleted === true ? { deleted: true } : {})
         };
       })
@@ -376,6 +383,7 @@ export function parseWhisperEchoes(raw: string | null): WhisperEcho[] {
             typeof e.echoCount === "number" && e.echoCount >= 0 ? Math.floor(e.echoCount) : 0,
           echoedByMe: e.echoedByMe === true,
           id: e.id,
+          ...cachedMentions(e.mentions),
           // Older caches predate the reflectionCount counter — fall back to
           // the loaded list length so counts never regress to zero.
           reflectionCount:

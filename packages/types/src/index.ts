@@ -15,6 +15,7 @@ export {
 } from "./primitives";
 export type { IdentityProof } from "./primitives";
 export * from "./contest";
+export * from "./mentions";
 
 export const MessageKindSchema = z.enum([
   "text",
@@ -492,13 +493,41 @@ export const WhisperRippleSourceSchema = z.object({
   createdAt: z.number().int().positive()
 });
 
+// ── Tagging ("@name" mentions) ──────────────────────────────────────────────
+/** Most people one Echo or Reflection can tag. Bounds the notification fan-out. */
+export const WHISPER_MAX_MENTIONS = 10;
+
+/**
+ * Who a write asks to tag, by identity only. The relay resolves each identity
+ * to that person's public display name itself — a client never supplies the
+ * label a tag shows, so it cannot pin an arbitrary name to someone's profile.
+ */
+export const WhisperMentionsRequestSchema = z
+  .array(PubkeyHashSchema)
+  .max(WHISPER_MAX_MENTIONS);
+
+/** Who may tag a ghost: anyone, only people that ghost follows, or no one. */
+export const WhisperMentionPrivacySchema = z.enum(["everyone", "following", "none"]);
+
+/**
+ * Autocomplete for the "@" picker. Only returns ghosts the viewer is allowed
+ * to tag, so the picker never offers a tag the relay would then drop.
+ */
+export const WhisperMentionSearchRequestSchema = z.object({
+  viewerPubkeyHash: PubkeyHashSchema,
+  /** Text typed after "@". Empty lists the people the viewer follows. */
+  query: z.string().max(80),
+  limit: z.number().int().min(1).max(20).optional()
+});
+
 export const WhisperPublishRequestSchema = z.object({
   id: UuidSchema,
   author: PubkeyHashSchema,
   authorName: WhisperAuthorNameSchema,
   body: WhisperBodySchema,
   timestamp: z.number().int().positive(),
-  proof: IdentityProofSchema
+  proof: IdentityProofSchema,
+  mentions: WhisperMentionsRequestSchema.optional()
 });
 
 export const WhisperDeleteRequestSchema = z.object({
@@ -518,7 +547,8 @@ export const WhisperReflectRequestSchema = z.object({
   /** Immediate parent Reflection when this is a nested (threaded) reply. */
   parentId: UuidSchema.optional(),
   /** Anonymous handle of the parent author, preserved as an "@name" mention. */
-  replyToName: WhisperAuthorNameSchema.optional()
+  replyToName: WhisperAuthorNameSchema.optional(),
+  mentions: WhisperMentionsRequestSchema.optional()
 });
 
 export const WhisperReflectionQueryRequestSchema = z.object({
@@ -602,6 +632,8 @@ export const WhisperProfileUpdateRequestSchema = z.object({
   showActivity: z.boolean(),
   showLikes: z.boolean().optional(),
   dmPrivacy: WhisperDmPrivacySchema.optional(),
+  /** Absent keeps the stored setting, so an older client can't reset it. */
+  mentionPrivacy: WhisperMentionPrivacySchema.optional(),
   timestamp: z.number().int().positive(),
   proof: IdentityProofSchema
 });
@@ -764,6 +796,10 @@ export type WhisperProfileUpdateRequest = z.infer<
   typeof WhisperProfileUpdateRequestSchema
 >;
 export type WhisperDmPrivacy = z.infer<typeof WhisperDmPrivacySchema>;
+export type WhisperMentionPrivacy = z.infer<typeof WhisperMentionPrivacySchema>;
+export type WhisperMentionSearchRequest = z.infer<
+  typeof WhisperMentionSearchRequestSchema
+>;
 export type WhisperAuthorReflectionsRequest = z.infer<
   typeof WhisperAuthorReflectionsRequestSchema
 >;

@@ -8,7 +8,7 @@ import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
 import { ensurePrekeysPublished } from "@/lib/prekey-store";
 import { encryptDirectBody, isKeyForIdentity, rotateGroupKey, sealKeyForMembers, storeGroupKey } from "@/lib/message-crypto";
-import { whispersRelayConfigured, queryWhisperFeed, FEED_UNCHANGED, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote } from "@/lib/whispers";
+import { whispersRelayConfigured, queryWhisperFeed, FEED_UNCHANGED, publishEchoRemote, deleteEchoRemote, reflectRemote, reactRemote, rippleRemote, queryWhisperReflections, deleteReflectionRemote, reactReflectionRemote, queryWhisperNotifications, markWhisperNotificationsReadRemote, searchMentionCandidatesRemote } from "@/lib/whispers";
 import type { CallMode, LocalCallSession } from "@/lib/webrtc";
 import { createLocalCallSession } from "@/lib/webrtc";
 import { dashboardActions, useDashboardStore } from "@/stores/useDashboardStore";
@@ -57,7 +57,7 @@ import {
 } from "@/lib/appearance";
 import { deleteLocalDatabase } from "@/lib/local-database";
 import { CHAT_FILTERS, isSecondaryTab, primaryTabFor, type ChatFilterId } from "@/lib/navigation";
-import { type NotificationSettings, type GlobalSearchResult, type ReportTarget, type WhisperEcho, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type GroupDeletePayload } from "@/utils/dashboard-types";
+import { type NotificationSettings, type GlobalSearchResult, type ReportTarget, type WhisperEcho, type WhisperMention, type WhisperMentionCandidate, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type GroupDeletePayload } from "@/utils/dashboard-types";
 
 // Store actions are stable for the life of the store, so they are bound once
 // here rather than subscribed to per render. See dashboardActions.
@@ -2689,7 +2689,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     // Every action updates local state optimistically for instant feedback, then
     // (when a relay is configured) writes through to the relay and re-syncs so
     // the change becomes visible to every other NADA user.
-    const postEcho = (body: string): void => {
+    // `mentions` are the ghosts tagged from the "@" picker. They show at once
+    // on the optimistic copy; the relay then keeps only the tags it accepts
+    // and notifies those ghosts, and the next sync shows its verdict.
+    const postEcho = (body: string, mentions: WhisperMention[] = []): void => {
             const text = body.trim();
             if (!text) return;
             const id = crypto.randomUUID();
@@ -2703,6 +2706,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               echoCount: 0,
               echoedByMe: false,
               id,
+              ...(mentions.length > 0 ? { mentions } : {}),
               reflectionCount: 0,
               reflections: [],
               rippleCount: 0,
@@ -2711,7 +2715,16 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             void saveWhispers([record, ...whispers]);
             showToast("Echo whispered to everyone.");
             if (whispersRelayConfigured()) {
-              void publishEchoRemote({ author: identity.pubkeyHash, authorName, body: text, id, timestamp })
+              void publishEchoRemote({
+                author: identity.pubkeyHash,
+                authorName,
+                body: text,
+                id,
+                timestamp,
+                ...(mentions.length > 0
+                  ? { mentions: mentions.map((mention) => mention.pubkeyHash) }
+                  : {})
+              })
                 .then((ok) => {
                   if (ok) void syncWhispersFromRelay();
                   else showToast("Couldn't reach the feed. Your Echo is saved locally.");
@@ -2740,6 +2753,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const addReflection = (
             echoId: string,
             body: string,
+            mentions: WhisperMention[] = [],
             parent?: { parentId: string; replyToName: string }
           ): void => {
             const text = body.trim();
@@ -2765,6 +2779,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                   likeCount: 0,
                   likedByMe: false,
                   replyCount: 0,
+                  ...(mentions.length > 0 ? { mentions } : {}),
                   ...(parent
                     ? { parentId: parent.parentId, replyToName: parent.replyToName }
                     : {})
@@ -2779,6 +2794,9 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 echoId,
                 id,
                 timestamp,
+                ...(mentions.length > 0
+                  ? { mentions: mentions.map((mention) => mention.pubkeyHash) }
+                  : {}),
                 ...(parent
                   ? { parentId: parent.parentId, replyToName: parent.replyToName }
                   : {})
@@ -3144,6 +3162,39 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     useEffect(() => {
     void refreshBlockedGhosts();
     }, [refreshBlockedGhosts, profileBlocked]);
+    // Suggestions for the Whispers "@" tag picker. With a relay it is the
+    // authority: it only offers ghosts whose privacy accepts a tag from you,
+    // so the picker never suggests a tag that would then be dropped. Without
+    // one (local-only mode) the authors already in the cached feed stand in.
+    // Either way nobody you have blocked is offered.
+    const localWhispersRef = useRef(whispers);
+    localWhispersRef.current = whispers;
+    const searchMentions = useCallback(
+            async (query: string): Promise<WhisperMentionCandidate[]> => {
+              const blocked = new Set(blockedGhosts);
+              if (whispersRelayConfigured()) {
+                const remote = await searchMentionCandidatesRemote(identity.pubkeyHash, query);
+                return (remote ?? []).filter((candidate) => !blocked.has(candidate.pubkeyHash));
+              }
+              const needle = query.trimStart().toLowerCase();
+              const seen = new Map<string, WhisperMentionCandidate>();
+              for (const echo of localWhispersRef.current) {
+                for (const author of [echo, ...echo.reflections]) {
+                  const hash = author.authorHash;
+                  if (!hash || hash === identity.pubkeyHash || blocked.has(hash)) continue;
+                  const name = author.authorName.toLowerCase();
+                  if (needle && !name.startsWith(needle) && !name.includes(` ${needle}`)) continue;
+                  seen.set(hash, {
+                    displayName: author.authorName,
+                    followedByViewer: false,
+                    pubkeyHash: hash
+                  });
+                }
+              }
+              return [...seen.values()].slice(0, 8);
+            },
+            [blockedGhosts, identity.pubkeyHash]
+          );
     const reportGhost = useCallback((profile: WhisperProfile): void => {
             setPendingReportTarget({
               id: profile.pubkeyHash,
@@ -4223,6 +4274,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               onLoadThread={loadWhisperThread}
               onOpenProfile={openWhisperProfile}
               onPostEcho={postEcho}
+              onSearchMentions={searchMentions}
               onReportEcho={(echo) => {
                 setPendingReportTarget({
                   id: echo.id,

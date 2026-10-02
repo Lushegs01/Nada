@@ -1,3 +1,5 @@
+import type { WhisperMention } from "@nada/types";
+
 export type Panel =
   | "billing"
   | "contacts"
@@ -198,6 +200,12 @@ export type CommunityDraft = {
 //   - a follower is a "Ghost"     (WhisperProfile.followerCount)
 // Reflections thread: parentId points at the reflection being replied to
 // (undefined = a top-level reply to the Echo itself).
+//
+// Echoes and Reflections can tag ("@name") other ghosts. `mentions` is the
+// relay's resolved list: each tag's identity plus the public name it showed
+// when written, which is the text after "@" that renders as a link.
+export type { WhisperMention };
+
 export type WhisperReflection = {
   authorHash: string;
   authorName: string;
@@ -207,6 +215,8 @@ export type WhisperReflection = {
   parentId?: string;
   /** Anonymous handle of the reply target, rendered as an "@name" mention. */
   replyToName?: string;
+  /** Ghosts this reflection tags. */
+  mentions?: WhisperMention[];
   /** Tombstone: deleted but kept as a placeholder because it has replies. */
   deleted?: boolean;
   likeCount: number;
@@ -238,6 +248,17 @@ export type WhisperNotification = {
 
 export type WhisperDmPrivacy = "everyone" | "ghosts" | "none";
 
+/** Who may tag a ghost: anyone, only people they follow, or no one. */
+export type WhisperMentionPrivacy = "everyone" | "following" | "none";
+
+/** A ghost the "@" picker can offer. */
+export type WhisperMentionCandidate = {
+  displayName: string;
+  /** You follow them; the picker lists these first. */
+  followedByViewer: boolean;
+  pubkeyHash: string;
+};
+
 export type WhisperProfile = {
   /** Small self-chosen data-URL image; empty = gradient identity orb. */
   avatar: string;
@@ -251,6 +272,7 @@ export type WhisperProfile = {
   institution: string;
   joinedAt: number | null;
   likesReceived: number;
+  mentionPrivacy: WhisperMentionPrivacy;
   /** Relay-verified Ed25519 pubkey (base64); enables "Message" without an invite. */
   pubkey: string;
   pubkeyHash: string;
@@ -291,6 +313,8 @@ export type WhisperEcho = {
   echoCount: number;
   echoedByMe: boolean;
   id: string;
+  /** Ghosts this Echo tags. */
+  mentions?: WhisperMention[];
   /** Total live replies across the whole thread (authoritative counter). */
   reflectionCount: number;
   /** Loaded reflections: a small preview until the thread is opened, then the
