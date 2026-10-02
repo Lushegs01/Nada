@@ -116,6 +116,8 @@ export type ChatListModel = {
   isSelected: boolean;
   preview: string;
   sortTs: number;
+  /** An unread message in this chat tags you. */
+  tagged?: boolean;
   timestamp: string;
   title: string;
   unread: number;

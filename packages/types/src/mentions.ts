@@ -1,18 +1,30 @@
 // Tag ("@name" mention) matching, shared by the relay and the web client.
 //
-// The relay decides which tags a post keeps — a tag must be visible in the
-// text, or it would be a notification with nothing on screen to explain it —
-// and the client decides what to draw as a tag. Both run this one function,
-// so the text a tag notification points at is exactly the text that renders
-// as that tag.
+// On Whispers the relay decides which tags a post keeps — a tag must be
+// visible in the text, or it would be a notification with nothing on screen
+// to explain it — and the client decides what to draw as a tag. Both run this
+// one function, so the text a tag notification points at is exactly the text
+// that renders as that tag. Group chats use the same rule on both ends of the
+// encryption: the sender keeps only visible tags, the receiver draws them.
+import { z } from "zod";
 
-/** One tagged ghost, as stored on an Echo or Reflection. */
+import { PubkeyHashSchema } from "./primitives";
+
+/** Most people one Echo, Reflection or group message can tag. */
+export const MAX_MENTIONS = 10;
+
+/** One tagged ghost: who, and the name the text shows after "@". */
 export interface WhisperMention {
-  /** Identity of the tagged ghost; the tag links to their profile. */
+  /** Identity of the tagged ghost; the tag links to them. */
   pubkeyHash: string;
-  /** Their public display name when they were tagged: the text after "@". */
+  /** The name the tag shows when it was written: the text after "@". */
   name: string;
 }
+
+export const MentionSchema = z.object({
+  pubkeyHash: PubkeyHashSchema,
+  name: z.string().min(1).max(80)
+});
 
 export type MentionSegment =
   | { kind: "text"; text: string }

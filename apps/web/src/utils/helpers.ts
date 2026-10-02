@@ -12,7 +12,7 @@ import {
   NOTIFICATION_RINGTONE_CHOICES, STATUS_REACTION_EMOJIS, GROUP_DECRYPTION_FALLBACK_TEXT
 } from "@/utils/dashboard-types";
 import { decodeMessagePayload } from "@/lib/media-message";
-import { loadMessagesForChat, nadaDb, directChatId } from "@/lib/db";
+import { loadMessagesForChat, nadaDb, directChatId, rememberGroupMemberName } from "@/lib/db";
 import { decryptDirectBody, groupKeyForEpoch, isKeyForIdentity, learnPeerPublicKey, openKeyForSelf, storeGroupKey } from "@/lib/message-crypto";
 import {} from "@/lib/media-message";
 import { decryptGroupMessage, __UNSAFE_mockDecryptMessage } from "@nada/crypto";
@@ -692,15 +692,6 @@ export async function upsertGroupFromInvite(identity: IdentityRecord, payload: G
     return chat;
 }
 
-export function extractMentions(text: string, contacts: ContactRecord[]): string[] {
-    const normalizedText = text.toLowerCase();
-    return contacts
-    .filter((contact) =>
-      normalizedText.includes(`@${contact.localDisplayName.toLowerCase()}`)
-    )
-    .map((contact) => contact.pubkeyHash);
-}
-
 export function matchesSearch(value: string, query: string): boolean {
     const trimmed = query.trim().toLowerCase();
     if (!trimmed) {
@@ -1073,19 +1064,33 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
       });
     }
 
+    // The name a member gives travels inside the ciphertext. `sender` is the
+    // relay-authenticated identity, so this records what that identity calls
+    // itself, never what someone else calls it.
+    const payload = decodeMessagePayload(body);
+    if (payload?.senderName) {
+      await rememberGroupMemberName(
+        envelope.groupId,
+        envelope.sender,
+        payload.senderName,
+        envelope.timestamp
+      );
+    }
+
+    // `envelope.mentions` (sent in the clear by older clients) is deliberately
+    // not kept: tags are read from the decrypted payload.
     await nadaDb.messages.put({
       id: envelope.id,
       chatId: envelope.groupId,
       senderPubkeyHash: envelope.sender,
       recipientPubkeyHash: envelope.groupId,
       direction: "inbound",
-      kind: envelope.messageKind ?? decodeMessagePayload(body)?.type ?? "text",
+      kind: envelope.messageKind ?? payload?.type ?? "text",
       body,
       encryptedPayload: envelope.ciphertext,
       status: "delivered",
       createdAt: envelope.timestamp,
       ...(envelope.expiresAt ? { expiresAt: envelope.expiresAt } : {}),
-      ...(envelope.mentions ? { mentions: envelope.mentions } : {}),
       ...(envelope.replyToId ? { replyToId: envelope.replyToId } : {}),
       ...(envelope.replyTo ? { replyTo: envelope.replyTo } : {})
     });

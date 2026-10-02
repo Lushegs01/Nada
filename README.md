@@ -80,13 +80,13 @@ pnpm --filter web build && pnpm --filter web start &
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 pnpm --filter web test:e2e
 ```
 
-It skips when `PLAYWRIGHT_BASE_URL` is unset. The Whispers tagging journey also
-needs a relay: build the app with `NEXT_PUBLIC_RELAY_URL` pointing at a running
-relay and set `PLAYWRIGHT_RELAY_URL` to the same address, or it skips. Set
-`PLAYWRIGHT_CHROMIUM_PATH` when the environment ships its own Chromium rather
-than the build Playwright downloads. The suite runs on a desktop and a mobile
-viewport — NADA is phone-first, so a layout that only works on a desktop is a
-broken product.
+It skips when `PLAYWRIGHT_BASE_URL` is unset. The two tagging journeys (Whispers
+and group chats) also need a relay: build the app with `NEXT_PUBLIC_RELAY_URL`
+pointing at a running relay and set `PLAYWRIGHT_RELAY_URL` to the same address,
+or they skip. Set `PLAYWRIGHT_CHROMIUM_PATH` when the environment ships its own
+Chromium rather than the build Playwright downloads. The suite runs on a
+desktop and a mobile viewport — NADA is phone-first, so a layout that only
+works on a desktop is a broken product.
 
 `pnpm --filter relay loadtest` drives the relay with authenticated sockets and
 reports latency percentiles; see `docs/load-testing.md`.
@@ -180,7 +180,8 @@ not contact the relay, anonymous local storage, or NADA's database.
 
 Working end to end: anonymous identity and seed-phrase recovery, invite links
 and QR sharing, encrypted direct and group messaging with offline queueing and
-reconnect replay, replies, reactions, edits, unsend, disappearing timers,
+reconnect replay, group member names and "@" tagging inside the encryption,
+replies, reactions, edits, unsend, disappearing timers,
 search, encrypted media, vanishing statuses shared with a chosen audience, the
 public Whispers feed with threads, profiles and "@" tagging (with a per-ghost
 "Who can tag you" setting), notifications, web push, PWA installability, WebRTC

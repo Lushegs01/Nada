@@ -13,7 +13,7 @@ import {
   rememberMention,
   type MentionQuery
 } from "@/lib/mention-draft";
-import type { WhisperMention, WhisperMentionCandidate } from "@/utils/dashboard-types";
+import type { WhisperMention } from "@/utils/dashboard-types";
 import { WHISPER_MAX_MENTIONS, mentionsInText } from "@nada/types";
 import { cn } from "@nada/ui";
 import {
@@ -29,8 +29,19 @@ import {
 import { createPortal } from "react-dom";
 import { AuthorAvatar } from "./AuthorAvatar";
 
-/** Suggestions for the text typed after "@" (empty: the viewer's connections). */
-export type MentionSearch = (query: string) => Promise<WhisperMentionCandidate[]>;
+/** Someone the picker can offer. */
+export interface MentionCandidate {
+  /** Inserted after "@": the name everyone sees. */
+  displayName: string;
+  pubkeyHash: string;
+  /** A short chip after the name, such as "Following". */
+  badge?: string;
+  /** Who this is to you when that differs, such as your saved contact name. */
+  hint?: string;
+}
+
+/** Suggestions for the text typed after "@" (empty: a default list). */
+export type MentionSearch = (query: string) => Promise<MentionCandidate[]>;
 
 type TextField = HTMLInputElement | HTMLTextAreaElement;
 
@@ -68,8 +79,8 @@ export interface MentionSuggestionsState {
   activeIndex: number;
   anchor: TextField | null;
   atLimit: boolean;
-  candidates: WhisperMentionCandidate[];
-  choose: (candidate: WhisperMentionCandidate) => void;
+  candidates: MentionCandidate[];
+  choose: (candidate: MentionCandidate) => void;
   listId: string;
   open: boolean;
   setActiveIndex: (index: number) => void;
@@ -90,7 +101,7 @@ export function useMentionPicker<T extends TextField>({
   const [anchor, setAnchor] = useState<T | null>(null);
   const [chosen, setChosen] = useState<WhisperMention[]>([]);
   const [query, setQuery] = useState<MentionQuery | null>(null);
-  const [candidates, setCandidates] = useState<WhisperMentionCandidate[]>([]);
+  const [candidates, setCandidates] = useState<MentionCandidate[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   // Escape closes the picker for the "@" it was opened on, not for good.
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
@@ -160,7 +171,7 @@ export function useMentionPicker<T extends TextField>({
     (atLimit || candidates.length > 0);
 
   const choose = useCallback(
-    (candidate: WhisperMentionCandidate): void => {
+    (candidate: MentionCandidate): void => {
       if (!query) return;
       const inserted = insertMention(text, query, candidate.displayName, maxLength);
       if (!inserted) return;
@@ -333,7 +344,7 @@ export function MentionSuggestions({
     >
       {atLimit ? (
         <p className="px-3 py-2.5 text-[12px] text-nada-text-muted">
-          You can tag up to {WHISPER_MAX_MENTIONS} ghosts in one post.
+          You can tag up to {WHISPER_MAX_MENTIONS} people at once.
         </p>
       ) : (
         <ul aria-label="Ghosts you can tag" id={listId} role="listbox">
@@ -351,12 +362,19 @@ export function MentionSuggestions({
               role="option"
             >
               <AuthorAvatar name={candidate.displayName} size="sm" />
-              <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-nada-primary">
-                {candidate.displayName}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-semibold text-nada-primary">
+                  {candidate.displayName}
+                </span>
+                {candidate.hint ? (
+                  <span className="block truncate text-[11px] text-nada-text-muted">
+                    {candidate.hint}
+                  </span>
+                ) : null}
               </span>
-              {candidate.followedByViewer ? (
+              {candidate.badge ? (
                 <span className="shrink-0 rounded-full bg-nada-accent/12 px-2 py-0.5 text-[10px] font-bold text-nada-accent">
-                  Following
+                  {candidate.badge}
                 </span>
               ) : null}
             </li>
