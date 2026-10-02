@@ -122,8 +122,8 @@ Three fallbacks, in order, so delivery never depends on this working:
 - **No metadata protection.** The relay sees sender, recipient and timing,
   because it routes on them.
 - **No server-enforced group membership.** The relay fans out to the recipient
-  list the sender supplies. Rotation revokes future reading and the client only
-  admits groups it was sealed a key for, but neither is membership control.
+  list the sender supplies. Each device decides membership for itself (see
+  "Group membership" below); nothing on the server enforces it.
 - **No recovery of queued mail across devices.** Prekey private halves are not
   derived from the seed phrase, so a restored identity cannot open messages
   queued for the device it replaced.
@@ -137,9 +137,41 @@ Three fallbacks, in order, so delivery never depends on this working:
 Group keys are versioned. Every group message names the epoch it was encrypted
 under, and members keep every epoch they have been given, so rotating forward
 never blanks out history. "Reset group key" mints the next epoch and seals it
-to current members only — which is the only way to revoke a leaked invite link,
-since the link embeds the key. A late message from an older epoch cannot roll
-the group back onto a key it has rotated away from.
+only to the members the owner keeps — which is the only way to revoke a leaked
+invite link, since the link embeds the key, and how the owner removes someone.
+A late message from an older epoch cannot roll the group back onto a key it
+has rotated away from.
+
+### Group membership
+
+The relay holds no group membership, so each device decides, from what a
+message proves, who belongs to a group and which keys to trust for it. The
+rules live in `apps/web/src/lib/group-membership.ts`:
+
+- **Joining.** An invite link carries the group's current key. Whoever opens
+  it joins and at once sends the group an encrypted "joined the group" message
+  under that key. A member's device adds anyone who writes under the group's
+  current key, provided their identity key checks out, so members who never
+  saw the link start sending to them. A message under an older key admits no
+  one, since that is a link the owner has revoked, and a non-member's such
+  message is not shown either. Links do not say which epoch their key is, so a
+  joiner files it as epoch 1; members open messages under the current key
+  whatever epoch they are labelled.
+- **Keys.** A device never replaces a key it holds for an epoch, and takes a
+  key for a new epoch only from the group's owner. Before this, any identity
+  that knew a group's id could seal a key of its own to every member and read
+  what they wrote next.
+- **Removal.** "Reset group key" lets the owner untick members. The new key and
+  the kept member list go out at once in a "reset the group key" message;
+  members take that list from the owner alone, so nobody goes on sealing the
+  new key to someone removed.
+- **Links never change a group you are in.** Opening an invite link for a group
+  this device is already in just opens it. Links are not signed, and reopening
+  an old one would otherwise put the group back on a revoked key.
+- **Sealing to non-contacts.** Members learn each other's identity keys from
+  the messages they send and keep them per group, so the group key can be
+  sealed to members who are not contacts. Only the owner ever sends the key in
+  the clear, for a member with no key on file, and is told when that happens.
 
 ### Group member names and tags
 

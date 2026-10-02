@@ -296,13 +296,18 @@ export async function decryptDirectBody(args: {
  */
 export async function sealKeyForMembers(
   contentKey: string,
-  memberPubkeyHashes: string[]
+  memberPubkeyHashes: string[],
+  /** Keys for members who are not contacts, such as group members met in a group. */
+  knownKeys: Readonly<Record<string, string>> = {}
 ): Promise<{ envelopes: SealedKeyEnvelope[]; unreachable: string[] }> {
   const recipients: { pubkeyHash: string; publicKey: string }[] = [];
   const unreachable: string[] = [];
 
   for (const pubkeyHash of memberPubkeyHashes) {
-    const publicKey = await resolveRecipientKey(pubkeyHash);
+    const known = knownKeys[pubkeyHash];
+    const publicKey =
+      (await resolveRecipientKey(pubkeyHash)) ??
+      (known && (await isKeyForIdentity(known, pubkeyHash)) ? known : null);
     if (publicKey) {
       recipients.push({ pubkeyHash, publicKey });
     } else {

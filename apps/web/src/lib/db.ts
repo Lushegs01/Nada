@@ -70,6 +70,12 @@ export interface ChatPrefRecord {
    * version; records written before it simply have none.
    */
   memberNames?: MemberNames;
+  /**
+   * Groups only: verified identity keys of members who are not contacts,
+   * learned from the messages they sent. Sealing the group key to them needs
+   * these; without them it could only travel in the clear.
+   */
+  memberKeys?: Record<string, string>;
   updatedAt: number;
 }
 
@@ -213,6 +219,26 @@ export async function setChatPref(
       ...existing,
       ...patch,
       chatId,
+      updatedAt: Date.now()
+    });
+  });
+}
+
+/**
+ * Remembers a group member's identity key. The caller verifies that the key
+ * hashes to `pubkeyHash` before passing it.
+ */
+export async function rememberGroupMemberKey(
+  groupId: string,
+  pubkeyHash: string,
+  publicKey: string
+): Promise<void> {
+  await nadaDb.transaction("rw", nadaDb.chatPrefs, async () => {
+    const existing = await getChatPref(groupId);
+    if (existing.memberKeys?.[pubkeyHash] === publicKey) return;
+    await nadaDb.chatPrefs.put({
+      ...existing,
+      memberKeys: { ...existing.memberKeys, [pubkeyHash]: publicKey },
       updatedAt: Date.now()
     });
   });

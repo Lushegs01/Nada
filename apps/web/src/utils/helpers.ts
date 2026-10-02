@@ -12,7 +12,8 @@ import {
   NOTIFICATION_RINGTONE_CHOICES, STATUS_REACTION_EMOJIS, GROUP_DECRYPTION_FALLBACK_TEXT
 } from "@/utils/dashboard-types";
 import { decodeMessagePayload } from "@/lib/media-message";
-import { loadMessagesForChat, nadaDb, directChatId, rememberGroupMemberName } from "@/lib/db";
+import { loadMessagesForChat, nadaDb, directChatId, rememberGroupMemberKey, rememberGroupMemberName } from "@/lib/db";
+import { judgeGroupMessage, keysToTry, type GroupKeyState, type GroupMessageVerdict, type KeyCandidate } from "@/lib/group-membership";
 import { decryptDirectBody, groupKeyForEpoch, isKeyForIdentity, learnPeerPublicKey, openKeyForSelf, storeGroupKey } from "@/lib/message-crypto";
 import {} from "@/lib/media-message";
 import { decryptGroupMessage, __UNSAFE_mockDecryptMessage } from "@nada/crypto";
@@ -661,25 +662,44 @@ export async function upsertContact(payload: InvitePayload): Promise<ContactReco
     return contact;
 }
 
-export async function upsertGroupFromInvite(identity: IdentityRecord, payload: GroupInvitePayload): Promise<ChatRecord> {
+/**
+ * Joins a group from its invite link. `joined` is false when this device was
+ * already in the group: the link then just opens it.
+ *
+ * A link never changes a group this device is in. Links are not signed, so
+ * anyone who knows a group's id can craft one naming its owner, a key of
+ * their own and themselves as the only member; taking that over would send
+ * everything written in the group to them. Reopening a genuine link, which
+ * happens on every reload of the page it opened, would otherwise also put the
+ * group back on whatever key it carried, however long ago the owner reset it.
+ */
+export async function upsertGroupFromInvite(
+  identity: IdentityRecord,
+  payload: GroupInvitePayload
+): Promise<{ chat: ChatRecord; joined: boolean }> {
     const existing = await nadaDb.chats.get(payload.groupId);
+    if (existing) {
+    return { chat: existing, joined: false };
+    }
     const now = Date.now();
     const chat: ChatRecord = {
             id: payload.groupId,
             type: "group",
-            title: existing?.title ?? payload.title,
+            title: payload.title,
             memberPubkeyHashes: Array.from(
               new Set([...payload.memberPubkeyHashes, identity.pubkeyHash])
             ),
             ownerPubkeyHash: payload.ownerPubkeyHash,
             // The invite URL carries this key, so the link is the group
             // credential. Rotating the group key is what revokes a leaked one.
+            // Links do not say which epoch the key is, so it is filed as 1;
+            // members open messages under the current key whatever their label
+            // (see lib/group-membership).
             groupSenderKey: payload.senderKeyPackage,
             groupKeyEpoch: 1,
-            createdAt: existing?.createdAt ?? now,
+            createdAt: now,
             updatedAt: now,
-            disappearingTimer: existing?.disappearingTimer ?? 0,
-            ...(existing?.avatar ? { avatar: existing.avatar } : {})
+            disappearingTimer: 0
           };
     await nadaDb.chats.put(chat);
     await storeGroupKey({
@@ -689,7 +709,7 @@ export async function upsertGroupFromInvite(identity: IdentityRecord, payload: G
     createdByPubkeyHash: payload.ownerPubkeyHash,
     createdAt: now
     });
-    return chat;
+    return { chat, joined: true };
 }
 
 export function matchesSearch(value: string, query: string): boolean {
@@ -918,6 +938,35 @@ export async function persistIncomingStatuses(
     }
 }
 
+/** A group body opened with one key, or null when that key does not open it. */
+async function openGroupCiphertext(ciphertext: string, key: string): Promise<string | null> {
+    try {
+    const parsed = JSON.parse(ciphertext) as { ciphertext?: unknown; nonce?: unknown; version?: unknown };
+    if (
+      typeof parsed.ciphertext !== "string" ||
+      typeof parsed.nonce !== "string" ||
+      parsed.version !== 1
+    ) {
+      return null;
+    }
+    return await decryptGroupMessage(
+      { ciphertext: parsed.ciphertext, nonce: parsed.nonce, version: 1 },
+      key
+    );
+    } catch {
+    return null;
+    }
+}
+
+/** Bodies from before group encryption, or the placeholder when nothing opens it. */
+async function legacyGroupBody(ciphertext: string): Promise<string> {
+    try {
+    return await __UNSAFE_mockDecryptMessage(ciphertext);
+    } catch {
+    return GROUP_DECRYPTION_FALLBACK_TEXT;
+    }
+}
+
 export async function persistIncomingGroupMessages(identity: IdentityRecord, envelopes: GroupMessageEnvelope[]): Promise<void> {
     for (const envelope of envelopes) {
     const existingMessage = await nadaDb.messages.get(envelope.id);
@@ -926,92 +975,66 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
     }
 
     let existingChat = await nadaDb.chats.get(envelope.groupId);
-    // Prefer the copy of the sender key sealed to this identity. The plaintext
-    // `senderKeyPackage` is the legacy path: it is readable by the relay, so
-    // it is only trusted when the sender had no key to seal to us with.
-    // Messages name the key epoch they were encrypted under. Absent means
-    // epoch 1, from before rotation existed.
+    // The copy of the sender key sealed to this identity, or the legacy
+    // plaintext `senderKeyPackage` (readable by the relay, so only ever sent
+    // when the sender had no key to seal to us with). Messages name the key
+    // epoch they were encrypted under; absent means epoch 1, from before
+    // rotation existed.
     const messageEpoch = envelope.keyEpoch ?? 1;
     const sealedSenderKey = await openKeyForSelf({
       envelopes: envelope.keyEnvelopes,
       identity
     });
     const envelopeSenderKey = sealedSenderKey ?? envelope.senderKeyPackage;
-    // Prefer the key stored for this message's own epoch: after a rotation the
-    // chat's current key is a later one and would not open older history.
-    const storedEpochKey = await groupKeyForEpoch(envelope.groupId, messageEpoch);
-    const senderKey =
-      envelopeSenderKey ??
-      storedEpochKey ??
-      (messageEpoch === (existingChat?.groupKeyEpoch ?? 1)
-        ? existingChat?.groupSenderKey
-        : undefined);
 
     // Group members exchange identity keys through the same envelopes, so a
-    // member can seal the next rotation back to everyone who has spoken.
+    // member can seal the next rotation to everyone who has spoken.
+    const senderKeyKnown = await isKeyForIdentity(envelope.senderPublicKey, envelope.sender);
     if (envelope.senderPublicKey) {
       await learnPeerPublicKey(envelope.sender, envelope.senderPublicKey);
     }
 
-    if (envelopeSenderKey && envelopeSenderKey !== storedEpochKey) {
-      await storeGroupKey({
-        groupId: envelope.groupId,
-        epoch: messageEpoch,
-        senderKey: envelopeSenderKey,
-        createdByPubkeyHash: envelope.sender,
-        createdAt: envelope.timestamp
-      });
-      // Only advance the chat's active key when this message carries a *newer*
-      // epoch. A late-arriving message from an older epoch must not roll the
-      // group back onto a key that has already been rotated away from.
-      if (existingChat && messageEpoch >= (existingChat.groupKeyEpoch ?? 1)) {
-        await nadaDb.chats.update(envelope.groupId, {
-          groupSenderKey: envelopeSenderKey,
-          groupKeyEpoch: messageEpoch
-        });
-        existingChat = {
-          ...existingChat,
-          groupSenderKey: envelopeSenderKey,
-          groupKeyEpoch: messageEpoch
-        };
-      }
-    }
-
-    // Try to decrypt the group message body
     let body: string;
-    if (envelope.devPlaintext) {
-      body = envelope.devPlaintext;
-    } else {
-      try {
-        const parsed = JSON.parse(envelope.ciphertext) as {
-          ciphertext?: unknown;
-          nonce?: unknown;
-          version?: unknown;
-        };
-        if (
-          senderKey &&
-          typeof parsed.ciphertext === "string" &&
-          typeof parsed.nonce === "string" &&
-          parsed.version === 1
-        ) {
-          body = await decryptGroupMessage(
-            {
-              ciphertext: parsed.ciphertext,
-              nonce: parsed.nonce,
-              version: 1
-            },
-            senderKey
-          );
-        } else {
-          body = await __UNSAFE_mockDecryptMessage(envelope.ciphertext);
+    let verdict: GroupMessageVerdict | null = null;
+    let senderKey: string | undefined;
+    if (existingChat) {
+      // A group this device is in: every key and membership decision is the
+      // membership rule's (lib/group-membership). In short, keys for new
+      // epochs come only from the owner, held keys are never overwritten, and
+      // a sender joins by writing under the current key.
+      const labelled = await groupKeyForEpoch(envelope.groupId, messageEpoch);
+      const state: GroupKeyState = {
+        currentEpoch: existingChat.groupKeyEpoch ?? 1,
+        currentKey: existingChat.groupSenderKey,
+        heldKeys: new Map(labelled ? [[messageEpoch, labelled]] : []),
+        members: existingChat.memberPubkeyHashes,
+        owner: existingChat.ownerPubkeyHash
+      };
+      const facts = { carriedKey: envelopeSenderKey, epoch: messageEpoch, sender: envelope.sender };
+      let openedWith: KeyCandidate | null = null;
+      let opened: string | null = null;
+      for (const candidate of keysToTry(state, facts)) {
+        opened = await openGroupCiphertext(envelope.ciphertext, candidate.key);
+        if (opened !== null) {
+          openedWith = candidate;
+          break;
         }
-      } catch {
-        try {
-        body = await __UNSAFE_mockDecryptMessage(envelope.ciphertext);
-      } catch {
-          body = GROUP_DECRYPTION_FALLBACK_TEXT;
       }
-    }
+      body = opened ?? envelope.devPlaintext ?? (await legacyGroupBody(envelope.ciphertext));
+      verdict = judgeGroupMessage(state, facts, openedWith, {
+        ownerMembers: openedWith ? decodeMessagePayload(body)?.members : undefined,
+        senderKeyKnown
+      });
+      if (!verdict.accept) continue;
+    } else {
+      // A group this device has never seen: only a key sealed to it counts as
+      // being added (see below), and that key opens the message.
+      senderKey =
+        envelopeSenderKey ?? (await groupKeyForEpoch(envelope.groupId, messageEpoch)) ?? undefined;
+      body =
+        (senderKey ? await openGroupCiphertext(envelope.ciphertext, senderKey) : null) ??
+        envelope.devPlaintext ??
+        (await legacyGroupBody(envelope.ciphertext));
     }
 
     const groupDelete = parseGroupDeletePayload(body);
@@ -1043,6 +1066,17 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
       if (!senderKey) {
         continue;
       }
+      // Kept only now that the group is being created, so a key for a group
+      // this device is not in is never on file ahead of joining it.
+      if (envelopeSenderKey) {
+        await storeGroupKey({
+          groupId: envelope.groupId,
+          epoch: messageEpoch,
+          senderKey: envelopeSenderKey,
+          createdByPubkeyHash: envelope.sender,
+          createdAt: envelope.timestamp
+        });
+      }
       const now = Date.now();
       await nadaDb.chats.put({
         id: envelope.groupId,
@@ -1052,16 +1086,41 @@ export async function persistIncomingGroupMessages(identity: IdentityRecord, env
           new Set([identity.pubkeyHash, envelope.sender, ...envelope.recipients])
         ),
         ownerPubkeyHash: envelope.sender,
-        ...(senderKey ? { groupSenderKey: senderKey, groupKeyEpoch: messageEpoch } : {}),
+        groupSenderKey: senderKey,
+        groupKeyEpoch: messageEpoch,
         createdAt: now,
         updatedAt: envelope.timestamp,
         disappearingTimer: 0
       });
       existingChat = await nadaDb.chats.get(envelope.groupId);
-    } else {
+    } else if (verdict) {
+      if (verdict.adopt) {
+        await storeGroupKey({
+          groupId: envelope.groupId,
+          epoch: verdict.adopt.epoch,
+          senderKey: verdict.adopt.key,
+          createdByPubkeyHash: envelope.sender,
+          createdAt: envelope.timestamp
+        });
+      }
+      const memberPubkeyHashes = verdict.members
+        ? Array.from(new Set([...verdict.members, identity.pubkeyHash]))
+        : verdict.admitSender
+          ? Array.from(new Set([...existingChat.memberPubkeyHashes, envelope.sender]))
+          : undefined;
       await nadaDb.chats.update(envelope.groupId, {
-        updatedAt: envelope.timestamp
+        updatedAt: envelope.timestamp,
+        ...(verdict.adopt
+          ? { groupSenderKey: verdict.adopt.key, groupKeyEpoch: verdict.adopt.epoch }
+          : {}),
+        ...(memberPubkeyHashes ? { memberPubkeyHashes } : {})
       });
+    }
+
+    // Keep the verified key of everyone whose message was accepted, so the
+    // group key can be sealed to members who are not contacts.
+    if (senderKeyKnown && envelope.senderPublicKey) {
+      await rememberGroupMemberKey(envelope.groupId, envelope.sender, envelope.senderPublicKey);
     }
 
     // The name a member gives travels inside the ciphertext. `sender` is the

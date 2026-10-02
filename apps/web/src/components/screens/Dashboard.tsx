@@ -1025,6 +1025,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     // Peers we have already warned about, so a conversation without a usable
     // identity key produces one honest notice rather than one per message.
     const unencryptedWarned = useRef<Set<string>>(new Set());
+    /** Groups this session has announced joining, so a re-run cannot repeat it. */
+    const announcedJoins = useRef<Set<string>>(new Set());
     /**
      * Encrypts one direct-message body for one recipient.
      *
@@ -1052,10 +1054,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           }, [identity, showToast]);
     /**
      * Seals a group's sender key to each member, so the key reaches the group
-     * without also reaching the relay. Members whose identity key is unknown
-     * fall back to the legacy plaintext package, which is the only way to
-     * reach a peer NADA has never exchanged keys with — and the user is told
-     * that it happened.
+     * without also reaching the relay. Identity keys come from contacts and
+     * from members' own messages in the group.
+     *
+     * Only the owner falls back to the legacy plaintext package for members
+     * with no key on file — the one way to reach a peer NADA has never
+     * exchanged keys with — and is told that it happened. Anyone else's
+     * members already hold the key, or, like someone the owner removed, must
+     * not get it from them.
      */
     const buildGroupKeyDistribution = useCallback(async (
             group: ChatRecord
@@ -1068,10 +1074,15 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             const members = group.memberPubkeyHashes.filter(
               (member) => member !== identity.pubkeyHash
             );
-            const { envelopes, unreachable } = await sealKeyForMembers(
+            const { memberKeys } = await getChatPref(group.id);
+            const { envelopes, unreachable: unsealed } = await sealKeyForMembers(
               group.groupSenderKey,
-              members
+              members,
+              memberKeys
             );
+            const isOwner =
+              (group.ownerPubkeyHash ?? identity.pubkeyHash) === identity.pubkeyHash;
+            const unreachable = isOwner ? unsealed : [];
             if (unreachable.length > 0 && !unencryptedWarned.current.has(group.id)) {
               unencryptedWarned.current.add(group.id);
               showToast(
@@ -1088,38 +1099,138 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             };
           }, [identity.pubkeyHash, showToast]);
     /**
-     * Mints a new group key and starts using it.
+     * Tells a group something happened to it, shown to every member as a line
+     * in the conversation. `text` is what this device's owner did ("joined the
+     * group"); it is shown after their name. `members` is the member list for
+     * the group's new key, sent only with the owner's reset. A system message
+     * carries the key only when `distributeKey` says so: a joiner's members
+     * already hold it.
+     */
+    const sendGroupSystemMessage = useCallback(async (
+            group: ChatRecord,
+            text: string,
+            options: { distributeKey: boolean; members?: string[] }
+          ): Promise<MessageRecord | null> => {
+            if (!group.groupSenderKey) return null;
+            const id = crypto.randomUUID();
+            const timestamp = Date.now();
+            const body = encodeMessagePayload({
+              version: 1,
+              type: "system",
+              text,
+              senderName: myGroupName,
+              ...(options.members ? { members: options.members } : {})
+            });
+            const ciphertext = JSON.stringify(
+              await encryptGroupMessage(body, group.groupSenderKey)
+            );
+            const envelope: GroupMessageEnvelope = {
+              type: "group-message",
+              id,
+              groupId: group.id,
+              recipients: group.memberPubkeyHashes.filter(
+                (member) => member !== identity.pubkeyHash
+              ),
+              sender: identity.pubkeyHash,
+              timestamp,
+              ciphertext,
+              messageKind: "system",
+              senderPublicKey: identity.pubkey,
+              ...(options.distributeKey
+                ? await buildGroupKeyDistribution(group)
+                : { keyEpoch: group.groupKeyEpoch ?? 1 }),
+              ...devPlaintextFor(body)
+            };
+            // Only once the relay knows who this is: it drops anything sent
+            // before then, and a page opened from an invite link writes at
+            // once. Until then the message waits with the other unsent group
+            // messages, which go out as soon as the relay is connected.
+            const sent =
+              useSocketStore.getState().status === "connected" && sendGroupEnvelope(envelope);
+            const record: MessageRecord = {
+              id,
+              chatId: group.id,
+              senderPubkeyHash: identity.pubkeyHash,
+              recipientPubkeyHash: group.id,
+              direction: "outbound",
+              kind: "system",
+              body,
+              encryptedPayload: ciphertext,
+              // Unsent group messages go out when the relay is back.
+              status: sent ? "sent" : "local",
+              createdAt: timestamp
+            };
+            await nadaDb.messages.put(record);
+            setStoredGroupMessages((count) => count + 1);
+            return record;
+          }, [buildGroupKeyDistribution, identity.pubkey, identity.pubkeyHash, myGroupName, sendGroupEnvelope]);
+    const sendGroupSystemMessageRef = useRef(sendGroupSystemMessage);
+    sendGroupSystemMessageRef.current = sendGroupSystemMessage;
+    /**
+     * Mints a new group key and starts using it, for the owner and the members
+     * in `keep`.
      *
-     * This is the only way to revoke access to a NADA group. Membership is
-     * carried in the sender's own chat record and the invite link embeds the
-     * key, so a link that leaks — or a member who should no longer be there —
-     * can otherwise read everything the group says from then on. Rotating
-     * seals a fresh key to the current members only; the next message they
-     * receive carries it, and anyone not sealed to is left behind.
+     * This is the only way to revoke access to a NADA group. The invite link
+     * embeds the key, so a link that leaks — or a member who should no longer
+     * be there — can otherwise read everything the group says from then on.
+     * The new key is sealed only to the members kept, and goes out at once with
+     * the new member list, which members adopt from the owner alone; anyone
+     * left out, or holding an older link, is left behind.
      *
      * History is unaffected: previous epochs stay stored and readable.
      */
-    const rotateGroupKeyForChat = useCallback(async (group: ChatRecord): Promise<void> => {
+    const rotateGroupKeyForChat = useCallback(async (
+            group: ChatRecord,
+            keep: readonly string[]
+          ): Promise<void> => {
             const owner = group.ownerPubkeyHash ?? identity.pubkeyHash;
             if (owner !== identity.pubkeyHash) {
               showToast("Only the group creator can reset the group key.");
               return;
             }
-            const { epoch } = await rotateGroupKey(group.id, identity.pubkeyHash);
+            const members = Array.from(
+              new Set([
+                identity.pubkeyHash,
+                ...keep.filter((member) => group.memberPubkeyHashes.includes(member))
+              ])
+            );
+            const removed = group.memberPubkeyHashes.filter(
+              (member) => !members.includes(member)
+            ).length;
+            const { epoch, senderKey } = await rotateGroupKey(group.id, identity.pubkeyHash);
+            const updatedAt = Date.now();
+            await nadaDb.chats.update(group.id, { memberPubkeyHashes: members, updatedAt });
+            const rotated: ChatRecord = {
+              ...group,
+              groupKeyEpoch: epoch,
+              groupSenderKey: senderKey,
+              memberPubkeyHashes: members,
+              updatedAt
+            };
             setChats((current) =>
-              current.map((chat) =>
-                chat.id === group.id
-                  ? { ...chat, groupKeyEpoch: epoch, updatedAt: Date.now() }
-                  : chat
-              )
+              current.map((chat) => (chat.id === group.id ? rotated : chat))
             );
             // The warning about members with no identity key is per-group and
             // must be re-evaluated against the new key.
             unencryptedWarned.current.delete(group.id);
+            const record = await sendGroupSystemMessage(rotated, "reset the group key", {
+              distributeKey: true,
+              members
+            });
+            if (record) {
+              setMessages((current) =>
+                current.some((message) => message.chatId === group.id) ||
+                useDashboardStore.getState().selectedGroupId === group.id
+                  ? mergeMessageRecords(current, [record])
+                  : current
+              );
+            }
             showToast(
-              "Group key reset. Older invite links can no longer read new messages."
+              removed > 0
+                ? `Group key reset. ${removed} member${removed === 1 ? "" : "s"} and older invite links can no longer read new messages.`
+                : "Group key reset. Older invite links can no longer read new messages."
             );
-          }, [identity.pubkeyHash, showToast]);
+          }, [identity.pubkeyHash, sendGroupSystemMessage, showToast]);
     const saveNotificationSettings = useCallback(async (
             nextSettings: NotificationSettings
           ): Promise<void> => {
@@ -1389,10 +1500,23 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
         const unreadMessages = visible.filter(
           (m) => m.direction === "inbound" && !m.readAt
         );
+        let body = last ? previewForMessage(last, identity.pubkeyHash) : "Start a conversation";
+        // A group event ("joined the group") reads after the name of its sender.
+        if (last?.kind === "system" && chats.some((chat) => chat.id === chatId)) {
+          const who =
+            last.senderPubkeyHash === identity.pubkeyHash
+              ? "You"
+              : memberLabel(
+                  last.senderPubkeyHash,
+                  (await getChatPref(chatId)).memberNames,
+                  contactNamesRef.current[last.senderPubkeyHash]
+                );
+          body = `${who} ${body}`;
+        }
         
         return {
           chatId,
-          body: last ? previewForMessage(last, identity.pubkeyHash) : "Start a conversation",
+          body,
           // Only unread messages are decoded, so this stays cheap.
           tagged: unreadMessages.some(
             (m) => !m.deletedAt && bodyTags(m.body, identity.pubkeyHash)
@@ -1570,10 +1694,22 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       return;
     }
 
-    // Idempotent upsert — see the direct-invite effect above for why there
-    // is deliberately no processed-token ref guard.
+    // Idempotent: opening a link to a group this device is already in just
+    // opens the group. See the direct-invite effect above for why there is
+    // deliberately no processed-token ref guard.
     let active = true;
-    void upsertGroupFromInvite(identity, payload).then(async (chat) => {
+    void upsertGroupFromInvite(identity, payload).then(async ({ chat, joined }) => {
+      // Members who did not share the link have no idea this device joined
+      // until it writes to them: writing under the group's current key is
+      // what admits it (lib/group-membership). Saying so at once means the
+      // group reaches this device from now on, not from its first message.
+      // The key stays out of it: everyone it goes to already holds it.
+      if (joined && !announcedJoins.current.has(chat.id)) {
+        announcedJoins.current.add(chat.id);
+        await sendGroupSystemMessageRef.current(chat, "joined the group", {
+          distributeKey: false
+        });
+      }
       const chatRecords = await nadaDb.chats.orderBy("updatedAt").reverse().toArray();
       if (!active) {
         return;
@@ -1788,7 +1924,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
         const group = chatRecords.find((c) => c.id === env.groupId);
         const title = group?.title || "A group";
         const stored = await nadaDb.messages.get(env.id);
-        if (stored && bodyTags(stored.body, identity.pubkeyHash)) {
+        // Nothing to say about a message the group rule turned away, or a
+        // group event such as someone joining.
+        if (!stored || stored.kind === "system") continue;
+        if (bodyTags(stored.body, identity.pubkeyHash)) {
           const pref = await getChatPref(env.groupId);
           const who = memberLabel(
             env.sender,
@@ -4663,8 +4802,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           setReplyToId(null);
         }}
         onCopyGroupInvite={copyGroupInvite}
-        onResetGroupKey={() => {
-          if (selectedGroup) void rotateGroupKeyForChat(selectedGroup);
+        onResetGroupKey={(keep) => {
+          if (selectedGroup) void rotateGroupKeyForChat(selectedGroup, keep);
         }}
         onDisappearingTimerChange={(value) => {
           setDisappearingTimer(value);
@@ -4688,6 +4827,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
           void sendMessage(text, mentions);
         }}
         memberLabels={selectedGroup ? groupMemberLabels : undefined}
+        groupMembers={selectedGroup?.memberPubkeyHashes}
         onSearchMentions={selectedGroup ? searchGroupMentions : undefined}
         onSendVoiceNote={(body) => {
           void sendVoiceNote(body);
