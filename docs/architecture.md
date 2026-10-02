@@ -141,6 +141,22 @@ to current members only — which is the only way to revoke a leaked invite link
 since the link embeds the key. A late message from an older epoch cannot roll
 the group back onto a key it has rotated away from.
 
+### Group member names and tags
+
+Group members exchange no profiles. Each group message carries, inside its
+ciphertext, the name its sender goes by (`senderName`) and the members it
+tags (`mentions`). Receivers remember each member's latest name per group, on
+the device only, keyed by the relay-authenticated `sender`, so a name is what
+that identity calls itself. The relay sees neither: an earlier envelope field
+put tag lists in the clear and is no longer sent.
+
+Every member therefore has two names. The one you see is your own contact name
+for them if you saved one, else the name they gave, else a `ghost·…` handle
+derived from their key. The one a tag or reply quote shows everyone is never
+your contact name, which is private to you. The "@" list offers the people
+your message is actually sent to, your local member list, and a tag of you is
+shown even when the group is muted.
+
 ## Real-Time Delivery
 
 Sockets complete a server-issued challenge/response before any envelope is

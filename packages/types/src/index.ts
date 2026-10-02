@@ -6,6 +6,7 @@ import {
   PublicKeySchema,
   UuidSchema
 } from "./primitives";
+import { MAX_MENTIONS, MentionSchema } from "./mentions";
 
 export {
   IdentityProofSchema,
@@ -76,7 +77,16 @@ export const MessagePayloadSchema = z.object({
   text: z.string().max(20000).optional(),
   media: MediaAttachmentSchema.optional(),
   poll: PollDataSchema.optional(),
-  replyTo: ReplyToMessageSchema.optional()
+  replyTo: ReplyToMessageSchema.optional(),
+  // The two fields below ride inside the ciphertext, so only the people a
+  // message is for can read them. Older clients strip unknown keys and keep
+  // rendering the text. Both drop a malformed value rather than failing the
+  // whole payload: one member's odd name must not turn every message they
+  // send into raw JSON on everyone else's screen.
+  /** What the sender calls themselves, so group members can name each other. */
+  senderName: z.string().trim().min(1).max(80).optional().catch(undefined),
+  /** Who this message tags, in the order they appear in the text. */
+  mentions: z.array(MentionSchema).max(MAX_MENTIONS).optional().catch(undefined)
 });
 
 // devPlaintext: dev-only debug field that ships plaintext alongside ciphertext
@@ -145,6 +155,11 @@ export const GroupMessageEnvelopeSchema = z.object({
   devPlaintext: devPlaintextField,
   replyToId: UuidSchema.optional(),
   replyTo: ReplyToMessageSchema.optional(),
+  /**
+   * @deprecated Never sent any more: it put who a message tagged in front of
+   * the relay. Tags travel inside the ciphertext (`MessagePayload.mentions`).
+   * Still accepted so envelopes from older clients validate.
+   */
   mentions: z.array(PubkeyHashSchema).optional(),
   expiresAt: z.number().int().positive().optional()
 });
@@ -495,7 +510,7 @@ export const WhisperRippleSourceSchema = z.object({
 
 // ── Tagging ("@name" mentions) ──────────────────────────────────────────────
 /** Most people one Echo or Reflection can tag. Bounds the notification fan-out. */
-export const WHISPER_MAX_MENTIONS = 10;
+export const WHISPER_MAX_MENTIONS = MAX_MENTIONS;
 
 /**
  * Who a write asks to tag, by identity only. The relay resolves each identity

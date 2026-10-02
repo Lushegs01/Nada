@@ -5,7 +5,8 @@ import {
   type MediaAttachment,
   type MessageKind,
   type MessagePayload,
-  type ReplyToMessage
+  type ReplyToMessage,
+  type WhisperMention
 } from "@nada/types";
 
 export const MESSAGE_PAYLOAD_PREFIX = "__nada_payload_v1__:";
@@ -50,6 +51,35 @@ export function mediaFromMessage(message: MessageRecord): MediaAttachment | null
 
   const result = MediaAttachmentSchema.safeParse(payload.media);
   return result.success ? result.data : null;
+}
+
+/** Who a message tags, read from its decrypted payload. */
+export function mentionsFromBody(body: string): WhisperMention[] {
+  return decodeMessagePayload(body)?.mentions ?? [];
+}
+
+/** Whether a message tags `pubkeyHash`. */
+export function bodyTags(body: string, pubkeyHash: string): boolean {
+  return mentionsFromBody(body).some((mention) => mention.pubkeyHash === pubkeyHash);
+}
+
+/**
+ * A message body ready to forward as the forwarder's own message.
+ *
+ * Forwarding re-sends the stored body, which carries the original reply quote,
+ * the original sender's name and their tags. Sent on as-is, the target chat
+ * would see a quote of a conversation it was never in, the original author's
+ * name on the forwarder's message, and tags of people who may not be there.
+ * Those are dropped; `senderName` restamps the forwarder for a group.
+ */
+export function forwardedBody(body: string, senderName?: string): string {
+  const payload = decodeMessagePayload(body);
+  if (!payload) return body;
+  const content: MessagePayload = { ...payload };
+  delete content.mentions;
+  delete content.replyTo;
+  delete content.senderName;
+  return encodeMessagePayload({ ...content, ...(senderName ? { senderName } : {}) });
 }
 
 export function textFromMessage(message: MessageRecord): string {
@@ -147,36 +177,48 @@ export function buildReplySnapshot({
 }
 
 export function buildTextPayload({
-  text,
-  replyTo
+  mentions,
+  replyTo,
+  senderName,
+  text
 }: {
-  text: string;
+  /** Groups only: who the text tags, in the order they appear. */
+  mentions?: WhisperMention[];
   replyTo?: ReplyToMessage;
+  /** Groups only: what the sender calls themselves. */
+  senderName?: string;
+  text: string;
 }): MessagePayload {
   return {
     version: 1,
     type: "text",
     text,
-    ...(replyTo ? { replyTo } : {})
+    ...(replyTo ? { replyTo } : {}),
+    ...(senderName ? { senderName } : {}),
+    ...(mentions && mentions.length > 0 ? { mentions } : {})
   };
 }
 
 export function buildMediaPayload({
   media,
-  type,
+  replyTo,
+  senderName,
   text,
-  replyTo
+  type
 }: {
   media: MediaAttachment;
-  type: MessageKind;
-  text?: string;
   replyTo?: ReplyToMessage;
+  /** Groups only: what the sender calls themselves. */
+  senderName?: string;
+  text?: string;
+  type: MessageKind;
 }): MessagePayload {
   return {
     version: 1,
     type,
     media,
     ...(text ? { text } : {}),
-    ...(replyTo ? { replyTo } : {})
+    ...(replyTo ? { replyTo } : {}),
+    ...(senderName ? { senderName } : {})
   };
 }

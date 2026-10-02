@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MessagePayloadSchema,
   WhisperMentionsRequestSchema,
   mentionsInText,
   parseMentions,
@@ -92,5 +93,41 @@ describe("WhisperMentionsRequestSchema", () => {
     expect(
       WhisperMentionsRequestSchema.safeParse([...hashes, "a".repeat(64)]).success
     ).toBe(false);
+  });
+});
+
+describe("group message payloads", () => {
+  const base = { version: 1, type: "text", text: "@Bob hi" } as const;
+
+  it("carries the sender's name and tags inside the payload", () => {
+    const parsed = MessagePayloadSchema.parse({
+      ...base,
+      senderName: "  Silent Key 4F2A ",
+      mentions: [bob]
+    });
+    expect(parsed.senderName).toBe("Silent Key 4F2A");
+    expect(parsed.mentions).toEqual([bob]);
+  });
+
+  it("still reads payloads from before names and tags existed", () => {
+    const parsed = MessagePayloadSchema.parse(base);
+    expect(parsed.senderName).toBeUndefined();
+    expect(parsed.mentions).toBeUndefined();
+    expect(parsed.text).toBe("@Bob hi");
+  });
+
+  it("drops a malformed name or tag list instead of failing the message", () => {
+    // One member's odd payload must not turn their messages into raw JSON on
+    // everyone else's screen.
+    const tooMany = Array.from({ length: 11 }, () => bob);
+    const parsed = MessagePayloadSchema.safeParse({
+      ...base,
+      senderName: "x".repeat(81),
+      mentions: tooMany
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.senderName).toBeUndefined();
+    expect(parsed.data?.mentions).toBeUndefined();
+    expect(parsed.data?.text).toBe("@Bob hi");
   });
 });

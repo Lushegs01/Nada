@@ -214,6 +214,31 @@ rule against both backends; run it with `TEST_DATABASE_URL` set. If profile
 counts grow large enough for the picker scan to show up in query latency, add
 a `pg_trgm` index on `lower(display_name)`.
 
+## Group Chat Names and Tags
+
+Risk: Group members learn each other's names from the encrypted messages they
+send, and can tag each other with them. Names are self-chosen and tags ride
+inside the ciphertext, so the relay sees neither. Four limits remain:
+
+- A name is whatever its owner says. A member can call themselves another
+  member's name; your own contact name for someone, when you have saved one,
+  is what labels their messages on your screen, and a tag always points at an
+  identity, not a name.
+- A member who has never sent a message since this shipped has no name yet.
+  They are offered and tagged by their `ghost·…` handle instead.
+- The "@" list offers your local member list, because that is who your
+  message reaches. Existing members never learn about someone who joined
+  through an invite link, so that person is not offered — and does not receive
+  their messages at all, tag or no tag.
+- Members on older clients see the text of a tag but no highlight or alert,
+  and send no names or tags of their own.
+
+What breaks if wrong: A tag or reply quote could tell the whole group what you
+privately call someone, or the relay could learn who was tagged.
+Manual verification: `apps/web/tests/group-tagging.test.ts` covers the naming
+rules, the payload and the device storage; `apps/web/tests/group-tagging.spec.ts`
+drives two devices through a real group against a running relay.
+
 ## Signal Adapter
 
 Risk: `@signalapp/libsignal-client` licensing, native loading, and browser

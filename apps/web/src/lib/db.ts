@@ -11,6 +11,8 @@ import type {
 } from "@nada/db";
 import type { PubkeyHash } from "@nada/types";
 
+import { learnMemberName, type MemberNames } from "./group-members";
+
 export interface SettingRecord {
   key: string;
   value: string;
@@ -62,6 +64,12 @@ export interface ChatPrefRecord {
   wallpaperUrl?: string;
   /** Locally archive this chat when greater than 0. */
   archivedAt?: number;
+  /**
+   * Groups only: the name each member last gave the group, learned from the
+   * encrypted messages they sent. Not indexed, so adding it needed no schema
+   * version; records written before it simply have none.
+   */
+  memberNames?: MemberNames;
   updatedAt: number;
 }
 
@@ -196,12 +204,36 @@ export async function setChatPref(
   chatId: string,
   patch: Partial<Omit<ChatPrefRecord, "chatId">>
 ): Promise<void> {
-  const existing = await getChatPref(chatId);
-  await nadaDb.chatPrefs.put({
-    ...existing,
-    ...patch,
-    chatId,
-    updatedAt: Date.now()
+  // Read and write in one transaction. Member names are learned in the
+  // background as messages arrive, and a mute toggled at the same moment would
+  // otherwise read the record before the name landed and write it back without.
+  await nadaDb.transaction("rw", nadaDb.chatPrefs, async () => {
+    const existing = await getChatPref(chatId);
+    await nadaDb.chatPrefs.put({
+      ...existing,
+      ...patch,
+      chatId,
+      updatedAt: Date.now()
+    });
+  });
+}
+
+/**
+ * Remembers the name a group member gave in a message. Returns true when it
+ * changed what this device calls them.
+ */
+export async function rememberGroupMemberName(
+  groupId: string,
+  pubkeyHash: string,
+  name: string,
+  at: number
+): Promise<boolean> {
+  return nadaDb.transaction("rw", nadaDb.chatPrefs, async () => {
+    const existing = await getChatPref(groupId);
+    const memberNames = learnMemberName(existing.memberNames, pubkeyHash, name, at);
+    if (!memberNames) return false;
+    await nadaDb.chatPrefs.put({ ...existing, memberNames, updatedAt: Date.now() });
+    return true;
   });
 }
 

@@ -3,7 +3,8 @@ import "../chat/chat.css";
 import dynamic from "next/dynamic";
 import { getGlobalSetting, nadaDb, directChatId, isBlocked, isMuted, setGlobalSetting, getChatPref, loadMessagesForChat, markChatAsRead, setChatPref } from "@/lib/db";
 import { parseInviteToken, parseGroupInviteToken, buildGroupInviteUrl } from "@/lib/invite";
-import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload } from "@/lib/media-message";
+import { buildReplySnapshot, textFromMessage, previewForMessage, messageKindFromRecord, buildTextPayload, encodeMessagePayload, buildMediaPayload, bodyTags, decodeMessagePayload, forwardedBody } from "@/lib/media-message";
+import { groupMentionCandidates, memberLabel, memberTagName } from "@/lib/group-members";
 import { validateMediaFile, prepareMediaFile, uploadEncryptedMedia } from "@/lib/media-upload";
 import { getRelayHttpBaseUrl } from "@/lib/relay-url";
 import { ensurePrekeysPublished } from "@/lib/prekey-store";
@@ -15,10 +16,11 @@ import { dashboardActions, useDashboardStore } from "@/stores/useDashboardStore"
 import { useCallStore } from "@/stores/useCallStore";
 import { useIdentityStore } from "@/stores/useIdentityStore";
 import { useSocketStore } from "@/stores/useSocketStore";
-import { parseCommunityRecords, parseWhisperEchoes, parseWhisperNotifications, seedWhisperEchoes, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, persistIncomingStatuses, type RelayStatusRow, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, extractMentions, statusCommentChatId, dataUrlSize, matchesSearch } from "@/utils/helpers";
+import { parseCommunityRecords, parseWhisperEchoes, parseWhisperNotifications, seedWhisperEchoes, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, persistIncomingStatuses, type RelayStatusRow, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, statusCommentChatId, dataUrlSize, matchesSearch } from "@/utils/helpers";
 import { encryptGroupMessage, createGroupSenderKey } from "@nada/crypto";
 import type { IdentityRecord, ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
 import type { MessageEnvelope, ReplyToMessage, GroupMessageEnvelope, PollData, MediaAttachment, GroupInvitePayload } from "@nada/types";
+import { mentionsInText } from "@nada/types";
 import { cn, IdentityOrb } from "@nada/ui";
 import Dexie from "dexie";
 import { motion, AnimatePresence } from "framer-motion";
@@ -45,6 +47,7 @@ const SettingsSheet = dynamic(() => import("../panels/SettingsSheet").then(m => 
 import { LaunchOnboardingSheet } from "../panels/Sheet";
 import { parseVoiceNoteBody } from "../VoiceNote";
 import { WhispersFeed, type WhisperThreadMeta } from "./WhispersFeed";
+import type { MentionCandidate } from "./MentionPicker";
 import { ContestScreen } from "../contest/ContestScreen";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { ProfilePage } from "./ProfilePage";
@@ -57,7 +60,7 @@ import {
 } from "@/lib/appearance";
 import { deleteLocalDatabase } from "@/lib/local-database";
 import { CHAT_FILTERS, isSecondaryTab, primaryTabFor, type ChatFilterId } from "@/lib/navigation";
-import { type NotificationSettings, type GlobalSearchResult, type ReportTarget, type WhisperEcho, type WhisperMention, type WhisperMentionCandidate, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type GroupDeletePayload } from "@/utils/dashboard-types";
+import { type NotificationSettings, type GlobalSearchResult, type ReportTarget, type WhisperEcho, type WhisperMention, type WhisperReflection, type WhisperNotification, type WhisperProfile, type SafetyReport, COMMUNITIES_SETTING_KEY, WHISPERS_SETTING_KEY, WHISPER_NOTIFICATIONS_SETTING_KEY, REPORTS_SETTING_KEY, ONBOARDING_DISMISSED_SETTING_KEY, NOTIFICATION_SETTINGS_KEY, type NotificationTone, type ChatListModel, CALL_RING_TIMEOUT_MS, PENDING_ENCRYPTED_PAYLOAD, devPlaintextFor, type StatusCommentPayload, type StatusReactionPayload, type StatusDeletePayload, type GroupDeletePayload } from "@/utils/dashboard-types";
 
 // Store actions are stable for the life of the store, so they are bound once
 // here rather than subscribed to per render. See dashboardActions.
@@ -466,9 +469,15 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             title: string,
             body: string,
             chatId: string,
-            options: { critical?: boolean; requireInteraction?: boolean; tone?: NotificationTone } = {}
+            options: {
+              critical?: boolean;
+              /** Being tagged reaches you in a muted group, as in other messengers. */
+              ignoreMute?: boolean;
+              requireInteraction?: boolean;
+              tone?: NotificationTone;
+            } = {}
           ) => {
-            if (mutedChatIds.has(chatId)) {
+            if (mutedChatIds.has(chatId) && !options.ignoreMute) {
               return;
             }
             const id = crypto.randomUUID();
@@ -662,6 +671,10 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const activeTab = useDashboardStore((s) => s.activeTab);
     const [lastMessages, setLastMessages] = useState<Record<string, { body: string; ts: number }>>({});
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+    /** Chats with an unread message that tags you: the list shows an "@". */
+    const [taggedChats, setTaggedChats] = useState<Record<string, boolean>>({});
+    /** Bumped once incoming group messages are stored, so the list re-reads them. */
+    const [storedGroupMessages, setStoredGroupMessages] = useState(0);
     const processedGroupIncoming = useRef<Set<string>>(new Set());
     const processedIncoming = useRef<Set<string>>(new Set());
     const processedCallSignals = useRef<Set<string>>(new Set());
@@ -693,13 +706,30 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             () => messages.find((message) => message.id === replyToId) ?? null,
             [messages, replyToId]
           );
+    // The name this device gives the groups it writes to, inside the
+    // ciphertext of every group message so members can tell who is who.
+    const myGroupName = useMemo(
+            () => (displayName.trim() || generateRandomUsername(identity.pubkeyHash)).slice(0, 80),
+            [displayName, identity.pubkeyHash]
+          );
     const replySnapshot = useMemo<ReplyToMessage | undefined>(() => {
             if (!replyMessage) {
               return undefined;
             }
 
-            const senderName =
-              replyMessage.senderPubkeyHash === identity.pubkeyHash
+            const isMine = replyMessage.senderPubkeyHash === identity.pubkeyHash;
+            // A reply quote is sent to everyone in the chat. In a group that
+            // must be a name they can all see — not your private contact name
+            // for the author, and not "You", which would read as themselves.
+            const senderName = selectedGroup
+              ? isMine
+                ? myGroupName
+                : memberTagName(
+                    replyMessage.senderPubkeyHash,
+                    // Only this group's names, never a previous chat's.
+                    chatPref.chatId === selectedGroup.id ? chatPref.memberNames : undefined
+                  )
+              : isMine
                 ? "You"
                 : contacts.find((contact) => contact.pubkeyHash === replyMessage.senderPubkeyHash)
                     ?.localDisplayName || undefined;
@@ -709,7 +739,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               myPubkeyHash: identity.pubkeyHash,
               ...(senderName && { senderName })
             });
-          }, [contacts, identity.pubkeyHash, replyMessage]);
+          }, [chatPref.chatId, chatPref.memberNames, contacts, identity.pubkeyHash, myGroupName, replyMessage, selectedGroup]);
     const editingMessage = useMemo(
             () => messages.find((message) => message.id === editingMessageId) ?? null,
             [editingMessageId, messages]
@@ -723,6 +753,54 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             [chatPref, selectedContact]
           );
     const chatIsMuted = useMemo(() => isMuted(chatPref), [chatPref]);
+    const contactNameByHash = useMemo(
+            () =>
+              Object.fromEntries(
+                contacts.map((contact) => [contact.pubkeyHash, contact.localDisplayName])
+              ) as Record<string, string>,
+            [contacts]
+          );
+    // Read by the incoming-message effect, which should not re-run whenever a
+    // contact is renamed.
+    const contactNamesRef = useRef(contactNameByHash);
+    contactNamesRef.current = contactNameByHash;
+    // Who is who in the open group, as this device shows them: your contact
+    // name if you saved one, else the name they gave the group, else their
+    // ghost handle. Senders outside the local member list are included so
+    // every bubble can be labelled.
+    const groupMemberNames = selectedGroup && chatPref.chatId === selectedGroup.id
+      ? chatPref.memberNames
+      : undefined;
+    const groupMemberLabels = useMemo<Record<string, string>>(() => {
+            if (!selectedGroup) return {};
+            const labels: Record<string, string> = {};
+            const hashes = new Set([
+              ...selectedGroup.memberPubkeyHashes,
+              ...messages.map((message) => message.senderPubkeyHash)
+            ]);
+            for (const hash of hashes) {
+              labels[hash] =
+                hash === identity.pubkeyHash
+                  ? "You"
+                  : memberLabel(hash, groupMemberNames, contactNameByHash[hash]);
+            }
+            return labels;
+          }, [contactNameByHash, groupMemberNames, identity.pubkeyHash, messages, selectedGroup]);
+    // The "@" picker in a group offers the people your message is sent to —
+    // the local member list — so a tag always reaches the person it names.
+    const searchGroupMentions = useCallback(
+            async (query: string) =>
+              selectedGroup
+                ? groupMentionCandidates({
+                    contactNames: contactNameByHash,
+                    me: identity.pubkeyHash,
+                    members: selectedGroup.memberPubkeyHashes,
+                    names: groupMemberNames,
+                    query
+                  })
+                : [],
+            [contactNameByHash, groupMemberNames, identity.pubkeyHash, selectedGroup]
+          );
     const unreadCount = useMemo(() => 
             Object.values(unreadCounts).reduce((acc, count) => acc + count, 0),
             [unreadCounts]
@@ -883,6 +961,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 avatar: chat.avatar,
                 chatId,
                 groupId: chat.id,
+                tagged: taggedChats[chatId] === true,
                 initials: chat.title.slice(0, 1).toUpperCase(),
                 isArchived: archivedChatIds.has(chatId),
                 isGroup: true,
@@ -926,6 +1005,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             presenceByHash,
             selectedContactHash,
             selectedGroupId,
+            taggedChats,
             unreadCounts
           ]);
     const archivedCount = useMemo(
@@ -1138,6 +1218,12 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       if (!active) return;
 
       setUnreadCounts((prev) => ({ ...prev, [selectedChatId]: 0 }));
+      setTaggedChats((prev) => {
+        if (!prev[selectedChatId]) return prev;
+        const next = { ...prev };
+        delete next[selectedChatId];
+        return next;
+      });
       if (unread.length > 0) {
         const readIds = new Set(unread.map((message) => message.id));
         setMessages((current) =>
@@ -1300,27 +1386,34 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
         const msgs = await loadMessagesForChat(chatId);
         const visible = msgs.filter((m) => !m.deletedAt || m.senderPubkeyHash === identity.pubkeyHash);
         const last = visible[visible.length - 1];
-        const unread = visible.filter(
+        const unreadMessages = visible.filter(
           (m) => m.direction === "inbound" && !m.readAt
-        ).length;
+        );
         
         return {
           chatId,
           body: last ? previewForMessage(last, identity.pubkeyHash) : "Start a conversation",
+          // Only unread messages are decoded, so this stays cheap.
+          tagged: unreadMessages.some(
+            (m) => !m.deletedAt && bodyTags(m.body, identity.pubkeyHash)
+          ),
           ts: last?.createdAt ?? 0,
-          unread
+          unread: unreadMessages.length
         };
       })
     ).then((results) => {
       if (!active) return;
       const lm: Record<string, { body: string; ts: number }> = {};
       const uc: Record<string, number> = {};
-      results.forEach(({ chatId, body, ts, unread }) => {
+      const tc: Record<string, boolean> = {};
+      results.forEach(({ chatId, body, tagged, ts, unread }) => {
         lm[chatId] = { body, ts };
         uc[chatId] = unread;
+        if (tagged) tc[chatId] = true;
       });
       setLastMessages(lm);
       setUnreadCounts(uc);
+      setTaggedChats(tc);
     });
 
     return () => { active = false; };
@@ -1334,7 +1427,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     incoming.length,
     groupIncoming.length,
     incomingDeletions.length,
-    selectedChatId
+    selectedChatId,
+    storedGroupMessages
     ]);
     useEffect(() => {
     const chatIds = [
@@ -1680,6 +1774,37 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       const messageRecords = selectedChatId
         ? await loadMessagesForChat(selectedChatId)
         : [];
+      // Names learned from these messages should label the open group now.
+      const selectedPref =
+        selectedGroupId && newGroupEnvelopes.some((env) => env.groupId === selectedGroupId)
+          ? await getChatPref(selectedGroupId)
+          : null;
+
+      // Everything the alerts need is read before any state changes below:
+      // setting state re-runs this effect, which would cut a loop short.
+      const alerts: Array<{ body: string; chatId: string; tagged: boolean; title: string }> = [];
+      for (const env of newGroupEnvelopes) {
+        if (env.groupId === selectedChatId) continue;
+        const group = chatRecords.find((c) => c.id === env.groupId);
+        const title = group?.title || "A group";
+        const stored = await nadaDb.messages.get(env.id);
+        if (stored && bodyTags(stored.body, identity.pubkeyHash)) {
+          const pref = await getChatPref(env.groupId);
+          const who = memberLabel(
+            env.sender,
+            pref.memberNames,
+            contactNamesRef.current[env.sender]
+          );
+          alerts.push({
+            body: `${title}: ${previewForMessage(stored)}`,
+            chatId: env.groupId,
+            tagged: true,
+            title: `${who} mentioned you`
+          });
+        } else {
+          alerts.push({ body: "New group message", chatId: env.groupId, tagged: false, title });
+        }
+      }
 
       if (!active) {
         return;
@@ -1702,14 +1827,15 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             )
           : messageRecords
       );
+      if (selectedPref) setChatPrefState(selectedPref);
+      // The chat list reads previews, unread counts and tags from storage;
+      // re-read it now these messages are actually stored.
+      setStoredGroupMessages((count) => count + 1);
 
-      newGroupEnvelopes.forEach((env) => {
-         if (env.groupId !== selectedChatId) {
-             const group = chatRecords.find(c => c.id === env.groupId);
-             const title = group?.title || "A group";
-             showNotification(title, "New group message", env.groupId);
-         }
-      });
+      for (const alert of alerts) {
+        // Being tagged reaches you even in a muted group.
+        showNotification(alert.title, alert.body, alert.chatId, alert.tagged ? { ignoreMute: true } : {});
+      }
     });
 
     void loadStatuses();
@@ -2161,7 +2287,9 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               isTyping: false
             });
           }, [selectedContact, selectedChatId, identity.pubkeyHash, sendTyping]);
-    const sendMessage = async (text: string): Promise<void> => {
+    // `mentions` are the group members picked from the "@" list. They travel
+    // inside the encrypted payload; the relay never learns who was tagged.
+    const sendMessage = async (text: string, mentions: WhisperMention[] = []): Promise<void> => {
             const trimmed = text.trim();
             if (!trimmed || !selectedChatId) {
               return;
@@ -2173,9 +2301,15 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             if (editingMessageId) {
               const editedAt = Date.now();
               const existingMessage = messages.find((message) => message.id === editingMessageId);
+              // An edit keeps the tags whose text survived it, and the name.
+              const original = existingMessage
+                ? decodeMessagePayload(existingMessage.body)
+                : null;
               const editedPayload = buildTextPayload({
                 text: trimmed,
-                ...(existingMessage?.replyTo ? { replyTo: existingMessage.replyTo } : {})
+                ...(existingMessage?.replyTo ? { replyTo: existingMessage.replyTo } : {}),
+                ...(original?.senderName ? { senderName: original.senderName } : {}),
+                mentions: mentionsInText(trimmed, [...(original?.mentions ?? []), ...mentions])
               });
               const editedBody = encodeMessagePayload(editedPayload);
               const editRecipient =
@@ -2213,10 +2347,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             const timestamp = Date.now();
             const expiresAt =
               disappearingTimer > 0 ? timestamp + disappearingTimer : undefined;
-            const mentions = extractMentions(trimmed, contacts);
             const payload = buildTextPayload({
               text: trimmed,
-              ...(replySnapshot ? { replyTo: replySnapshot } : {})
+              ...(replySnapshot ? { replyTo: replySnapshot } : {}),
+              // Re-checked against the final text: a tag whose text was edited
+              // away before sending tags no one.
+              ...(activeGroup
+                ? { mentions: mentionsInText(trimmed, mentions), senderName: myGroupName }
+                : {})
             });
             const body = encodeMessagePayload(payload);
             const optimisticRecord: MessageRecord = {
@@ -2232,7 +2370,6 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               status: "local",
               createdAt: timestamp,
               ...(expiresAt ? { expiresAt } : {}),
-              ...(mentions.length > 0 ? { mentions } : {}),
               ...(replyToId ? { replyToId } : {}),
               ...(replySnapshot ? { replyTo: replySnapshot } : {})
             };
@@ -2298,7 +2435,6 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 senderPublicKey: identity.pubkey,
                 ...(replyToId ? { replyToId } : {}),
                 ...(replySnapshot ? { replyTo: replySnapshot } : {}),
-                ...(mentions.length > 0 ? { mentions } : {}),
                 ...(expiresAt ? { expiresAt } : {})
               };
               // ⚠️ MVP_ONLY — replace before production
@@ -2334,7 +2470,6 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               status: sent ? "sent" : statusFallback,
               createdAt: timestamp,
               ...(expiresAt ? { expiresAt } : {}),
-              ...(mentions.length > 0 ? { mentions } : {}),
               ...(replyToId ? { replyToId } : {}),
               ...(replySnapshot ? { replyTo: replySnapshot } : {})
             };
@@ -2366,7 +2501,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             const payload = {
               version: 1 as const,
               type: "poll" as const,
-              poll: poll
+              poll: poll,
+              ...(selectedGroup ? { senderName: myGroupName } : {})
             };
             const body = encodeMessagePayload(payload);
             const ciphertext = selectedGroup?.groupSenderKey
@@ -3170,25 +3306,27 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     const localWhispersRef = useRef(whispers);
     localWhispersRef.current = whispers;
     const searchMentions = useCallback(
-            async (query: string): Promise<WhisperMentionCandidate[]> => {
+            async (query: string): Promise<MentionCandidate[]> => {
               const blocked = new Set(blockedGhosts);
               if (whispersRelayConfigured()) {
                 const remote = await searchMentionCandidatesRemote(identity.pubkeyHash, query);
-                return (remote ?? []).filter((candidate) => !blocked.has(candidate.pubkeyHash));
+                return (remote ?? [])
+                  .filter((candidate) => !blocked.has(candidate.pubkeyHash))
+                  .map(({ displayName, followedByViewer, pubkeyHash }) => ({
+                    displayName,
+                    pubkeyHash,
+                    ...(followedByViewer ? { badge: "Following" } : {})
+                  }));
               }
               const needle = query.trimStart().toLowerCase();
-              const seen = new Map<string, WhisperMentionCandidate>();
+              const seen = new Map<string, MentionCandidate>();
               for (const echo of localWhispersRef.current) {
                 for (const author of [echo, ...echo.reflections]) {
                   const hash = author.authorHash;
                   if (!hash || hash === identity.pubkeyHash || blocked.has(hash)) continue;
                   const name = author.authorName.toLowerCase();
                   if (needle && !name.startsWith(needle) && !name.includes(` ${needle}`)) continue;
-                  seen.set(hash, {
-                    displayName: author.authorName,
-                    followedByViewer: false,
-                    pubkeyHash: hash
-                  });
+                  seen.set(hash, { displayName: author.authorName, pubkeyHash: hash });
                 }
               }
               return [...seen.values()].slice(0, 8);
@@ -3277,7 +3415,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             const payload = buildMediaPayload({
               media: mediaWithPreview,
               type: messageKind,
-              ...(replySnapshot ? { replyTo: replySnapshot } : {})
+              ...(replySnapshot ? { replyTo: replySnapshot } : {}),
+              ...(selectedGroup ? { senderName: myGroupName } : {})
             });
             const body = encodeMessagePayload(payload);
             const id = crypto.randomUUID();
@@ -3413,7 +3552,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             const payload = buildMediaPayload({
               media,
               type: "voice_note",
-              ...(replySnapshot ? { replyTo: replySnapshot } : {})
+              ...(replySnapshot ? { replyTo: replySnapshot } : {}),
+              ...(selectedGroup ? { senderName: myGroupName } : {})
             });
             const structuredBody = encodeMessagePayload(payload);
 
@@ -3714,17 +3854,12 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
             
             if (!isTargetGroup && !targetPeer) return;
 
-            let bodyToForward = original.body;
-            // Strip original reply contexts if present
-            if (bodyToForward.startsWith("{")) {
-              try {
-                const parsed = JSON.parse(bodyToForward);
-                if (parsed.replyTo) {
-                  delete parsed.replyTo;
-                  bodyToForward = JSON.stringify(parsed);
-                }
-              } catch { /* ignore parse error */ }
-            }
+            // Sent as the forwarder's own message: no reply quote, tags or
+            // name from the original, and the forwarder's name for a group.
+            const bodyToForward = forwardedBody(
+              original.body,
+              isTargetGroup ? myGroupName : undefined
+            );
 
             if (isTargetGroup && targetGroup) {
               if (!targetGroup.groupSenderKey) return;
@@ -4439,6 +4574,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                         preview={item.preview}
                         timestamp={item.timestamp}
                         unreadCount={item.unread}
+                        tagged={item.tagged === true}
                         initials={item.initials}
                         isSelected={item.isSelected}
                         isOnline={item.isOnline}
@@ -4548,9 +4684,11 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
         onRetryMessage={(message) => {
           void retryOutboundMessage(message);
         }}
-        onSend={(text) => {
-          void sendMessage(text);
+        onSend={(text, mentions) => {
+          void sendMessage(text, mentions);
         }}
+        memberLabels={selectedGroup ? groupMemberLabels : undefined}
+        onSearchMentions={selectedGroup ? searchGroupMentions : undefined}
         onSendVoiceNote={(body) => {
           void sendVoiceNote(body);
         }}
@@ -5053,10 +5191,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
       <AnimatePresence>
         {inAppNotification && (
           <motion.div
-            className="fixed top-4 left-1/2 z-[1000] -translate-x-1/2 cursor-pointer rounded-2xl bg-nada-surface border border-nada-border/10 p-4 shadow-2xl flex items-center gap-4 w-[90%] max-w-sm"
+            className="fixed top-4 left-1/2 z-[1000] cursor-pointer rounded-2xl bg-nada-surface border border-nada-border/10 p-4 shadow-2xl flex items-center gap-4 w-[90%] max-w-sm"
             initial={{ y: -50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -50, opacity: 0 }}
+            // Centred through motion's own transform: it animates `y` by
+            // writing `transform`, which overwrote a CSS translate and left
+            // every alert shifted half its width to the right — off a phone.
+            style={{ x: "-50%" }}
             onClick={() => {
               setInAppNotification(null);
               if (inAppNotification.chatId === "status") {

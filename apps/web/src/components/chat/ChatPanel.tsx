@@ -1,10 +1,10 @@
 "use client";
-import { textFromMessage, messageKindFromRecord, previewForMessage, mediaFromMessage, decodeMessagePayload } from "@/lib/media-message";
+import { textFromMessage, messageKindFromRecord, previewForMessage, mediaFromMessage, decodeMessagePayload, bodyTags } from "@/lib/media-message";
 import { type PreparedMediaFile, validateMediaFile, prepareMediaFile, openDecryptedMedia, formatBytes } from "@/lib/media-upload";
 import type { CallMode } from "@/lib/webrtc";
 import { deliveryStatusGlyph } from "@/utils/helpers";
 import type { ContactRecord, MessageRecord } from "@nada/db";
-import type { PollData, PollOption } from "@nada/types";
+import { segmentMentions, type PollData, type PollOption, type WhisperMention } from "@nada/types";
 import { IconButton, IdentityOrb, Avatar, cn } from "@nada/ui";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import { ArrowLeft, Video, Copy, MoreVertical, Search, Eye, EyeOff, Trash2, Phone, User, BellOff, Bell, ShieldAlert, Flag, ShieldOff, Pin, ChevronUp, ChevronDown, X, BarChart2, Send, MessageCircle, Clock, Reply, Flame, ArrowDown, Share2, Edit3, Plus, Mic, Download, FileText, Loader2, Users, CircleDashed, Image as ImageIcon, Lock, ChevronLeft, Waves } from "lucide-react";
@@ -13,7 +13,11 @@ import { type VirtuosoHandle, Virtuoso } from "react-virtuoso";
 import { MessageContextAction } from "../panels/Dialogs";
 import { isVoiceNoteMessage, VoiceRecorderBar, VoiceNoteBubble, parseVoiceNoteBody, isInlineImageMessage, parseInlineFileMessage, isInlineFileMessage } from "../VoiceNote";
 import { AttachmentPreview, AttachmentMenu } from "./AttachmentMenu";
+import { MentionSuggestions, useMentionPicker, type MentionSearch } from "../screens/MentionPicker";
 import type { MessageContextMenuState, GlobalSearchResult } from "@/utils/dashboard-types";
+
+/** The message payload's text limit; a tag pick that would pass it is refused. */
+const COMPOSER_MAX_LENGTH = 20_000;
 
 function AnimatedCheckmark({ className, size = 13, strokeWidth = 2.6 }: { className?: string; size?: number; strokeWidth?: number }) {
   return (
@@ -236,7 +240,9 @@ export function ChatPanel({
       wallpaperUrl,
       onSetWallpaper,
       onSendPoll,
-      onForward
+      onForward,
+      memberLabels,
+      onSearchMentions
     }: {
           canAttachFile: boolean;
           canCopyGroupInvite: boolean;
@@ -259,7 +265,8 @@ export function ChatPanel({
           onMessageSearchChange: (value: string) => void;
           onReply: (message: MessageRecord) => void;
           onRetryMessage: (message: MessageRecord) => void;
-          onSend: (text: string) => void;
+          /** `mentions`: group members picked from the "@" list. */
+          onSend: (text: string, mentions: WhisperMention[]) => void;
           onSendVoiceNote: (body: string) => void;
           onStartCall: (mode: CallMode) => void;
           onUnsend: (messageId: string) => void;
@@ -296,6 +303,10 @@ export function ChatPanel({
           onSendPoll: (poll: PollData) => void;
           onTypingStop: () => void;
           contacts: ContactRecord[];
+          /** Groups: what each member is called on this screen. */
+          memberLabels?: Record<string, string> | undefined;
+          /** Groups: suggestions for the "@" tag picker. */
+          onSearchMentions?: MentionSearch | undefined;
         }): JSX.Element {
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const [showOptions, setShowOptions] = useState(false);
@@ -328,12 +339,30 @@ export function ChatPanel({
       setMessageText("");
     }
     }, [editingMessageId, editingMessageBody]);
+    // Tagging is a group feature: there is nobody else to tag in a direct chat.
+    const mentionPicker = useMentionPicker<HTMLInputElement>({
+            maxLength: COMPOSER_MAX_LENGTH,
+            search: isGroup ? onSearchMentions : undefined,
+            setText: setMessageText,
+            text: messageText
+          });
+    const resetMentionPicker = mentionPicker.reset;
+    const taggedMentions = mentionPicker.tagged;
     const submitMessage = useCallback((): void => {
             const trimmed = messageText.trim();
             if (!trimmed) return;
-            onSend(trimmed);
+            onSend(trimmed, taggedMentions);
             setMessageText("");
-          }, [messageText, onSend]);
+            resetMentionPicker();
+          }, [messageText, onSend, resetMentionPicker, taggedMentions]);
+    const nameOf = useCallback(
+            (pubkeyHash: string): string | undefined =>
+              pubkeyHash === myPubkeyHash
+                ? "You"
+                : memberLabels?.[pubkeyHash] ??
+                  contacts.find((c) => c.pubkeyHash === pubkeyHash)?.localDisplayName,
+            [contacts, memberLabels, myPubkeyHash]
+          );
     const voiceNoteMessageIds = useMemo(
             () =>
               messages
@@ -1915,6 +1944,8 @@ export function ChatPanel({
 
           const isFirstInCluster = !prevMsgSameSender;
           const isLastInCluster = !nextMsgSameSender;
+          const taggedMe =
+            isGroup && message.direction === "inbound" && bodyTags(message.body, myPubkeyHash);
           const shouldAnimateIn = index >= Math.max(0, messages.length - 3);
 
           return (
@@ -1973,7 +2004,13 @@ export function ChatPanel({
                     isPinned && "ring-1 ring-nada-accent/40",
                     isMenuOpen && "ring-1 ring-nada-accent/25"
                   )}
+                  {...(taggedMe ? { "data-tagged-me": "true" } : {})}
                 >
+                  {isGroup && message.direction === "inbound" && isFirstInCluster ? (
+                    <p className="mb-0.5 truncate text-[12px] font-semibold text-nada-accent">
+                      {nameOf(message.senderPubkeyHash) ?? "Someone"}
+                    </p>
+                  ) : null}
                   {message.replyToId ? (
                     <button
                       type="button"
@@ -1986,9 +2023,7 @@ export function ChatPanel({
                         const original = messages.find((m) => m.id === message.replyToId);
                         const snapshot = message.replyTo;
                         const senderName = original
-                          ? original.senderPubkeyHash === myPubkeyHash
-                            ? "You"
-                            : contacts.find(c => c.pubkeyHash === original.senderPubkeyHash)?.localDisplayName || "Someone"
+                          ? nameOf(original.senderPubkeyHash) || "Someone"
                           : snapshot?.senderName ?? "Someone";
                         const previewText = original
                           ? previewForMessage(original)
@@ -2010,6 +2045,7 @@ export function ChatPanel({
                   <MessageContent
                     activeVoiceNoteId={activeVoiceNoteId}
                     message={message}
+                    myPubkeyHash={myPubkeyHash}
                     outbound={message.direction === "outbound"}
                     onOpenMedia={setMediaViewer}
                     onReact={onReact}
@@ -2021,11 +2057,6 @@ export function ChatPanel({
                         : 0
                     }
                   />
-                  {message.mentions?.length ? (
-                    <p className="mt-0.5 text-[11px] opacity-60">
-                      @{message.mentions.length} mention{message.mentions.length === 1 ? "" : "s"}
-                    </p>
-                  ) : null}
                   <div
                     className={cn(
                       "mt-0.5 flex items-center justify-end gap-1 text-[10px]",
@@ -2299,8 +2330,9 @@ export function ChatPanel({
           >
             <div className="flex flex-col min-w-0 pl-2">
               <span className="text-[10px] font-semibold text-nada-accent uppercase tracking-wider">
-                Replying to {replyMessage.senderPubkeyHash === myPubkeyHash ? "yourself" :
-                  contact?.pubkeyHash === replyMessage.senderPubkeyHash ? contact?.localDisplayName : "someone"}
+                Replying to {replyMessage.senderPubkeyHash === myPubkeyHash
+                  ? "yourself"
+                  : nameOf(replyMessage.senderPubkeyHash) ?? "someone"}
               </span>
               <span className="truncate text-xs text-white/60 mt-0.5">
                 {previewForMessage(replyMessage)}
@@ -2396,11 +2428,13 @@ export function ChatPanel({
                  </div>
               ) : (
                 <input
+                {...(isGroup && onSearchMentions ? mentionPicker.inputProps : {})}
+                aria-label="Message"
                 className="h-12 min-w-0 flex-1 rounded-full bg-n-s3/80 px-4 text-[14.5px] text-nada-primary outline-none backdrop-blur-md transition-all duration-200 placeholder:text-nada-secondary/45 focus:ring-2 focus:ring-n-accent/20 disabled:opacity-40"
                 disabled={peerIsBlocked}
                 onChange={(event) => {
                   const val = event.target.value;
-                  setMessageText(val);
+                  mentionPicker.handleChange(event);
 
                   if (val.trim() === "") {
                     wasTyping.current = false;
@@ -2424,15 +2458,17 @@ export function ChatPanel({
                   }, 2000);
                 }}
                 onKeyDown={(event) => {
+                  if (mentionPicker.handleKeyDown(event)) return;
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
                     submitMessage();
                   }
                 }}
-                placeholder="Type a message..."
+                placeholder={isGroup && onSearchMentions ? "Message · @ to tag" : "Type a message..."}
                 value={messageText}
               />
               )}
+              <MentionSuggestions state={mentionPicker.suggestions} />
               {messageText.trim() ? (
                 <button
                   className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white transition-all duration-200 hover:scale-105 active:scale-90 nada-logo-aura"
@@ -2523,6 +2559,7 @@ export function ChatPanel({
 export function MessageContent({
       activeVoiceNoteId,
       message,
+      myPubkeyHash,
       outbound,
       onOpenMedia,
       onReact,
@@ -2532,6 +2569,8 @@ export function MessageContent({
     }: {
           activeVoiceNoteId?: string | null;
           message: MessageRecord;
+          /** Tags of this identity are marked as "you". */
+          myPubkeyHash?: string;
           outbound: boolean;
           onOpenMedia: (viewer: { name: string; url: string; mimeType: string }) => void;
           onReact?: (message: MessageRecord, emoji: string) => void;
@@ -2801,12 +2840,58 @@ export function MessageContent({
 
     return (
     <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
-      <MessageTextWithLinks text={payload?.text ?? textFromMessage(message)} />
+      <MessageTextWithLinks
+        mentions={payload?.mentions}
+        myPubkeyHash={myPubkeyHash}
+        text={payload?.text ?? textFromMessage(message)}
+      />
     </div>
     );
 }
 
-export function MessageTextWithLinks({ text }: { text: string }): JSX.Element {
+/** A text run with any group tags in it drawn as tags; yours stand out. */
+function TaggedRun({
+  mentions,
+  myPubkeyHash,
+  text
+}: {
+  mentions: WhisperMention[] | undefined;
+  myPubkeyHash: string | undefined;
+  text: string;
+}): JSX.Element {
+  if (!mentions?.length) return <span>{text}</span>;
+  return (
+    <>
+      {segmentMentions(text, mentions).map((segment, index) =>
+        segment.kind === "mention" ? (
+          <span
+            className={cn(
+              "font-semibold text-nada-accent",
+              segment.mention.pubkeyHash === myPubkeyHash &&
+                "rounded-md bg-nada-accent/15 px-1"
+            )}
+            data-tag={segment.mention.pubkeyHash === myPubkeyHash ? "you" : "member"}
+            key={index}
+          >
+            {segment.text}
+          </span>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        )
+      )}
+    </>
+  );
+}
+
+export function MessageTextWithLinks({
+  mentions,
+  myPubkeyHash,
+  text
+}: {
+  mentions?: WhisperMention[] | undefined;
+  myPubkeyHash?: string | undefined;
+  text: string;
+}): JSX.Element {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const parts = text.split(urlRegex);
     return (
@@ -2845,7 +2930,7 @@ export function MessageTextWithLinks({ text }: { text: string }): JSX.Element {
             </span>
           );
         }
-        return <span key={i}>{part}</span>;
+        return <TaggedRun key={i} mentions={mentions} myPubkeyHash={myPubkeyHash} text={part} />;
       })}
     </>
     );

@@ -168,6 +168,7 @@ export const ChatListItem = ({
   preview,
   timestamp,
   unreadCount,
+  tagged = false,
   avatar,
   isPinned,
   isMuted,
@@ -184,6 +185,8 @@ export const ChatListItem = ({
   preview: string;
   timestamp: string;
   unreadCount: number;
+  /** An unread message here tags you. */
+  tagged?: boolean;
   avatar?: string | undefined;
   initials?: string;
   isPinned?: boolean;
@@ -315,6 +318,15 @@ export const ChatListItem = ({
           <div className="flex shrink-0 items-center gap-1.5">
             {isMuted && <VolumeX size={11} className="text-n-tx3/70" />}
             {isPinned && <Pin size={11} className="-rotate-45 text-n-accent/70" />}
+            {tagged && (
+              <span
+                aria-label="You were tagged"
+                className="nada-unread-badge"
+                title="You were tagged"
+              >
+                @
+              </span>
+            )}
             {unreadCount > 0 && (
               <motion.span
                 initial={{ scale: 0.5, opacity: 0 }}
