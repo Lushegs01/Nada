@@ -162,6 +162,40 @@ which is wiped on every deploy and is not shared between instances, so uploads
 disappear and 404 unpredictably.
 Manual verification: `GET /health` must report `media: "s3"` in production.
 
+## Whisper Media
+
+Risk: Echoes can carry up to four photos, GIFs, videos or audio clips. Unlike
+chat attachments these are public, so they are stored unencrypted under
+`whispers/` in the media bucket and served by a public `GET
+/api/v1/whispers/media/:id` with no retention window. Upload needs an identity
+proof, the relay checks each file's bytes match its declared type (SVG, HTML
+and documents are refused), and only the uploader can attach a file to an
+Echo. Deleting an Echo deletes its files. Five limits remain:
+
+- Metadata is scrubbed in the browser, not on the relay. Photos are re-encoded
+  through a canvas (EXIF/GPS gone); GIFs lose comment and XMP blocks; MP4, MOV
+  and M4A have their `udta`, `meta` and `uuid` boxes blanked; MP3s lose ID3
+  tags. Not scrubbed: GPS recorded as a timed data track inside a video (action
+  cameras, drones), tags in Ogg/FLAC/WAV/WebM audio, and anything visible or
+  audible in the content itself. A modified client can skip the scrub entirely
+  — it only protects people from their own phones.
+- There is no moderation beyond the existing "Report" button. Public,
+  anonymous image and video hosting attracts abuse, and nothing scans uploads.
+- Uploads are multipart, so the rate limiter cannot see their identity and
+  keys them by IP. Files uploaded but never published are not reclaimed.
+- Downloads are exempt from the rate limiter (a campus NAT would otherwise
+  share one budget for every image on the feed). Put a CDN or edge cache in
+  front of the relay before the feed carries much media.
+- Responses are cacheable for an hour, so a deleted Echo's media can linger in
+  a viewer's browser cache for up to that long.
+
+What breaks if wrong: A bucket lifecycle rule that is not scoped to `media/`
+silently deletes Echo media after `MEDIA_TTL_SECONDS`. A photo published with
+its GPS block puts a pin on its anonymous author.
+Manual verification: Scope the chat-attachment lifecycle rule to the `media/`
+prefix. Run `apps/relay/tests/whisper-media.test.ts` with `TEST_DATABASE_URL`
+set, and `apps/web/tests/media-sanitize.test.ts`.
+
 ## Feed Cache Staleness
 
 Risk: Feed aggregates (Echo/Ripple/Reflection counts) are cached per instance

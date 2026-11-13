@@ -185,8 +185,9 @@ reconnect replay, joining a group by link, removing members with a key reset,
 group member names and "@" tagging inside the encryption,
 replies, reactions, edits, unsend, disappearing timers,
 search, encrypted media, vanishing statuses shared with a chosen audience, the
-public Whispers feed with threads, profiles and "@" tagging (with a per-ghost
-"Who can tag you" setting), notifications, web push, PWA installability, WebRTC
+public Whispers feed with threads, profiles, "@" tagging (with a per-ghost
+"Who can tag you" setting) and photos, GIFs, video and audio on Echoes
+(scrubbed of location metadata in the browser before upload), notifications, web push, PWA installability, WebRTC
 calling, Stripe subscriptions, and CampOS SSO.
 
 Known gaps, in priority order:

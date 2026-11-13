@@ -4,6 +4,8 @@ import {
   WHISPER_MAX_MENTIONS,
   mentionsInText,
   parseMentions,
+  parseWhisperMedia,
+  type WhisperMedia,
   type WhisperMention,
   type WhisperMentionPrivacy,
   type WhisperNotificationKind
@@ -19,6 +21,12 @@ export interface WhisperRippleSource {
   body: string;
   createdAt: number;
   id: string;
+  /**
+   * The source Echo's attachments, copied by the relay from the stored Echo —
+   * never from the client. They point at the source's files, so deleting the
+   * source removes them here too.
+   */
+  media?: WhisperMedia[];
 }
 
 export interface WhisperEchoInput {
@@ -29,6 +37,8 @@ export interface WhisperEchoInput {
   id: string;
   /** Tags the relay has already resolved and validated. */
   mentions?: WhisperMention[];
+  /** Attachments the relay has already checked against its media store. */
+  media?: WhisperMedia[];
   rippleOf?: WhisperRippleSource;
 }
 
@@ -78,6 +88,8 @@ export interface WhisperEchoView {
   id: string;
   /** Present only when the Echo tags someone. */
   mentions?: WhisperMention[];
+  /** Present only when the Echo carries photos, video or audio. */
+  media?: WhisperMedia[];
   reflectionCount: number;
   reflections: WhisperReflectionView[];
   rippleCount: number;
@@ -220,6 +232,16 @@ function asMentionPrivacy(value: unknown): WhisperMentionPrivacy {
   return value === "following" || value === "none" ? value : "everyone";
 }
 
+/** Spreads `media` onto a view only when there is at least one attachment. */
+function withMedia(raw: unknown): { media?: WhisperMedia[] } {
+  const media = parseWhisperMedia(raw);
+  return media.length > 0 ? { media } : {};
+}
+
+function mediaParam(media: WhisperMedia[] | undefined): string | null {
+  return media && media.length > 0 ? JSON.stringify(media) : null;
+}
+
 /** Spreads `mentions` onto a view only when there is at least one. */
 function withMentions(raw: unknown): { mentions?: WhisperMention[] } {
   const mentions = parseMentions(raw);
@@ -284,6 +306,8 @@ export interface WhisperRepository {
   /** False when an Echo with this id already existed and nothing was written. */
   createEcho: (echo: WhisperEchoInput) => Promise<boolean>;
   deleteEcho: (id: string, authorPubkeyHash: string) => Promise<boolean>;
+  /** The attachments an Echo carries; empty when it has none or is gone. */
+  getEchoMedia: (id: string) => Promise<WhisperMedia[]>;
   deleteReflection: (
     id: string,
     authorPubkeyHash: string
@@ -457,6 +481,8 @@ interface EchoRow {
   ripple_of_body: string | null;
   ripple_of_created_at_ms: SqlTimestamp | null;
   mentions: unknown;
+  media: unknown;
+  ripple_of_media: unknown;
 }
 
 /** Aggregate row of the form `{ echo_id, n }` produced by the count queries. */
@@ -529,8 +555,8 @@ class PostgresWhisperRepository implements WhisperRepository {
       `insert into whisper_echoes
          (id, author_pubkey_hash, author_name, body,
           ripple_of_id, ripple_of_author_name, ripple_of_body, ripple_of_created_at_ms,
-          created_at_ms, mentions, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, now())
+          created_at_ms, mentions, media, ripple_of_media, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, now())
        on conflict (id) do nothing`,
       [
         echo.id,
@@ -542,7 +568,9 @@ class PostgresWhisperRepository implements WhisperRepository {
         echo.rippleOf?.body ?? null,
         echo.rippleOf?.createdAt ?? null,
         echo.createdAt,
-        mentionsParam(echo.mentions)
+        mentionsParam(echo.mentions),
+        mediaParam(echo.media),
+        mediaParam(echo.rippleOf?.media)
       ]
     );
     return Boolean(result.rowCount && result.rowCount > 0);
@@ -576,6 +604,14 @@ class PostgresWhisperRepository implements WhisperRepository {
       await tx.query("delete from whisper_notifications where echo_id = $1", [id]);
       return true;
     });
+  }
+
+  async getEchoMedia(id: string): Promise<WhisperMedia[]> {
+    const result = await this.client.query<{ media: unknown }>(
+      "select media from whisper_echoes where id = $1",
+      [id]
+    );
+    return parseWhisperMedia(result.rows[0]?.media);
   }
 
   async addReflection(
@@ -887,7 +923,7 @@ class PostgresWhisperRepository implements WhisperRepository {
     const echoResult = await this.client.query(
       `select id, author_pubkey_hash, author_name, body,
               ripple_of_id, ripple_of_author_name, ripple_of_body, ripple_of_created_at_ms,
-              created_at_ms, mentions
+              created_at_ms, mentions, media, ripple_of_media
        from whisper_echoes
        where created_at_ms >= $1
          and ($3::bigint is null or created_at_ms < $3)
@@ -1017,6 +1053,7 @@ class PostgresWhisperRepository implements WhisperRepository {
       echoedByViewer: viewerEchoed.has(row.id),
       id: row.id,
       ...withMentions(row.mentions),
+      ...withMedia(row.media),
       reflectionCount: reflectionCountMap.get(row.id) ?? 0,
       reflections: previewByEcho.get(row.id) ?? [],
       rippleCount: rippleCountMap.get(row.id) ?? 0,
@@ -1031,7 +1068,8 @@ class PostgresWhisperRepository implements WhisperRepository {
               authorName: row.ripple_of_author_name ?? "",
               body: row.ripple_of_body ?? "",
               createdAt: Number(row.ripple_of_created_at_ms ?? 0),
-              id: row.ripple_of_id
+              id: row.ripple_of_id,
+              ...withMedia(row.ripple_of_media)
             }
           }
         : {})
@@ -1201,7 +1239,8 @@ class PostgresWhisperRepository implements WhisperRepository {
     const rows = await this.client.query(
       `select e.id, e.author_pubkey_hash, e.author_name, e.body,
               e.ripple_of_id, e.ripple_of_author_name, e.ripple_of_body,
-              e.ripple_of_created_at_ms, e.created_at_ms, e.mentions
+              e.ripple_of_created_at_ms, e.created_at_ms, e.mentions,
+              e.media, e.ripple_of_media
        from whisper_reactions x
        join whisper_echoes e on e.id = x.echo_id
        where x.reactor_pubkey_hash = $1
@@ -1508,6 +1547,10 @@ class MemoryWhisperRepository implements WhisperRepository {
     return true;
   }
 
+  async getEchoMedia(id: string): Promise<WhisperMedia[]> {
+    return this.echoes.get(id)?.media ?? [];
+  }
+
   async addReflection(
     reflection: WhisperReflectionInput
   ): Promise<ReflectionCreateResult> {
@@ -1680,6 +1723,7 @@ class MemoryWhisperRepository implements WhisperRepository {
       echoedByViewer: likes.has(viewerPubkeyHash),
       id: echo.id,
       ...withMentions(echo.mentions),
+      ...withMedia(echo.media),
       reflectionCount: live.length,
       reflections: preview.map((reflection) =>
         this.reflectionView(reflection, viewerPubkeyHash)

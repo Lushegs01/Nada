@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildContentSecurityPolicy,
-  deriveConnectSrc
+  deriveConnectSrc,
+  deriveRelayHttpOrigin
 } from "@/lib/content-security-policy";
 
 function directive(csp: string, name: string): string {
@@ -91,6 +92,35 @@ describe("connect-src", () => {
     const connect = deriveConnectSrc("http://[not a url", true);
     expect(connect).toContain("'self'");
     expect(connect).not.toContain("not a url");
+  });
+});
+
+describe("img-src and media-src", () => {
+  it("lets Whisper media load from the configured relay, and nowhere else", () => {
+    const csp = buildContentSecurityPolicy({
+      nonce: NONCE,
+      relayUrl: "wss://relay.nada.test/ws",
+      isProduction: true
+    });
+
+    for (const name of ["img-src", "media-src"]) {
+      const allowed = sources(directive(csp, name));
+      expect(allowed).toContain("https://relay.nada.test");
+      expect(allowed).not.toContain("https:");
+      expect(allowed).not.toContain("*");
+    }
+  });
+
+  it("adds no origin when no relay is configured", () => {
+    const csp = buildContentSecurityPolicy({ relayUrl: undefined, isProduction: true });
+    expect(directive(csp, "img-src")).toBe("img-src 'self' data: blob:");
+    expect(directive(csp, "media-src")).toBe("media-src 'self' data: blob:");
+  });
+
+  it("keeps an insecure local relay on http", () => {
+    expect(deriveRelayHttpOrigin("ws://localhost:4000")).toBe("http://localhost:4000");
+    expect(deriveRelayHttpOrigin("relay.nada.test")).toBe("https://relay.nada.test");
+    expect(deriveRelayHttpOrigin("http://[bad")).toBeNull();
   });
 });
 

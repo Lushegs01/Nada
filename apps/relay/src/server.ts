@@ -51,6 +51,8 @@ import { TtlCache } from "./ttl-cache";
 import { registerStatusRoutes } from "./status-routes";
 import { registerTurnRoutes } from "./turn-routes";
 import { registerUploadRoutes } from "./upload-routes";
+import { registerWhisperMediaRoutes } from "./whisper-media-routes";
+import { createWhisperMediaStore } from "./whisper-media-store";
 import { registerWhisperRoutes } from "./whisper-routes";
 
 type ClientSocket = WebSocket;
@@ -103,6 +105,7 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
   const queue = await createRelayQueue(env, redis);
   const bus = createPresenceBus(redis);
   const mediaStore = createMediaStore(env);
+  const whisperMediaStore = createWhisperMediaStore(env);
   const sessions: SessionRegistry = {
     socketsByPubkeyHash: new Map(),
     pubkeyHashBySocket: new Map(),
@@ -158,7 +161,8 @@ export async function createRelayServer(env: RelayEnv): Promise<FastifyInstance>
   await registerStatusRoutes(app, env, db);
   await registerTurnRoutes(app, env);
   await registerUploadRoutes(app, env, mediaStore);
-  await registerWhisperRoutes(app, env, db, contest);
+  await registerWhisperMediaRoutes(app, env, whisperMediaStore);
+  await registerWhisperRoutes(app, env, db, contest, whisperMediaStore);
   await registerContestRoutes(app, env, contest);
   await registerContestAdminRoutes(app, env, contest);
 

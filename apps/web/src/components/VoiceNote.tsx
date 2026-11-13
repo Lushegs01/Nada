@@ -26,7 +26,7 @@ function formatDur(totalSeconds: number): string {
  * compute the true duration; after that, playback runs to completion. This is
  * the standard, dependency-free fix for the Chrome MediaRecorder WebM bug.
  */
-function forceRealDuration(
+export function forceRealDuration(
   media: HTMLMediaElement | null | undefined,
   knownSeconds: number,
   guard?: { current: boolean }

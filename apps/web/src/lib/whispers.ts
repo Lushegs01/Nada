@@ -18,7 +18,7 @@ import type {
   WhisperReflection,
   WhisperRippleSource
 } from "@/utils/dashboard-types";
-import { parseMentions } from "@nada/types";
+import { parseMentions, parseWhisperMedia, type WhisperMediaRef } from "@nada/types";
 
 export function whispersRelayConfigured(): boolean {
   return Boolean(getRelayHttpBaseUrl());
@@ -47,12 +47,13 @@ type RelayEcho = {
   echoCount: number;
   echoedByViewer: boolean;
   id: string;
+  media?: unknown;
   mentions?: unknown;
   reflectionCount?: number;
   reflections: RelayReflection[];
   rippleCount: number;
   rippledByViewer: boolean;
-  rippleOf?: WhisperRippleSource;
+  rippleOf?: WhisperRippleSource & { media?: unknown };
 };
 
 type RelayNotification = {
@@ -86,6 +87,22 @@ type RelayProfile = {
   showActivity: boolean;
   showLikes?: boolean;
 };
+
+/** Present only when there is at least one attachment, like `withMentions`. */
+function withMedia(raw: unknown): Pick<WhisperEcho, "media"> {
+  const media = parseWhisperMedia(raw);
+  return media.length > 0 ? { media } : {};
+}
+
+function mapRippleSource(source: NonNullable<RelayEcho["rippleOf"]>): WhisperRippleSource {
+  return {
+    authorName: source.authorName,
+    body: source.body,
+    createdAt: source.createdAt,
+    id: source.id,
+    ...withMedia(source.media)
+  };
+}
 
 /** Present only when there is at least one tag, matching the relay's views. */
 function withMentions(raw: unknown): Pick<WhisperEcho, "mentions"> {
@@ -123,11 +140,12 @@ function mapEcho(echo: RelayEcho): WhisperEcho {
     echoedByMe: echo.echoedByViewer,
     id: echo.id,
     ...withMentions(echo.mentions),
+    ...withMedia(echo.media),
     reflectionCount: echo.reflectionCount ?? reflections.length,
     reflections,
     rippleCount: echo.rippleCount,
     rippledByMe: echo.rippledByViewer,
-    ...(echo.rippleOf ? { rippleOf: echo.rippleOf } : {})
+    ...(echo.rippleOf ? { rippleOf: mapRippleSource(echo.rippleOf) } : {})
   };
 }
 
@@ -251,6 +269,8 @@ export async function publishEchoRemote(input: {
   id: string;
   /** Identities to tag. The relay labels each with that ghost's own name. */
   mentions?: string[];
+  /** Uploaded attachments, in display order. */
+  media?: WhisperMediaRef[];
   timestamp: number;
 }): Promise<boolean> {
   const proof = await useIdentityStore.getState().signProof("whisper-publish", input.id);

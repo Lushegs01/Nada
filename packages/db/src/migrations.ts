@@ -1,5 +1,6 @@
 import { CONTEST_SCHEMA_SQL } from "./contest-schema";
 import { POSTGRES_SCHEMA_SQL } from "./postgres-schema";
+import { WHISPER_MEDIA_SCHEMA_SQL } from "./whisper-media-schema";
 import { WHISPER_MENTIONS_SCHEMA_SQL } from "./whisper-mentions-schema";
 
 /**
@@ -26,7 +27,8 @@ export interface Migration {
 export const MIGRATIONS: readonly Migration[] = [
   { id: "0001_baseline", sql: POSTGRES_SCHEMA_SQL },
   { id: "0002_contest_domain", sql: CONTEST_SCHEMA_SQL },
-  { id: "0003_whisper_mentions", sql: WHISPER_MENTIONS_SCHEMA_SQL }
+  { id: "0003_whisper_mentions", sql: WHISPER_MENTIONS_SCHEMA_SQL },
+  { id: "0004_whisper_media", sql: WHISPER_MEDIA_SCHEMA_SQL }
 ];
 
 export const SCHEMA_MIGRATIONS_TABLE_SQL = `

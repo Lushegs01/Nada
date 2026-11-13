@@ -21,12 +21,13 @@ import {
   WhisperReflectionReactRequestSchema,
   WhisperRippleRequestSchema
 } from "@nada/types";
-import type { WhisperNotificationKind } from "@nada/types";
+import type { WhisperMedia, WhisperMediaRef, WhisperNotificationKind } from "@nada/types";
 
 import type { ContestService } from "./contest/service";
 import type { RelayDb } from "./db";
 import type { RelayEnv } from "./env";
 import { verifyIdentityProof } from "./identity-proof";
+import type { WhisperMediaStore } from "./whisper-media-store";
 import {
   createWhisperRepository,
   notificationPreview,
@@ -86,6 +87,37 @@ const PUSH_COPY: Record<WhisperNotificationKind, string> = {
   ripple: "rippled your Echo"
 };
 
+/**
+ * Turns the attachments an author asks to publish into what the Echo stores.
+ * Each must be a file this relay holds and that this author uploaded; the
+ * type and size come from the stored record, and only the display hints that
+ * fit the kind (dimensions for images and video, length for video and audio)
+ * are kept from the client. Null when any attachment fails those checks.
+ */
+export async function resolveEchoMedia(
+  store: WhisperMediaStore,
+  author: string,
+  refs: readonly WhisperMediaRef[]
+): Promise<WhisperMedia[] | null> {
+  const records = await Promise.all(refs.map((ref) => store.head(ref.id)));
+  const media: WhisperMedia[] = [];
+  for (const [index, ref] of refs.entries()) {
+    const record = records[index];
+    if (!record || record.uploaderPubkeyHash !== author) return null;
+    const visual = record.kind === "image" || record.kind === "video";
+    const timed = record.kind === "video" || record.kind === "audio";
+    media.push({
+      id: record.id,
+      kind: record.kind,
+      mimeType: record.mimeType,
+      size: record.size,
+      ...(visual && ref.width && ref.height ? { width: ref.width, height: ref.height } : {}),
+      ...(timed && ref.duration ? { duration: ref.duration } : {})
+    });
+  }
+  return media;
+}
+
 export async function registerWhisperRoutes(
   app: FastifyInstance,
   env: RelayEnv,
@@ -97,7 +129,12 @@ export async function registerWhisperRoutes(
    * immediately and cannot throw, so a broken or absent contest engine leaves
    * every code path below unchanged.
    */
-  contest: ContestService | null = null
+  contest: ContestService | null = null,
+  /**
+   * Where Echo attachments live. Without one, Echoes are text-only: a publish
+   * that names media is refused rather than stored with dangling references.
+   */
+  mediaStore: WhisperMediaStore | null = null
 ): Promise<void> {
   const repository = await createWhisperRepository(db);
 
@@ -141,6 +178,23 @@ export async function registerWhisperRoutes(
         reason: verification.reason
       });
     }
+    let media: WhisperMedia[] = [];
+    if (result.data.media && result.data.media.length > 0) {
+      if (!mediaStore) {
+        return reply.code(400).send({
+          code: "media_unavailable",
+          message: "This relay does not accept media on Echoes."
+        });
+      }
+      const resolved = await resolveEchoMedia(mediaStore, result.data.author, result.data.media);
+      if (!resolved) {
+        return reply.code(400).send({
+          code: "invalid_media",
+          message: "An attachment is missing or was not uploaded by this author."
+        });
+      }
+      media = resolved;
+    }
     const mentions = await repository.resolveMentions(
       result.data.author,
       result.data.body,
@@ -149,10 +203,11 @@ export async function registerWhisperRoutes(
     const created = await repository.createEcho({
       authorName: result.data.authorName,
       authorPubkeyHash: result.data.author,
-      body: result.data.body,
+      body: result.data.body.trim(),
       createdAt: result.data.timestamp,
       id: result.data.id,
-      ...(mentions.length > 0 ? { mentions } : {})
+      ...(mentions.length > 0 ? { mentions } : {}),
+      ...(media.length > 0 ? { media } : {})
     });
     // The proof's pubkey is relay-verified (it hashes to the author). Capture
     // it so other ghosts can open an encrypted DM lane from this profile.
@@ -210,7 +265,21 @@ export async function registerWhisperRoutes(
         reason: verification.reason
       });
     }
-    await repository.deleteEcho(result.data.id, result.data.author);
+    // Read the attachments first: once the row is gone nothing says which
+    // files were its. They are only removed if the delete was the author's.
+    const media = mediaStore ? await repository.getEchoMedia(result.data.id) : [];
+    const deleted = await repository.deleteEcho(result.data.id, result.data.author);
+    if (deleted && mediaStore) {
+      for (const item of media) {
+        try {
+          await mediaStore.delete(item.id);
+        } catch (error) {
+          // The Echo is gone either way; an orphaned file is a storage leak,
+          // not a reason to tell the author their delete failed.
+          request.log.warn({ err: error, mediaId: item.id }, "Failed to delete Echo media");
+        }
+      }
+    }
     // Deleting content takes back the points it generated — for its author and
     // for everyone who earned from interacting with it. The events survive as
     // REVERSED rows so the history still explains itself.
@@ -556,13 +625,19 @@ export async function registerWhisperRoutes(
       result.data.author,
       result.data.timestamp
     );
+    // The quote carries the source's photos too. They are read from the stored
+    // source Echo, never taken from the request.
+    const rippleMedia = await repository.getEchoMedia(result.data.rippleOf.id);
     await repository.createEcho({
       authorName: result.data.authorName,
       authorPubkeyHash: result.data.author,
       body: "",
       createdAt: result.data.timestamp,
       id: result.data.id,
-      rippleOf: result.data.rippleOf
+      rippleOf: {
+        ...result.data.rippleOf,
+        ...(rippleMedia.length > 0 ? { media: rippleMedia } : {})
+      }
     });
     contest?.emit({
       eventType: "RIPPLE_CREATED",

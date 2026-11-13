@@ -19,7 +19,7 @@ import { useSocketStore } from "@/stores/useSocketStore";
 import { parseCommunityRecords, parseWhisperEchoes, parseWhisperNotifications, seedWhisperEchoes, parseSafetyReports, parseNotificationSettings, persistIncomingMessages, persistIncomingStatuses, type RelayStatusRow, formatRelativeTime, generateRandomUsername, isLegacyNadaName, mergeMessageRecords, upsertContact, upsertGroupFromInvite, deliveryStatusRank, parseStatusReactionPayload, persistIncomingGroupMessages, statusCommentChatId, dataUrlSize, matchesSearch } from "@/utils/helpers";
 import { encryptGroupMessage, createGroupSenderKey } from "@nada/crypto";
 import type { IdentityRecord, ChatRecord, ContactRecord, MessageRecord } from "@nada/db";
-import type { MessageEnvelope, ReplyToMessage, GroupMessageEnvelope, PollData, MediaAttachment, GroupInvitePayload } from "@nada/types";
+import type { MessageEnvelope, ReplyToMessage, GroupMessageEnvelope, PollData, MediaAttachment, GroupInvitePayload, WhisperMedia } from "@nada/types";
 import { mentionsInText } from "@nada/types";
 import { cn, IdentityOrb } from "@nada/ui";
 import Dexie from "dexie";
@@ -47,6 +47,7 @@ const SettingsSheet = dynamic(() => import("../panels/SettingsSheet").then(m => 
 import { LaunchOnboardingSheet } from "../panels/Sheet";
 import { parseVoiceNoteBody } from "../VoiceNote";
 import { WhispersFeed, type WhisperThreadMeta } from "./WhispersFeed";
+import { uploadWhisperMedia, type PreparedWhisperMedia } from "@/lib/whisper-media";
 import type { MentionCandidate } from "./MentionPicker";
 import { ContestScreen } from "../contest/ContestScreen";
 import { NotificationsPanel } from "./NotificationsPanel";
@@ -2967,9 +2968,13 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
     // `mentions` are the ghosts tagged from the "@" picker. They show at once
     // on the optimistic copy; the relay then keeps only the tags it accepts
     // and notifies those ghosts, and the next sync shows its verdict.
-    const postEcho = (body: string, mentions: WhisperMention[] = []): void => {
+    const postEcho = (
+            body: string,
+            mentions: WhisperMention[] = [],
+            media: WhisperMedia[] = []
+          ): void => {
             const text = body.trim();
-            if (!text) return;
+            if (!text && media.length === 0) return;
             const id = crypto.randomUUID();
             const timestamp = Date.now();
             const authorName = whisperAuthorName();
@@ -2982,6 +2987,7 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               echoedByMe: false,
               id,
               ...(mentions.length > 0 ? { mentions } : {}),
+              ...(media.length > 0 ? { media } : {}),
               reflectionCount: 0,
               reflections: [],
               rippleCount: 0,
@@ -2998,6 +3004,15 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
                 timestamp,
                 ...(mentions.length > 0
                   ? { mentions: mentions.map((mention) => mention.pubkeyHash) }
+                  : {}),
+                ...(media.length > 0
+                  ? {
+                      media: media.map(({ id: mediaId, width, height, duration }) => ({
+                        id: mediaId,
+                        ...(width && height ? { width, height } : {}),
+                        ...(duration ? { duration } : {})
+                      }))
+                    }
                   : {})
               })
                 .then((ok) => {
@@ -3218,7 +3233,8 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               authorName: source.authorName,
               body: source.body,
               createdAt: source.createdAt,
-              id: source.id
+              id: source.id,
+              ...(source.media?.length ? { media: source.media } : {})
             };
             const ripple: WhisperEcho = {
               authorHash: identity.pubkeyHash,
@@ -4549,6 +4565,14 @@ export function Dashboard({ identity }: { identity: IdentityRecord }): JSX.Eleme
               onOpenProfile={openWhisperProfile}
               onPostEcho={postEcho}
               onSearchMentions={searchMentions}
+              {...(whispersRelayConfigured()
+                ? {
+                    onUploadMedia: (
+                      item: PreparedWhisperMedia,
+                      onProgress: (loaded: number) => void
+                    ) => uploadWhisperMedia(item, identity.pubkeyHash, onProgress)
+                  }
+                : {})}
               onReportEcho={(echo) => {
                 setPendingReportTarget({
                   id: echo.id,

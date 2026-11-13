@@ -1,4 +1,4 @@
-import type { WhisperMention } from "@nada/types";
+import type { WhisperMedia, WhisperMention } from "@nada/types";
 
 export type Panel =
   | "billing"
@@ -303,6 +303,8 @@ export type WhisperRippleSource = {
   body: string;
   createdAt: number;
   id: string;
+  /** The source's photos, video or audio, as the relay copied them. */
+  media?: WhisperMedia[];
 };
 
 export type WhisperEcho = {
@@ -317,6 +319,8 @@ export type WhisperEcho = {
   id: string;
   /** Ghosts this Echo tags. */
   mentions?: WhisperMention[];
+  /** Photos, GIFs, video and audio attached to this Echo, in display order. */
+  media?: WhisperMedia[];
   /** Total live replies across the whole thread (authoritative counter). */
   reflectionCount: number;
   /** Loaded reflections: a small preview until the thread is opened, then the
