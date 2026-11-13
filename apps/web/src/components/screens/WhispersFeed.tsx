@@ -4,7 +4,7 @@ import type { WhisperEcho, WhisperMention, WhisperReflection } from "@/utils/das
 import { WHISPER_THREAD_MAX_VISUAL_DEPTH } from "@/utils/dashboard-types";
 import { formatRelativeTime } from "@/utils/helpers";
 import type { IdentityRecord } from "@nada/db";
-import { segmentMentions } from "@nada/types";
+import { WHISPER_MAX_MEDIA, segmentMentions, type WhisperMedia } from "@nada/types";
 import { cn } from "@nada/ui";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -21,12 +21,29 @@ import {
   CornerDownRight,
   ChevronDown,
   ChevronRight,
+  ImagePlus,
   Loader2,
+  Mic,
+  UploadCloud,
   X
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { ConfirmActionDialog } from "../panels/Dialogs";
+import {
+  WHISPER_MEDIA_ACCEPT,
+  WhisperMediaError,
+  prepareWhisperMedia,
+  type PreparedWhisperMedia
+} from "@/lib/whisper-media";
 import { AuthorAvatar } from "./AuthorAvatar";
+import {
+  AttachmentTray,
+  EchoMediaGallery,
+  RecordingBar,
+  describeEchoMedia,
+  useVoiceRecorder,
+  voiceRecordingSupported
+} from "./EchoMedia";
 import { MentionSuggestions, useMentionPicker, type MentionSearch } from "./MentionPicker";
 
 export { AuthorAvatar, authorGradient } from "./AuthorAvatar";
@@ -634,6 +651,12 @@ function EchoCard({
         </p>
       ) : null}
 
+      {echo.media?.length ? (
+        <div className="mt-3">
+          <EchoMediaGallery media={echo.media} />
+        </div>
+      ) : null}
+
       {echo.rippleOf ? (
         <div className="mt-3 rounded-2xl border border-nada-border/10 bg-nada-surface/60 p-3">
           <div className="flex items-center gap-2">
@@ -644,9 +667,16 @@ function EchoCard({
               · {formatRelativeTime(echo.rippleOf.createdAt)}
             </span>
           </div>
-          <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-nada-text-muted">
-            {echo.rippleOf.body}
-          </p>
+          {echo.rippleOf.body ? (
+            <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-nada-text-muted">
+              {echo.rippleOf.body}
+            </p>
+          ) : null}
+          {echo.rippleOf.media?.length ? (
+            <div className="mt-2">
+              <EchoMediaGallery compact media={echo.rippleOf.media} />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -793,6 +823,7 @@ export function WhispersFeed({
   onOpenProfile,
   onPostEcho,
   onSearchMentions,
+  onUploadMedia,
   onToggleEcho,
   onAddReflection,
   onToggleReflectionLike,
@@ -813,9 +844,17 @@ export function WhispersFeed({
   onLoadMoreFeed?: () => void;
   onLoadThread: (echoId: string, before?: number) => void;
   onOpenProfile: (authorHash: string, authorName: string) => void;
-  onPostEcho: (body: string, mentions: WhisperMention[]) => void;
+  onPostEcho: (body: string, mentions: WhisperMention[], media: WhisperMedia[]) => void;
   /** Suggestions for the "@" tag picker; absent disables tagging. */
   onSearchMentions?: MentionSearch;
+  /**
+   * Uploads one attachment, reporting bytes sent; absent disables media —
+   * attachments need the relay, so a feed without one is text-only.
+   */
+  onUploadMedia?: (
+    item: PreparedWhisperMedia,
+    onProgress: (loaded: number) => void
+  ) => Promise<WhisperMedia>;
   onToggleEcho: (echoId: string) => void;
   onAddReflection: (
     echoId: string,
@@ -867,12 +906,133 @@ export function WhispersFeed({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedEchoId, sorted.length]);
 
-  const submitEcho = (): void => {
+  // ── Attachments ──────────────────────────────────────────────────────────
+  const mediaEnabled = Boolean(onUploadMedia);
+  const [attachments, setAttachments] = useState<PreparedWhisperMedia[]>([]);
+  const [preparing, setPreparing] = useState(0);
+  const [upload, setUpload] = useState<{ loaded: number; total: number } | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [canRecord, setCanRecord] = useState(false);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const preparingRef = useRef(0);
+  const dragDepth = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerRef = useRef<HTMLDivElement | null>(null);
+  // Files an earlier attempt already uploaded before a later one failed, so
+  // retrying does not send (and store) them twice.
+  const uploadedRef = useRef(new Map<string, WhisperMedia>());
+  const uploading = upload !== null;
+
+  useEffect(() => {
+    setCanRecord(voiceRecordingSupported());
+    return () => {
+      for (const item of attachmentsRef.current) URL.revokeObjectURL(item.previewUrl);
+    };
+  }, []);
+
+  const addFiles = useCallback(
+    async (files: File[], hint: { duration?: number } = {}): Promise<void> => {
+      if (!mediaEnabled || files.length === 0) return;
+      setMediaError(null);
+      const room = WHISPER_MAX_MEDIA - attachmentsRef.current.length - preparingRef.current;
+      const accepted = files.slice(0, Math.max(0, room));
+      if (accepted.length < files.length) {
+        setMediaError(`An Echo can carry up to ${WHISPER_MAX_MEDIA} files.`);
+      }
+      if (accepted.length === 0) return;
+
+      preparingRef.current += accepted.length;
+      setPreparing(preparingRef.current);
+      const results = await Promise.allSettled(accepted.map(prepareWhisperMedia));
+      preparingRef.current -= accepted.length;
+      setPreparing(preparingRef.current);
+
+      const ready: PreparedWhisperMedia[] = [];
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          const item = result.value;
+          ready.push(hint.duration && !item.duration ? { ...item, duration: hint.duration } : item);
+        } else {
+          setMediaError(
+            result.reason instanceof WhisperMediaError
+              ? result.reason.message
+              : `"${accepted[index]!.name}" couldn't be attached.`
+          );
+        }
+      });
+      if (ready.length > 0) setAttachments((current) => [...current, ...ready]);
+    },
+    [mediaEnabled]
+  );
+
+  const removeAttachment = (localId: string): void => {
+    const item = attachmentsRef.current.find((candidate) => candidate.localId === localId);
+    if (item) URL.revokeObjectURL(item.previewUrl);
+    uploadedRef.current.delete(localId);
+    setAttachments((current) => current.filter((candidate) => candidate.localId !== localId));
+    setMediaError(null);
+  };
+
+  const recorder = useVoiceRecorder(
+    useCallback(
+      (file: File, seconds: number) => void addFiles([file], { duration: seconds }),
+      [addFiles]
+    ),
+    useCallback((message: string) => setMediaError(message), [])
+  );
+
+  const slotsLeft = WHISPER_MAX_MEDIA - attachments.length - preparing;
+  const canPost =
+    (draft.trim().length > 0 || attachments.length > 0) &&
+    !uploading &&
+    preparing === 0 &&
+    !recorder.recording;
+
+  const acceptsDraggedFiles = (event: DragEvent): boolean =>
+    mediaEnabled && !uploading && Array.from(event.dataTransfer.types).includes("Files");
+
+  const submitEcho = async (): Promise<void> => {
     const body = draft.trim();
-    if (!body) return;
-    onPostEcho(body, echoPicker.tagged);
+    if (!canPost) return;
+    const mentions = echoPicker.tagged;
+    const media: WhisperMedia[] = [];
+    if (attachments.length > 0) {
+      if (!onUploadMedia) return;
+      const total = attachments.reduce((sum, item) => sum + item.file.size, 0);
+      let sent = 0;
+      setMediaError(null);
+      setUpload({ loaded: 0, total });
+      try {
+        for (const item of attachments) {
+          let uploaded = uploadedRef.current.get(item.localId);
+          if (!uploaded) {
+            const before = sent;
+            uploaded = await onUploadMedia(item, (loaded) =>
+              setUpload({ loaded: before + Math.min(loaded, item.file.size), total })
+            );
+            uploadedRef.current.set(item.localId, uploaded);
+          }
+          sent += item.file.size;
+          setUpload({ loaded: sent, total });
+          media.push(uploaded);
+        }
+      } catch (error) {
+        setMediaError(
+          error instanceof WhisperMediaError ? error.message : "Upload failed. Try again."
+        );
+        setUpload(null);
+        return;
+      }
+      setUpload(null);
+    }
+    onPostEcho(body, mentions, media);
     setDraft("");
     echoPicker.reset();
+    for (const item of attachments) URL.revokeObjectURL(item.previewUrl);
+    uploadedRef.current.clear();
+    setAttachments([]);
   };
 
   const requestDeleteReflection = (echoId: string, reflection: WhisperReflection): void => {
@@ -905,7 +1065,54 @@ export function WhispersFeed({
   };
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-5 pb-24 pt-3 animate-fade-in">
+    <div
+      className="flex h-full flex-col overflow-y-auto px-5 pb-24 pt-3 animate-fade-in"
+      onDragEnter={(event) => {
+        if (!acceptsDraggedFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current += 1;
+        setDragActive(true);
+      }}
+      onDragLeave={(event) => {
+        if (!acceptsDraggedFiles(event)) return;
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragActive(false);
+      }}
+      onDragOver={(event) => {
+        if (!acceptsDraggedFiles(event)) return;
+        // Without this the browser would open the dropped file in place of NADA.
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDrop={(event) => {
+        if (!acceptsDraggedFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current = 0;
+        setDragActive(false);
+        void addFiles(Array.from(event.dataTransfer.files));
+        composerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }}
+    >
+      <AnimatePresence>
+        {dragActive ? (
+          <motion.div
+            animate={{ opacity: 1 }}
+            aria-hidden
+            className="pointer-events-none fixed inset-0 z-overlay grid place-items-center bg-nada-surface/70 p-6 backdrop-blur-sm"
+            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+          >
+            <div className="flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed border-nada-accent/60 bg-nada-surface-elevated/90 px-10 py-8 text-center shadow-accent-glow">
+              <UploadCloud className="text-nada-accent" size={32} />
+              <p className="text-[15px] font-bold text-nada-primary">Drop to add to your Echo</p>
+              <p className="text-[12px] text-nada-text-muted">
+                Photos, GIFs, video or audio · up to {WHISPER_MAX_MEDIA}
+              </p>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
       <div className="nada-premium-card mb-5 p-5">
         <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-nada-accent/14 text-nada-accent">
           <Waves size={24} />
@@ -928,14 +1135,17 @@ export function WhispersFeed({
       </div>
 
       {/* Composer — anybody can post anything */}
-      <div className="mb-5 rounded-3xl border border-nada-border/10 bg-nada-surface-elevated/40 p-4">
+      <div
+        className="mb-5 rounded-3xl border border-nada-border/10 bg-nada-surface-elevated/40 p-4"
+        ref={composerRef}
+      >
         <div className="flex items-start gap-3">
           <AuthorAvatar name={displayName.trim() || "You"} />
           <form
             className="min-w-0 flex-1"
             onSubmit={(event) => {
               event.preventDefault();
-              submitEcho();
+              void submitEcho();
             }}
           >
             <textarea
@@ -947,25 +1157,115 @@ export function WhispersFeed({
               onKeyDown={(event) => {
                 echoPicker.handleKeyDown(event);
               }}
+              onPaste={(event) => {
+                if (!mediaEnabled || uploading) return;
+                const files = Array.from(event.clipboardData.files);
+                if (files.length === 0) return;
+                event.preventDefault();
+                void addFiles(files);
+              }}
               placeholder={
                 onSearchMentions
                   ? "Whisper something to everyone... type @ to tag a ghost"
                   : "Whisper something to everyone..."
               }
+              readOnly={uploading}
               value={draft}
             />
             <MentionSuggestions state={echoPicker.suggestions} />
-            <div className="mt-2 flex items-center justify-between">
-              <span className="text-[11px] text-nada-secondary/45">
-                {draft.length}/{ECHO_MAX_LENGTH}
-              </span>
+            <AttachmentTray
+              disabled={uploading}
+              items={attachments}
+              onRemove={removeAttachment}
+              preparing={preparing}
+            />
+            {recorder.recording ? (
+              <RecordingBar
+                onCancel={recorder.cancel}
+                onStop={recorder.stop}
+                seconds={recorder.seconds}
+              />
+            ) : null}
+            {upload ? (
+              <div className="mt-2" aria-live="polite">
+                <div className="h-1.5 overflow-hidden rounded-full bg-nada-surface/80">
+                  <div
+                    className="h-full rounded-full bg-nada-accent transition-[width] duration-200"
+                    style={{
+                      width: `${upload.total > 0 ? Math.round((upload.loaded / upload.total) * 100) : 0}%`
+                    }}
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-nada-secondary/60">
+                  Uploading{" "}
+                  {upload.total > 0 ? Math.round((upload.loaded / upload.total) * 100) : 0}%
+                </p>
+              </div>
+            ) : null}
+            {mediaError ? (
+              <p className="mt-2 text-[12px] font-medium text-red-300" role="alert">
+                {mediaError}
+              </p>
+            ) : null}
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1">
+                {mediaEnabled ? (
+                  <>
+                    <button
+                      aria-label="Add photos, video or audio"
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-nada-secondary/70 transition hover:bg-nada-surface/70 hover:text-nada-accent disabled:opacity-35 disabled:hover:bg-transparent"
+                      disabled={uploading || recorder.recording || slotsLeft <= 0}
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Add photos, video or audio"
+                      type="button"
+                    >
+                      <ImagePlus size={18} />
+                    </button>
+                    {canRecord ? (
+                      <button
+                        aria-label="Record audio"
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-nada-secondary/70 transition hover:bg-nada-surface/70 hover:text-nada-accent disabled:opacity-35 disabled:hover:bg-transparent"
+                        disabled={uploading || recorder.recording || slotsLeft <= 0}
+                        onClick={() => void recorder.start()}
+                        title="Record audio"
+                        type="button"
+                      >
+                        <Mic size={18} />
+                      </button>
+                    ) : null}
+                    <input
+                      accept={WHISPER_MEDIA_ACCEPT}
+                      aria-hidden
+                      className="hidden"
+                      data-testid="echo-media-input"
+                      multiple
+                      onChange={(event) => {
+                        const files = Array.from(event.currentTarget.files ?? []);
+                        // Clear it so picking the same file again still fires.
+                        event.currentTarget.value = "";
+                        void addFiles(files);
+                      }}
+                      ref={fileInputRef}
+                      tabIndex={-1}
+                      type="file"
+                    />
+                  </>
+                ) : null}
+                <span className="ml-1 text-[11px] text-nada-secondary/45">
+                  {draft.length}/{ECHO_MAX_LENGTH}
+                </span>
+              </div>
               <button
-                className="nada-btn-gold inline-flex h-10 items-center justify-center gap-2 rounded-2xl px-5 text-[13px] font-bold disabled:opacity-45"
-                disabled={!draft.trim()}
+                className="nada-btn-gold inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-2xl px-5 text-[13px] font-bold disabled:opacity-45"
+                disabled={!canPost}
                 type="submit"
               >
-                <Sparkles size={15} />
-                Echo
+                {uploading ? (
+                  <Loader2 className="animate-spin" size={15} />
+                ) : (
+                  <Sparkles size={15} />
+                )}
+                {uploading ? "Posting" : "Echo"}
               </button>
             </div>
           </form>
@@ -1008,7 +1308,10 @@ export function WhispersFeed({
                     setPendingDelete({
                       echoId: echo.id,
                       kind: "echo",
-                      title: echo.body.slice(0, 64) || "Ripple"
+                      title:
+                        echo.body.slice(0, 64) ||
+                        describeEchoMedia(echo.media) ||
+                        "Ripple"
                     })
                   }
                   onDeleteReflection={(reflection) =>

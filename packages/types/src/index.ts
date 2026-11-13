@@ -7,6 +7,7 @@ import {
   UuidSchema
 } from "./primitives";
 import { MAX_MENTIONS, MentionSchema } from "./mentions";
+import { WHISPER_MAX_MEDIA, WhisperMediaRefSchema } from "./whisper-media";
 
 export {
   IdentityProofSchema,
@@ -17,6 +18,7 @@ export {
 export type { IdentityProof } from "./primitives";
 export * from "./contest";
 export * from "./mentions";
+export * from "./whisper-media";
 
 export const MessageKindSchema = z.enum([
   "text",
@@ -541,15 +543,27 @@ export const WhisperMentionSearchRequestSchema = z.object({
   limit: z.number().int().min(1).max(20).optional()
 });
 
-export const WhisperPublishRequestSchema = z.object({
-  id: UuidSchema,
-  author: PubkeyHashSchema,
-  authorName: WhisperAuthorNameSchema,
-  body: WhisperBodySchema,
-  timestamp: z.number().int().positive(),
-  proof: IdentityProofSchema,
-  mentions: WhisperMentionsRequestSchema.optional()
-});
+export const WhisperPublishRequestSchema = z
+  .object({
+    id: UuidSchema,
+    author: PubkeyHashSchema,
+    authorName: WhisperAuthorNameSchema,
+    /** May be empty when the Echo carries media: a photo needs no caption. */
+    body: z.string().max(500),
+    timestamp: z.number().int().positive(),
+    proof: IdentityProofSchema,
+    mentions: WhisperMentionsRequestSchema.optional(),
+    /** Files uploaded through /api/v1/whispers/media, in display order. */
+    media: z.array(WhisperMediaRefSchema).max(WHISPER_MAX_MEDIA).optional()
+  })
+  .refine((echo) => echo.body.trim().length > 0 || (echo.media?.length ?? 0) > 0, {
+    message: "An Echo needs text or media.",
+    path: ["body"]
+  })
+  .refine(
+    (echo) => new Set(echo.media?.map((item) => item.id)).size === (echo.media?.length ?? 0),
+    { message: "An Echo cannot attach the same file twice.", path: ["media"] }
+  );
 
 export const WhisperDeleteRequestSchema = z.object({
   id: UuidSchema,

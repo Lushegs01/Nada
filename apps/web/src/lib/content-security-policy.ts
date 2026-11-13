@@ -38,6 +38,22 @@ export function deriveConnectSrc(
   }
 }
 
+/**
+ * The relay's HTTP origin, or null when none is configured or it cannot be
+ * parsed. Whisper media is served from there as plain URLs, so images and
+ * video need it in `img-src` and `media-src` — and nothing broader.
+ */
+export function deriveRelayHttpOrigin(relay: string | undefined): string | null {
+  if (!relay) return null;
+  try {
+    const url = new URL(/^[a-z]+:\/\//i.test(relay) ? relay : `https://${relay}`);
+    const insecure = url.protocol === "http:" || url.protocol === "ws:";
+    return `${insecure ? "http" : "https"}://${url.host}`;
+  } catch {
+    return null;
+  }
+}
+
 export interface CspOptions {
   /** Per-response nonce. Omitted for non-document responses, which run no script. */
   nonce?: string | undefined;
@@ -57,6 +73,9 @@ export function buildContentSecurityPolicy(options: CspOptions): string {
     ? `'self' 'nonce-${options.nonce}' 'strict-dynamic' 'wasm-unsafe-eval'`
     : `'self' 'wasm-unsafe-eval'`;
 
+  const relayOrigin = deriveRelayHttpOrigin(options.relayUrl);
+  const mediaSources = `'self' data: blob:${relayOrigin ? ` ${relayOrigin}` : ""}`;
+
   return [
     "default-src 'self'",
     "base-uri 'self'",
@@ -64,8 +83,8 @@ export function buildContentSecurityPolicy(options: CspOptions): string {
     "font-src 'self' data:",
     "form-action 'self'",
     "frame-ancestors 'none'",
-    "img-src 'self' data: blob:",
-    "media-src 'self' data: blob:",
+    `img-src ${mediaSources}`,
+    `media-src ${mediaSources}`,
     "object-src 'none'",
     `script-src ${scriptSrc}`,
     // style-src keeps 'unsafe-inline'. React writes `style={{…}}` as inline

@@ -52,6 +52,7 @@ import {
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { describeEchoMedia } from "./EchoMedia";
 import { authorGradient } from "./WhispersFeed";
 
 export type WhisperProfileDraft = {
@@ -253,7 +254,11 @@ function EchoRow({
         <span>· {formatRelativeTime(echo.createdAt)}</span>
       </div>
       <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-nada-primary/90 line-clamp-3">
-        {echo.body || (echo.rippleOf ? `↻ ${echo.rippleOf.body}` : "")}
+        {echo.body ||
+          describeEchoMedia(echo.media) ||
+          (echo.rippleOf
+            ? `↻ ${echo.rippleOf.body || describeEchoMedia(echo.rippleOf.media)}`
+            : "")}
       </p>
       <div className="mt-2 flex items-center gap-3 text-[10.5px] text-nada-secondary/50">
         <span className="inline-flex items-center gap-1">

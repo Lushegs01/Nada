@@ -77,7 +77,8 @@ services:
         value: "26214400"
       # Attachment retention. The relay refuses to serve an object past this
       # age; set the bucket's lifecycle rule to the same window so the bytes
-      # are actually reclaimed rather than merely hidden.
+      # are actually reclaimed rather than merely hidden. Scope the rule to
+      # the `media/` prefix — Whisper media under `whispers/` must not expire.
       - key: MEDIA_TTL_SECONDS
         value: "2592000"
       # ── Media object storage (S3 or any S3-compatible provider, e.g. R2) ────
